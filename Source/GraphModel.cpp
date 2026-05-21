@@ -1,0 +1,259 @@
+#include "GraphModel.h"
+
+std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
+                                               int audioIn, int audioOut,
+                                               int midiIn,  int midiOut)
+{
+    std::vector<Port> p;
+    auto mk = [&](const char* lbl, PortType pt, PortDirection dir)
+    {
+        Port port;
+        port.id        = nid + "_" + lbl + "_" + (dir == PortDirection::Input ? "in" : "out");
+        port.label     = lbl;
+        port.type      = pt;
+        port.direction = dir;
+        p.push_back (port);
+    };
+
+    if (t == 1)
+    {
+        // MidiInDeviceNode: 1 MIDI output (feeds downstream graph nodes)
+        mk ("MIDI Out", PortType::Midi,  PortDirection::Output);
+    }
+    else if (t == 2)
+    {
+        // MidiOutDeviceNode: 1 MIDI input (receives from upstream graph nodes)
+        mk ("MIDI In",  PortType::Midi,  PortDirection::Input);
+    }
+    else if (t == 3)
+    {
+        // AudioInDeviceNode: 1 stereo Audio output
+        mk ("Audio Out", PortType::Audio, PortDirection::Output);
+    }
+    else if (t == 4)
+    {
+        // AudioOutDeviceNode: 1 stereo Audio input
+        mk ("Audio In",  PortType::Audio, PortDirection::Input);
+    }
+    else if (t == 5)
+    {
+        mk ("MIDI In",   PortType::Midi,  PortDirection::Input);
+        mk ("MIDI Out",  PortType::Midi,  PortDirection::Output);
+    }
+    else if (t == 6)
+    {
+        mk ("Audio In",  PortType::Audio, PortDirection::Input);
+        mk ("Audio Out", PortType::Audio, PortDirection::Output);
+    }
+    else if (t == 7)
+    {
+        // MidiKeyboardNode: MIDI In (optional) + MIDI Out
+        mk ("MIDI In",  PortType::Midi, PortDirection::Input);
+        mk ("MIDI Out", PortType::Midi, PortDirection::Output);
+    }
+    else if (t >= 100)
+    {
+        // Dynamic addon node — ports based on NGA nodeType (t - 100)
+        // with optional override counts from the descriptor.
+        int ngaType = t - 100;
+
+        // Determine effective port counts (descriptor overrides nodeType defaults)
+        int effMidiIn   = midiIn   > 0 ? midiIn   : ((ngaType == 1 || ngaType == 3) ? 1 : 0);
+        int effMidiOut  = midiOut  > 0 ? midiOut  : ((ngaType == 1 || ngaType == 3) ? 1 : 0);
+        int effAudioIn  = audioIn  > 0 ? audioIn  : ((ngaType == 2 || ngaType == 3) ? 1 : 0);
+        int effAudioOut = audioOut > 0 ? audioOut : ((ngaType == 2 || ngaType == 3) ? 1 : 0);
+
+        for (int i = 0; i < effMidiIn;   ++i)
+            mk (effMidiIn  == 1 ? "MIDI In"  : ("MIDI In "  + juce::String(i+1)).toRawUTF8(),
+                PortType::Midi,  PortDirection::Input);
+        for (int i = 0; i < effMidiOut;  ++i)
+            mk (effMidiOut == 1 ? "MIDI Out" : ("MIDI Out " + juce::String(i+1)).toRawUTF8(),
+                PortType::Midi,  PortDirection::Output);
+        for (int i = 0; i < effAudioIn;  ++i)
+            mk (effAudioIn  == 1 ? "Audio In"  : ("Audio In "  + juce::String(i+1)).toRawUTF8(),
+                PortType::Audio, PortDirection::Input);
+        for (int i = 0; i < effAudioOut; ++i)
+            mk (effAudioOut == 1 ? "Audio Out" : ("Audio Out " + juce::String(i+1)).toRawUTF8(),
+                PortType::Audio, PortDirection::Output);
+    }
+    return p;
+}
+
+// ── Label helper — maps nodeType + addonName to a display label ──────────────
+static juce::String labelForType (int t, const juce::String& addonName)
+{
+    if (addonName.isNotEmpty()) return addonName;
+    switch (t)
+    {
+        case 1:  return "MIDI In Device";
+        case 2:  return "MIDI Out Device";
+        case 3:  return "Audio In Device";
+        case 4:  return "Audio Out Device";
+        case 5:  return "MIDI Monitor";
+        case 6:  return "Audio Monitor";
+        case 7:  return "MIDI Keyboard";
+        default: return "Addon Node";
+    }
+}
+
+// ── Change notification helper ───────────────────────────────────────────────
+void GraphModel::notifyChange()
+{
+    if (onChange && !notificationsSuspended) onChange();
+}
+
+NodeData& GraphModel::addNode (int t, float x, float y, const juce::String& addonName,
+                               int audioIn, int audioOut, int midiIn, int midiOut)
+{
+    NodeData n;
+    n.id       = "node_" + juce::String (++nodeCounter);
+    n.nodeType = t;
+    n.x = x; n.y = y;
+    n.addonName = addonName;
+
+    n.label = labelForType (t, addonName);
+    n.ports    = portsForType (t, n.id, audioIn, audioOut, midiIn, midiOut);
+    nodes.push_back (std::move (n));
+    notifyChange();
+    return nodes.back();
+}
+
+bool GraphModel::removeNode (const juce::String& id)
+{
+    connections.erase (
+        std::remove_if (connections.begin(), connections.end(),
+            [&](const Connection& c){ return c.sourceNodeId == id || c.targetNodeId == id; }),
+        connections.end());
+
+    auto it = std::remove_if (nodes.begin(), nodes.end(),
+        [&](const NodeData& n){ return n.id == id; });
+    if (it == nodes.end()) return false;
+    nodes.erase (it, nodes.end());
+    notifyChange();
+    return true;
+}
+
+NodeData* GraphModel::findNode (const juce::String& id)
+{
+    for (auto& n : nodes) if (n.id == id) return &n;
+    return nullptr;
+}
+
+Connection* GraphModel::addConnection (const juce::String& sn, const juce::String& sp,
+                                        const juce::String& tn, const juce::String& tp)
+{
+    for (auto& c : connections)
+        if (c.sourceNodeId == sn && c.sourcePortId == sp &&
+            c.targetNodeId == tn && c.targetPortId == tp)
+            return &c;
+
+    Connection c;
+    c.id           = "conn_" + juce::String (++connCounter);
+    c.sourceNodeId = sn; c.sourcePortId = sp;
+    c.targetNodeId = tn; c.targetPortId = tp;
+    connections.push_back (c);
+    notifyChange();
+    return &connections.back();
+}
+
+bool GraphModel::removeConnection (const juce::String& id)
+{
+    auto it = std::remove_if (connections.begin(), connections.end(),
+        [&](const Connection& c){ return c.id == id; });
+    if (it == connections.end()) return false;
+    connections.erase (it, connections.end());
+    notifyChange();
+    return true;
+}
+
+juce::var GraphModel::toVar() const
+{
+    juce::Array<juce::var> nodesArr;
+    for (const auto& n : nodes)
+    {
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty ("id",       n.id);
+        obj->setProperty ("label",    n.label);
+        obj->setProperty ("nodeType",   n.nodeType);
+        obj->setProperty ("addonName",        n.addonName);
+        obj->setProperty ("selectedDeviceId", n.selectedDeviceId);
+        obj->setProperty ("settingsJson",     n.settingsJson);
+        obj->setProperty ("x",        n.x);
+        obj->setProperty ("y",        n.y);
+
+        juce::Array<juce::var> ports;
+        for (const auto& p : n.ports)
+        {
+            auto* po = new juce::DynamicObject();
+            po->setProperty ("id",        p.id);
+            po->setProperty ("label",     p.label);
+            po->setProperty ("type",      p.type == PortType::Midi ? "midi" : "audio");
+            po->setProperty ("direction", p.direction == PortDirection::Input ? "input" : "output");
+            ports.add (po);
+        }
+        obj->setProperty ("ports", ports);
+        nodesArr.add (obj);
+    }
+
+    juce::Array<juce::var> connsArr;
+    for (const auto& c : connections)
+    {
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty ("id",           c.id);
+        obj->setProperty ("sourceNodeId", c.sourceNodeId);
+        obj->setProperty ("sourcePortId", c.sourcePortId);
+        obj->setProperty ("targetNodeId", c.targetNodeId);
+        obj->setProperty ("targetPortId", c.targetPortId);
+        connsArr.add (obj);
+    }
+
+    auto* root = new juce::DynamicObject();
+    root->setProperty ("nodes",         nodesArr);
+    root->setProperty ("connections",   connsArr);
+    root->setProperty ("viewportX",     viewportX);
+    root->setProperty ("viewportY",     viewportY);
+    root->setProperty ("viewportZoom",  viewportZoom);
+    return root;
+}
+
+NodeData& GraphModel::restoreNode (const juce::String& savedId,
+                                    int t, float x, float y,
+                                    const juce::String& addonName,
+                                    int audioIn, int audioOut, int midiIn, int midiOut)
+{
+    NodeData n;
+    n.id         = savedId;
+    n.nodeType   = t;
+    n.x = x; n.y = y;
+    n.addonName = addonName;
+    n.label = labelForType (t, addonName);
+    n.ports      = portsForType (t, n.id, audioIn, audioOut, midiIn, midiOut);
+
+    // Update nodeCounter so future addNode() calls don't clash
+    auto numStr = savedId.fromLastOccurrenceOf ("_", false, false);
+    int  num    = numStr.getIntValue();
+    if (num > nodeCounter) nodeCounter = num;
+
+    nodes.push_back (std::move (n));
+    // onChange intentionally not fired here — caller uses resumeNotifications()
+    return nodes.back();
+}
+
+void GraphModel::renameNode (const juce::String& nodeId, const juce::String& newLabel)
+{
+    for (auto& n : nodes)
+    {
+        if (n.id == nodeId)
+        {
+            n.label = newLabel;
+            notifyChange();
+            return;
+        }
+    }
+}
+
+void GraphModel::setNodeSettings (const juce::String& nodeId, const juce::String& json)
+{
+    for (auto& n : nodes)
+        if (n.id == nodeId) { n.settingsJson = json; return; }
+}

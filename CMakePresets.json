@@ -1,0 +1,46 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 22, "patch": 0 },
+
+  "configurePresets": [
+    {
+      "name": "base", "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": { "CMAKE_EXPORT_COMPILE_COMMANDS": "ON" }
+    },
+    {
+      "name": "debug", "displayName": "Debug",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "NODEGRAPH_DEV_MODE": "ON"
+      }
+    },
+    {
+      "name": "release", "displayName": "Release",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "NODEGRAPH_DEV_MODE": "OFF"
+      }
+    },
+    {
+      "name": "release-with-debug-info", "displayName": "RelWithDebInfo",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "NODEGRAPH_DEV_MODE": "OFF"
+      }
+    }
+  ],
+
+  "buildPresets": [
+    { "name": "debug",   "displayName": "Build Debug",   "configurePreset": "debug",   "configuration": "Debug"   },
+    { "name": "release", "displayName": "Build Release", "configurePreset": "release", "configuration": "Release" },
+    { "name": "release-with-debug-info", "displayName": "Build RelWithDebInfo",
+      "configurePreset": "release-with-debug-info", "configuration": "RelWithDebInfo" },
+    { "name": "ui-only",       "displayName": "Rebuild UI only",        "configurePreset": "release", "targets": ["ui_rebuild"] },
+    { "name": "ui-dev-server",    "displayName": "Start Vite dev server",   "configurePreset": "debug",   "targets": ["ui_dev"] },
+    { "name": "example-plugins", "displayName": "Build example plugins",    "configurePreset": "release", "targets": ["GainNode", "TransposeNode", "AVPassthroughNode"] }
+  ]
+}

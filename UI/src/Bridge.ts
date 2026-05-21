@@ -1,0 +1,382 @@
+/**
+ * Bridge.ts
+ * Typed façade over the JUCE WebView native integration.
+ *
+ * JUCE 8 injects `window.__JUCE__.backend` with:
+ *   __JUCE__.backend.emitEvent(eventId, payload)  – send JS→C++
+ *
+ * We expose `window.__bridge.onGraphUpdate(json)` for C++→JS.
+ */
+
+export interface GraphState {
+  nodes:         RawNode[];
+  connections:   RawConnection[];
+  viewportX?:    number;
+  viewportY?:    number;
+  viewportZoom?: number;
+}
+
+export interface RawNode {
+  id: string;
+  label: string;
+  nodeType: number;  // 1-4 built-in, higher = addon
+  addonName?: string;
+  settingsJson?: string;   // serialised UI settings blob
+  x: number;
+  y: number;
+  ports: RawPort[];
+  selectedDeviceId?: string;
+}
+
+export interface RawPort {
+  id: string;
+  label: string;
+  type: 'midi' | 'audio';
+  direction: 'input' | 'output';
+}
+
+export interface RawConnection {
+  id: string;
+  sourceNodeId: string;
+  sourcePortId: string;
+  targetNodeId: string;
+  targetPortId: string;
+}
+
+// ── Port activity types ───────────────────────────────────────────────────────
+export interface PortActivityEntry {
+  id:    string;   // nodeId
+  midi:  number;   // event count (0 = inactive)
+  l:     number;   // audio RMS left  ×1000
+  r:     number;   // audio RMS right ×1000
+  notes: string;   // "status,note status,note ..." for keyboard nodes
+}
+type PortActivityCallback = (entries: PortActivityEntry[]) => void;
+const _portActivitySubscribers: PortActivityCallback[] = [];
+
+// ── Audio monitor types ───────────────────────────────────────────────────────
+export interface AudioSnapshot {
+  nodeId: string;
+  sr:     number;   // sample rate
+  n:      number;   // number of display samples
+  l:      string;   // comma-separated integers (value × 1000)
+  r:      string;
+}
+type AudioSnapshotCallback = (snapshots: AudioSnapshot[]) => void;
+const _audioSnapshotSubscribers: AudioSnapshotCallback[] = [];
+
+// ── Monitor types ─────────────────────────────────────────────────────────────
+export interface RawMidiMonitorEvent {
+  ts: number;   // timestamp ms
+  sn: string;   // source node id
+  sd: string;   // source device name
+  st: number;   // status byte
+  d1: number;   // data byte 1
+  d2: number;   // data byte 2
+}
+export interface MidiMonitorBatch {
+  nodeId: string;
+  events: RawMidiMonitorEvent[];
+}
+type MidiMonitorCallback = (batches: MidiMonitorBatch[]) => void;
+
+type GraphUpdateCallback  = (state: GraphState)   => void;
+type MidiDevicesCallback  = (devices: MidiDeviceList) => void;
+
+export interface MidiDeviceInfo  { id: string; name: string; }
+export interface MidiDeviceList  {
+  midiOutDevices: MidiDeviceInfo[];
+  midiInDevices:  MidiDeviceInfo[];
+}
+export interface AudioDeviceInfo { id: string; name: string; }
+export interface AudioDeviceList {
+  audioOutDevices: AudioDeviceInfo[];
+  audioInDevices:  AudioDeviceInfo[];
+}
+type AddonListCallback   = (addons: AddonInfo[]) => void;
+
+export interface AddonParamInfo {
+  index:        number;
+  name:         string;
+  min:          number;
+  max:          number;
+  defaultValue: number;
+  step:         number;   // 0=continuous, 1=integer, etc.
+}
+
+export interface FileState {
+  fileName: string;
+  hasFile:  boolean;
+}
+
+export interface AddonInfo {
+  name:         string;
+  vendor:       string;
+  version:      string;
+  nodeType:     1 | 2 | 3;
+  audioInputs:  number;
+  audioOutputs: number;
+  midiInputs:   number;
+  midiOutputs:  number;
+  params:       AddonParamInfo[];
+}
+
+// ── Singleton bridge ─────────────────────────────────────────────────────────
+
+let _onUpdate:         GraphUpdateCallback  | null = null;
+const _midiMonitorSubscribers: MidiMonitorCallback[] = [];
+const _onAddonListSubscribers: AddonListCallback[] = [];
+type FileStateCallback = (s: FileState) => void;
+const _onFileStateSubscribers: FileStateCallback[] = [];
+
+// MIDI devices use a subscriber array so multiple DeviceSelector components
+// can all receive updates, and a cache so late-mounting components get the
+// last known list immediately on subscribe.
+const _midiDeviceSubscribers: MidiDevicesCallback[] = [];
+let   _midiDeviceCache: MidiDeviceList | null = null;
+
+// Track which device IDs are already claimed: nodeId → deviceId
+const _claimedDevices = new Map<string, { deviceId: string; nodeType: number }>();
+
+// Subscribers for claimed-device changes (same pattern as devices)
+type ClaimedCallback = (claimed: Map<string, { deviceId: string; nodeType: number }>) => void;
+const _claimedSubscribers: ClaimedCallback[] = [];
+
+function _dispatchMidiDevices(list: MidiDeviceList) {
+  _midiDeviceCache = list;
+  _midiDeviceSubscribers.forEach(cb => cb(list));
+}
+
+// Audio devices — same subscriber+cache pattern as MIDI
+type AudioDevicesCallback = (devices: AudioDeviceList) => void;
+const _audioDeviceSubscribers: AudioDevicesCallback[] = [];
+let   _audioDeviceCache: AudioDeviceList | null = null;
+
+function _dispatchAudioDevices(list: AudioDeviceList) {
+  _audioDeviceCache = list;
+  _audioDeviceSubscribers.forEach(cb => cb(list));
+}
+
+function _dispatchClaimed() {
+  const snapshot = new Map(_claimedDevices);
+  _claimedSubscribers.forEach(cb => cb(snapshot));
+}
+
+
+
+// Expose callback target for C++ to call
+(window as any).__bridge = {
+  onGraphUpdate: (json: string) => {
+    try {
+      const state: GraphState = JSON.parse(json);
+      _onUpdate?.(state);
+    } catch (e) {
+      console.error('Bridge parse error', e);
+    }
+  },
+  onAudioDevices: (json: string) => {
+    try {
+      const data: AudioDeviceList = JSON.parse(json);
+      _dispatchAudioDevices(data);
+    } catch (e) {
+      console.error('Bridge audioDevices parse error', e);
+    }
+  },
+  onPortActivity: (json: string) => {
+    try {
+      const entries: PortActivityEntry[] = JSON.parse(json);
+      _portActivitySubscribers.forEach(cb => {
+        try { cb(entries); } catch (e) { console.error('portActivity subscriber error', e); }
+      });
+    } catch (e) { console.error('Bridge portActivity parse error', e); }
+  },
+  onAudioSnapshot: (json: string) => {
+    try {
+      const snaps: AudioSnapshot[] = JSON.parse(json);
+      // Call each subscriber independently so one failure can't break others
+      _audioSnapshotSubscribers.forEach(cb => {
+        try { cb(snaps); } catch (e) { console.error('audioSnapshot subscriber error', e); }
+      });
+    } catch (e) {
+      console.error('Bridge audioSnapshot parse error', e);
+    }
+  },
+  onMidiMonitorEvents: (json: string) => {
+    try {
+      const batches: MidiMonitorBatch[] = JSON.parse(json);
+      _midiMonitorSubscribers.forEach(cb => cb(batches));
+    } catch (e) {
+      console.error('Bridge monitorEvents parse error', e);
+    }
+  },
+  onMidiDevices: (json: string) => {
+    try {
+      const data: MidiDeviceList = JSON.parse(json);
+      _dispatchMidiDevices(data);
+    } catch (e) {
+      console.error('Bridge midiDevices parse error', e);
+    }
+  },
+  onFileState: (json: string) => {
+    try {
+      const s = JSON.parse(json) as FileState;
+      _onFileStateSubscribers.forEach(cb => cb(s));
+    } catch {}
+  },
+
+  onAddonList: (json: string) => {
+    try {
+      const data = JSON.parse(json);
+      const addons = data.addons ?? [];
+      _onAddonListSubscribers.forEach(cb => cb(addons));
+    } catch (e) {
+      console.error('Bridge addon list parse error', e);
+    }
+  },
+
+};
+
+function sendToJuce(msg: object) {
+  // JUCE 8 injects window.__JUCE__.backend — NOT window.Juce
+  // See: https://docs.juce.com/master/classWebBrowserComponent_1_1Options.html
+  const backend = (window as any).__JUCE__?.backend;
+  if (backend?.emitEvent) {
+    backend.emitEvent('graphMessage', msg);
+  } else {
+  }
+}
+
+export const Bridge = {
+  onFileState(cb: FileStateCallback) {
+    _onFileStateSubscribers.push(cb);
+    return () => {
+      const idx = _onFileStateSubscribers.indexOf(cb);
+      if (idx >= 0) _onFileStateSubscribers.splice(idx, 1);
+    };
+  },
+
+  fileSave()    { sendToJuce({ type: 'fileSave' }); },
+  fileSaveAs()  { sendToJuce({ type: 'fileSaveAs' }); },
+  fileOpen()    { sendToJuce({ type: 'fileOpen' }); },
+  fileNew()     { sendToJuce({ type: 'fileNew' }); },
+
+  onAddonList(cb: AddonListCallback) {
+    _onAddonListSubscribers.push(cb);
+    return () => {
+      const idx = _onAddonListSubscribers.indexOf(cb);
+      if (idx >= 0) _onAddonListSubscribers.splice(idx, 1);
+    };
+  },
+  onPortActivity(cb: PortActivityCallback) {
+    _portActivitySubscribers.push(cb);
+    return () => {
+      const idx = _portActivitySubscribers.indexOf(cb);
+      if (idx !== -1) _portActivitySubscribers.splice(idx, 1);
+    };
+  },
+  onAudioSnapshot(cb: AudioSnapshotCallback) {
+    _audioSnapshotSubscribers.push(cb);
+    return () => {
+      const idx = _audioSnapshotSubscribers.indexOf(cb);
+      if (idx !== -1) _audioSnapshotSubscribers.splice(idx, 1);
+    };
+  },
+  onMidiMonitorEvents(cb: MidiMonitorCallback) {
+    _midiMonitorSubscribers.push(cb);
+    // Return unsubscribe function — MUST be called on unmount to prevent duplicates
+    return () => {
+      const idx = _midiMonitorSubscribers.indexOf(cb);
+      if (idx !== -1) _midiMonitorSubscribers.splice(idx, 1);
+    };
+  },
+  onMidiDevices(cb: MidiDevicesCallback) {
+    _midiDeviceSubscribers.push(cb);
+    if (_midiDeviceCache) cb(_midiDeviceCache);
+    return () => {
+      const idx = _midiDeviceSubscribers.indexOf(cb);
+      if (idx !== -1) _midiDeviceSubscribers.splice(idx, 1);
+    };
+  },
+  onAudioDevices(cb: AudioDevicesCallback) {
+    _audioDeviceSubscribers.push(cb);
+    if (_audioDeviceCache) cb(_audioDeviceCache);
+    return () => {
+      const idx = _audioDeviceSubscribers.indexOf(cb);
+      if (idx !== -1) _audioDeviceSubscribers.splice(idx, 1);
+    };
+  },
+  setAddonParameter(nodeId: string, index: number, value: number) {
+    sendToJuce({ type: 'setAddonParameter', nodeId, index, value });
+  },
+  setNodeSettings(nodeId: string, settings: object) {
+    sendToJuce({ type: 'setNodeSettings', nodeId, settings: JSON.stringify(settings) });
+  },
+  setNodeLabel(nodeId: string, label: string) {
+    sendToJuce({ type: 'setNodeLabel', nodeId, label });
+  },
+  sendMidiKeyEvent(nodeId: string, status: number, data1: number, data2: number) {
+    sendToJuce({ type: 'midiKeyEvent', nodeId, status, data1, data2 });
+  },
+  setNodeParam(nodeId: string, key: string, value: string, nodeType = 0) {
+    sendToJuce({ type: 'setNodeParam', nodeId, key, value });
+    // Track device claim with nodeType so direction-aware filtering works:
+    // IN nodes (1, 3) only compete with other IN nodes of the same type.
+    // OUT nodes (2, 4) only compete with other OUT nodes of the same type.
+    if (key === 'midiDeviceId' || key === 'audioDeviceId') {
+      if (value) _claimedDevices.set(nodeId, { deviceId: value, nodeType });
+      else        _claimedDevices.delete(nodeId);
+      _dispatchClaimed();
+    }
+  },
+
+  /** Subscribe to claimed-device changes.
+   *  Callback receives a Map<nodeId, deviceId> of all current claims.
+   *  Returns an unsubscribe function. */
+  onClaimedDevices(cb: ClaimedCallback) {
+    _claimedSubscribers.push(cb);
+    cb(new Map(_claimedDevices));  // immediate replay
+    return () => {
+      const idx = _claimedSubscribers.indexOf(cb);
+      if (idx !== -1) _claimedSubscribers.splice(idx, 1);
+    };
+  },
+
+  onGraphUpdate(cb: GraphUpdateCallback) {
+    _onUpdate = cb;
+  },
+
+  ready() {
+    sendToJuce({ type: 'ready' });
+  },
+
+  addNode(nodeType: number, x: number, y: number, addonName = '') {
+    sendToJuce({ type: 'addNode', nodeType, x, y, addonName });
+  },
+
+  removeNode(nodeId: string) {
+    sendToJuce({ type: 'removeNode', nodeId });
+    // Release any device claim held by this node
+    if (_claimedDevices.has(nodeId)) {
+      _claimedDevices.delete(nodeId);
+      _dispatchClaimed();
+    }
+  },
+
+  addConnection(
+    sourceNodeId: string, sourcePortId: string,
+    targetNodeId: string, targetPortId: string
+  ) {
+    sendToJuce({ type: 'addConnection', sourceNodeId, sourcePortId, targetNodeId, targetPortId });
+  },
+
+  removeConnection(connectionId: string) {
+    sendToJuce({ type: 'removeConnection', connectionId });
+  },
+
+  moveNode(nodeId: string, x: number, y: number) {
+    sendToJuce({ type: 'moveNode', nodeId, x, y });
+  },
+  setViewport(x: number, y: number, zoom: number) {
+    sendToJuce({ type: 'setViewport', x, y, zoom });
+  },
+};

@@ -1,0 +1,142 @@
+#include "AddonScanner.h"
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+juce::String AddonScanner::getAddonExtension()
+{
+#if JUCE_MAC
+    return ".dylib";
+#elif JUCE_WINDOWS
+    return ".dll";
+#else
+    return ".so";
+#endif
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+std::vector<juce::File> AddonScanner::getAddonFolders()
+{
+    std::vector<juce::File> folders;
+
+#if JUCE_MAC
+    folders.push_back (
+        juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+            .getChildFile ("Patchy/Addons"));
+#elif JUCE_WINDOWS
+    folders.push_back (
+        juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+            .getChildFile ("Patchy/Addons"));
+#else // Linux
+    folders.push_back (
+        juce::File::getSpecialLocation (juce::File::userHomeDirectory)
+            .getChildFile (".patchy/addons"));
+#endif
+
+    // Also scan next to the binary — convenient for development
+    folders.push_back (
+        juce::File::getSpecialLocation (juce::File::currentExecutableFile)
+            .getParentDirectory()
+            .getChildFile ("PatchyAddons"));
+
+    return folders;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+std::vector<AddonScanner::ScanResult> AddonScanner::scan()
+{
+    std::vector<ScanResult> results;
+    const auto ext = getAddonExtension();
+
+    for (const auto& folder : getAddonFolders())
+    {
+        if (! folder.isDirectory())
+            continue;
+
+        juce::Logger::writeToLog ("AddonScanner: scanning " + folder.getFullPathName());
+
+        for (const auto& file : folder.findChildFiles (
+                 juce::File::findFiles, false, "*" + ext))
+        {
+            auto result = tryLoad (file);
+            juce::Logger::writeToLog (
+                juce::String ("  ") + file.getFileName() + " → "
+                + (result.valid ? ("OK: " + result.name) : ("FAIL: " + result.errorMsg)));
+            results.push_back (std::move (result));
+        }
+    }
+
+    return results;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+AddonScanner::ScanResult AddonScanner::tryLoad (const juce::File& file)
+{
+    ScanResult result;
+    result.file = file;
+
+    auto lib = std::make_unique<juce::DynamicLibrary>();
+    if (! lib->open (file.getFullPathName()))
+    {
+        result.errorMsg = "Could not open library";
+        return result;
+    }
+
+    // Check all required symbols are present
+    using GetDescFn = const NGA_Descriptor* (*)();
+    using CreateFn  = NGA_Instance*          (*)();
+    using DestroyFn = void (*)(NGA_Instance*);
+    using PrepareFn = void (*)(NGA_Instance*, double, int);
+    using ProcessFn = void (*)(NGA_Instance*, float**, float**, int, int,
+                               const NGA_MidiEvent*, int,
+                               NGA_MidiEvent*, int*, int);
+
+    auto getDesc = (GetDescFn)  lib->getFunction ("NGA_getDescriptor");
+    auto create  = (CreateFn)   lib->getFunction ("NGA_create");
+    auto destroy = (DestroyFn)  lib->getFunction ("NGA_destroy");
+    auto prepare = (PrepareFn)  lib->getFunction ("NGA_prepare");
+    auto process = (ProcessFn)  lib->getFunction ("NGA_process");
+
+    if (! getDesc || ! create || ! destroy || ! prepare || ! process)
+    {
+        result.errorMsg = "Missing required NGA exports";
+        return result;
+    }
+
+    const NGA_Descriptor* desc = getDesc();
+    if (desc == nullptr)
+    {
+        result.errorMsg = "NGA_getDescriptor returned NULL";
+        return result;
+    }
+
+    if (desc->apiVersion != NGA_API_VERSION)
+    {
+        result.errorMsg = "API version mismatch (addon="
+                          + juce::String (desc->apiVersion)
+                          + " host=" + juce::String (NGA_API_VERSION) + ")";
+        return result;
+    }
+
+    if (desc->nodeType < 1 || desc->nodeType > 3)
+    {
+        result.errorMsg = "Invalid nodeType " + juce::String (desc->nodeType);
+        return result;
+    }
+
+    result.valid    = true;
+    result.name         = desc->name    ? desc->name    : "(unnamed)";
+    result.vendor       = desc->vendor  ? desc->vendor  : "";
+    result.version      = desc->version ? desc->version : "";
+    result.nodeType     = desc->nodeType;
+    result.audioInputs  = desc->audioInputs;
+    result.audioOutputs = desc->audioOutputs;
+    result.midiInputs   = desc->midiInputs;
+    result.midiOutputs  = desc->midiOutputs;
+
+    // lib goes out of scope here — we re-open it when creating instances
+    // (DynamicLibrary is cheap to reopen; the OS keeps the .so in memory)
+    return result;
+}

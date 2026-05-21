@@ -1,0 +1,91 @@
+#pragma once
+#include <juce_audio_basics/juce_audio_basics.h>
+#include <juce_core/juce_core.h>
+
+/**
+ * NodeProcessor — base class for all processing nodes.
+ *
+ * Each node owns its own input/output audio and MIDI buffers.
+ * The ProcessingGraph copies data between connected nodes before
+ * calling process() on each node in topological order.
+ *
+ * All audio/MIDI processing is currently STUB (pass-through / silence).
+ * Replace the process() bodies with real DSP when ready.
+ */
+class NodeProcessor
+{
+public:
+    // Lightweight activity counter — incremented on audio thread, read+reset on message thread
+    std::atomic<int> midiEventsSinceLastPoll { 0 };
+    void recordMidiActivity (int count) { midiEventsSinceLastPoll.fetch_add (count, std::memory_order_relaxed); }
+    int  drainMidiActivity()            { return midiEventsSinceLastPoll.exchange (0, std::memory_order_relaxed); }
+
+    enum class Type { Midi = 1, Audio = 2, AV = 3 };
+
+    explicit NodeProcessor (const juce::String& nodeId, Type type)
+        : id (nodeId), nodeType (type) {}
+
+    virtual ~NodeProcessor() = default;
+
+    //─────────────────────────────────────────────────────────────────────────
+    virtual void prepare (double sampleRate, int maxBlockSize)
+    {
+        currentSampleRate  = sampleRate;
+        currentBlockSize   = maxBlockSize;
+
+        // Resize primary buffers (used by built-in nodes)
+        inputAudio.setSize  (2, maxBlockSize, false, true, true);
+        outputAudio.setSize (2, maxBlockSize, false, true, true);
+        inputMidi.clear();
+        outputMidi.clear();
+
+        // Resize per-port buffers for addon nodes with variable port counts
+        for (auto& buf : inputAudioBuffers)
+            buf.setSize (2, maxBlockSize, false, true, true);
+        for (auto& buf : outputAudioBuffers)
+            buf.setSize (2, maxBlockSize, false, true, true);
+    }
+
+    void resetBuffers (int numSamples)
+    {
+        inputAudio.clear();
+        outputAudio.clear();
+        inputMidi.clear();
+        outputMidi.clear();
+        lastNumSamples = numSamples;
+
+        for (auto& buf : inputAudioBuffers)  buf.clear();
+        for (auto& buf : outputAudioBuffers) buf.clear();
+    }
+
+    /** Allocate per-port audio buffers (called when port count is known). */
+    void allocatePortBuffers (int numAudioIn, int numAudioOut, int maxBlockSize)
+    {
+        inputAudioBuffers.resize  (static_cast<size_t>(numAudioIn));
+        outputAudioBuffers.resize (static_cast<size_t>(numAudioOut));
+        for (auto& buf : inputAudioBuffers)
+            buf.setSize (2, maxBlockSize, false, true, true);
+        for (auto& buf : outputAudioBuffers)
+            buf.setSize (2, maxBlockSize, false, true, true);
+    }
+
+    virtual void process (int numSamples) = 0;
+
+    juce::AudioBuffer<float> inputAudio,  outputAudio;   // single-port (built-ins)
+    juce::MidiBuffer         inputMidi,   outputMidi;
+
+    // Multi-port audio buffers (addon nodes with variable port counts)
+    std::vector<juce::AudioBuffer<float>> inputAudioBuffers;
+    std::vector<juce::AudioBuffer<float>> outputAudioBuffers;
+
+    const juce::String id;
+    const Type         nodeType;
+
+protected:
+    double currentSampleRate = 44100.0;
+    int    currentBlockSize  = 512;
+    int    lastNumSamples    = 0;
+};
+
+// Built-in stub node types removed — all built-in nodes are now device nodes.
+// Dynamic addon nodes use DynamicNodeProcessor (see AddonRegistry.h).

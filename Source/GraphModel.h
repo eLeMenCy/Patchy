@@ -78,6 +78,16 @@ public:
 
     juce::var   toVar() const;
 
+    // ── Test / read-only accessors ────────────────────────────────────────────
+    const std::vector<NodeData>&   getNodes()       const { return nodes; }
+    const std::vector<Connection>& getConnections() const { return connections; }
+    int getNodeCount()       const { return static_cast<int>(nodes.size()); }
+    int getConnectionCount() const { return static_cast<int>(connections.size()); }
+
+    static std::vector<Port> portsForType (int t, const juce::String& nodeId,
+                                           int audioIn=0, int audioOut=0,
+                                           int midiIn=0,  int midiOut=0);
+
 private:
     void notifyChange();
 
@@ -87,7 +97,4 @@ private:
     int  connCounter             = 0;
     bool notificationsSuspended  = false;
 
-    static std::vector<Port> portsForType (int t, const juce::String& nodeId,
-                                              int audioIn=0, int audioOut=0,
-                                              int midiIn=0,  int midiOut=0);
 };

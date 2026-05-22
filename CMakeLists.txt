@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Patchy VERSION 0.0.522)
+project(Patchy VERSION 0.0.531)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -90,7 +90,7 @@ endif()
 
 # ── Plugin target ─────────────────────────────────────────────────────────────
 juce_add_plugin(Patchy
-    VERSION                  "0.0.522"
+    VERSION                  "0.0.531"
     COMPANY_NAME             "YourCompany"
     PLUGIN_MANUFACTURER_CODE "Ycmp"
     PLUGIN_CODE              "NGrp"
@@ -165,4 +165,35 @@ if(NPM_EXE)
         COMMAND ${NPM_EXE} run dev
         WORKING_DIRECTORY "${UI_DIR}"
         COMMENT "Starting Vite dev server" VERBATIM)
+endif()
+
+# ── Unit Tests ────────────────────────────────────────────────────────────────
+option (PATCHY_BUILD_TESTS "Build Patchy unit tests" ON)
+
+if (PATCHY_BUILD_TESTS)
+    add_executable (PatchyTests
+        Tests/PatchyTestRunner.cpp
+        Tests/GraphModelTests.cpp
+        Source/GraphModel.cpp
+    )
+
+    target_include_directories (PatchyTests PRIVATE Source Addons)
+
+    target_compile_features (PatchyTests PRIVATE cxx_std_20)
+
+    target_link_libraries (PatchyTests PRIVATE
+        juce::juce_core
+        juce::juce_data_structures
+        juce::juce_events
+        juce::juce_gui_basics
+    )
+
+    target_compile_definitions (PatchyTests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+    )
+
+    enable_testing()
+    add_test (NAME PatchyTests COMMAND PatchyTests)
 endif()

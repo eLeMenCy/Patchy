@@ -15,6 +15,12 @@ UI/.vite/
 *.xcworkspace/
 *.xcodeproj/
 
+# ── Development helpers ───────────────────────────────────────────────────────
+bump_and_pack.sh
+
+# ── Private notes and research ────────────────────────────────────────────────
+FYI/
+
 # ── macOS ─────────────────────────────────────────────────────────────────────
 .DS_Store
 *.dSYM/
@@ -34,4 +40,3 @@ Addons/**/*.dll
 
 # ── Patchy patch files (user data) ────────────────────────────────────────────
 *.patchy
-/Fyi/

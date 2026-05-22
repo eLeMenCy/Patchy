@@ -1,0 +1,50 @@
+GNU GENERAL PUBLIC LICENSE
+Version 3, 29 June 2007
+
+Copyright (C) 2024-2025 eLeMenCy
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+-------------------------------------------------------------------------------
+
+DISTRIBUTION MODEL:
+
+Patchy uses a source-open, binary-paid model:
+
+  - Source code is free under GPL v3. You are welcome to compile Patchy
+    yourself at no cost.
+
+  - Official pre-built binaries are available for a small fee, which supports
+    ongoing development.
+
+This model is inspired by projects such as Kushview Element and is fully
+compliant with the GPL v3 license terms.
+
+-------------------------------------------------------------------------------
+
+NOTE ON JUCE:
+
+Patchy is built using the JUCE framework (https://juce.com), which is
+licensed under the GNU General Public License v3. Patchy is distributed
+under the same GPL v3 terms — source code and pre-built binaries alike.
+
+-------------------------------------------------------------------------------
+
+NOTE ON ADDONS:
+
+The Addon API (Addons/AddonAPI.h) is separately licensed under the MIT
+License (see Addons/LICENSE). Addon developers are free to license their
+own addon code under any terms they choose, including proprietary licenses.
+Addons are considered separate works communicating with Patchy at arm's
+length via the Addon API.

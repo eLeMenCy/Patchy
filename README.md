@@ -380,4 +380,23 @@ typedef struct {
 
 ---
 
+## Licensing
+
+Patchy uses a **source-open, binary-paid** model — inspired by projects like [Kushview Element](https://kushview.net/element/):
+
+| What | Cost | Terms |
+|------|------|-------|
+| Source code | Free | GPL v3 — compile it yourself |
+| Official pre-built binary | Paid | Convenience fee — supports development |
+| Addon API (`AddonAPI.h`) | Free | MIT — no strings attached |
+| Bundled example addons | Free | MIT — use as reference |
+
+**Source code** is licensed under [GPL v3](LICENSE) — you are free to download, study, modify and compile Patchy yourself at no cost.
+
+**Official pre-built binaries** are available for a small fee. This supports ongoing development.
+
+**Addon developers** are explicitly free to license their addons under any terms they choose — proprietary, MIT, GPL, or anything else. Addons are considered separate works communicating with Patchy at arm's length via the Addon API (see [Addons/LICENSE](Addons/LICENSE)).
+
+---
+
 *Patchy v0.1.507 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

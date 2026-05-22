@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Patchy VERSION 0.0.512)
+project(Patchy VERSION 0.0.522)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -90,7 +90,7 @@ endif()
 
 # ── Plugin target ─────────────────────────────────────────────────────────────
 juce_add_plugin(Patchy
-    VERSION                  "0.0.512"
+    VERSION                  "0.0.522"
     COMPANY_NAME             "YourCompany"
     PLUGIN_MANUFACTURER_CODE "Ycmp"
     PLUGIN_CODE              "NGrp"

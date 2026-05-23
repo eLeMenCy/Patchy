@@ -60,6 +60,8 @@ public:
 
     /** Call after any structural change to the graph model. */
     void rebuildProcessingGraph();
+    void forceDawDeviceSelection (ProcessingGraph& graph);
+    bool isStandalone = true;
 
     /** Access the registry (for UI sidebar population). */
     AddonRegistry& getRegistry()       { return registry; }

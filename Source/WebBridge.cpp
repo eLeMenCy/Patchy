@@ -459,7 +459,7 @@ void WebBridge::pushMidiDevices()
 
 void WebBridge::pushAudioDevices()
 {
-    pushToUI ("onAudioDevices", juce::JSON::toString (AudioDeviceManager::getAvailableDevicesVar(), true));
+    pushToUI ("onAudioDevices", juce::JSON::toString (AudioDeviceManager::getAvailableDevicesVar (isStandalone), true));
 }
 
 void WebBridge::timerCallback()

@@ -31,6 +31,7 @@ public:
     juce::String getSelectedDeviceName() const { return registeredDeviceName; }
     void markTransferred() { transferred = true; }
     bool wasTransferred()  const { return transferred; }
+    bool getIsDawDevice()  const { return isDawDevice; }
     template <typename NodeT>
     void transferCallbackTo (NodeT& dst)
     {
@@ -130,6 +131,7 @@ private:
     juce::AudioDeviceManager* devManager = nullptr;
     juce::String              registeredDeviceName;
     bool                      transferred = false;
+    bool                      isDawDevice = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioOutDeviceNode)
 };
@@ -158,6 +160,7 @@ public:
     juce::String getSelectedDeviceName() const { return registeredDeviceName; }
     void markTransferred() { transferred = true; }
     bool wasTransferred()  const { return transferred; }
+    bool getIsDawDevice()  const { return isDawDevice; }
     template <typename NodeT>
     void transferCallbackTo (NodeT& dst)
     {
@@ -240,6 +243,7 @@ private:
     juce::AudioDeviceManager* devManager = nullptr;
     juce::String              registeredDeviceName;
     bool                      transferred = false;
+    bool                      isDawDevice = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioInDeviceNode)
 };
@@ -276,7 +280,7 @@ public:
         applyToGraph   (nodeId, deviceName, graph);
     }
 
-    static juce::var getAvailableDevicesVar();
+    static juce::var getAvailableDevicesVar (bool isStandalone = true);
 
     juce::AudioDeviceManager& getOutputManager() { return outputManager; }
     juce::AudioDeviceManager& getInputManager()  { return inputManager;  }

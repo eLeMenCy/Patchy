@@ -33,6 +33,8 @@ StandaloneWindow::StandaloneWindow()
 
     // Wire bridge callbacks
     auto& bridge = editor->getBridge();
+    bridge.isStandalone = true;
+    processor->isStandalone = true;
 
     // Push standalone mode + audio settings when UI is ready
     bridge.onUIReady = [this, &bridge]()

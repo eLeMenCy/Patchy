@@ -1,5 +1,6 @@
 #include "PatchyProcessor.h"
 #include "PatchyEditor.h"
+#include "AudioDeviceNodes.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -57,7 +58,11 @@ void PatchyProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
                              [this](const juce::String& nid) { return getOrCreateMidiMonitorBuffer(nid); },
                              [this](const juce::String& nid) { return getOrCreateAudioMonitorBuffer(nid); },
                              [this](const juce::String& nid) { return getOrCreateKeyboardMonitorBuffer(nid); });
+    processingGraph.isStandaloneMode = isStandalone;
     processingGraph.prepare (sampleRate, samplesPerBlock);
+    // In DAW mode, force DAW device for all audio nodes
+    if (! isStandalone)
+        forceDawDeviceSelection (processingGraph);
     midiDeviceManager.applyDeviceSelections  (processingGraph);
     audioDeviceManager.applyDeviceSelections (processingGraph);
 }
@@ -80,6 +85,7 @@ void PatchyProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
         processingGraph = std::move (*pendingGraph);
         pendingGraph.reset();
+        processingGraph.isStandaloneMode = isStandalone;
         processingGraph.prepare (lastSampleRate, lastBlockSize);
     }
 
@@ -99,6 +105,19 @@ void PatchyProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+void PatchyProcessor::forceDawDeviceSelection (ProcessingGraph& graph)
+{
+    // In DAW mode, set all AudioIn/Out nodes to use the DAW virtual device
+    for (auto& node : graph.getNodes())
+    {
+        if (node == nullptr) continue;
+        if (auto* inNode = dynamic_cast<AudioInDeviceNode*> (node.get()))
+            inNode->openDevice ("DAW", audioDeviceManager.getInputManager());
+        if (auto* outNode = dynamic_cast<AudioOutDeviceNode*> (node.get()))
+            outNode->openDevice ("DAW", audioDeviceManager.getOutputManager());
+    }
+}
 
 void PatchyProcessor::rebuildProcessingGraph()
 {
@@ -142,6 +161,8 @@ void PatchyProcessor::rebuildProcessingGraph()
     newGraph->transferAudioDevicesFrom (processingGraph);
 
     // Apply any selections not yet transferred (new nodes, changed devices)
+    if (! isStandalone)
+        forceDawDeviceSelection (*newGraph);
     midiDeviceManager.applyDeviceSelections  (*newGraph);
     audioDeviceManager.applyDeviceSelections (*newGraph);
 
@@ -248,6 +269,9 @@ void PatchyProcessor::setStateInformation (const void* data, int sizeInBytes)
         if (type == 3 || type == 4)
         {
             juce::String devName = nd->getProperty ("selectedDeviceId").toString();
+            // In DAW mode, always use DAW device (override any saved hardware device)
+            if (! isStandalone)
+                devName = "DAW";
             if (devName.isNotEmpty())
                 setAudioDevice (nd->getProperty ("id").toString(), devName);
         }

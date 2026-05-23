@@ -39,10 +39,23 @@ void AudioDeviceManager::applyDeviceSelections (ProcessingGraph& graph)
         applyToGraph (nodeId, deviceName, graph);
 }
 
-juce::var AudioDeviceManager::getAvailableDevicesVar()
+juce::var AudioDeviceManager::getAvailableDevicesVar (bool isStandalone)
 {
     // Enumerate all available audio device types and their devices
     juce::Array<juce::var> outArr, inArr;
+
+    // In DAW mode, add virtual DAW device at the top of both lists
+    if (! isStandalone)
+    {
+        auto makeDaw = [](const char* label) -> juce::var {
+            auto* obj = new juce::DynamicObject();
+            obj->setProperty ("id",   "DAW");
+            obj->setProperty ("name", label);
+            return obj;
+        };
+        outArr.add (makeDaw ("DAW"));
+        inArr.add  (makeDaw ("DAW"));
+    }
 
     juce::AudioDeviceManager tempManager;
     tempManager.initialiseWithDefaultDevices (2, 2);
@@ -82,7 +95,8 @@ void AudioOutDeviceNode::openDevice (const juce::String& deviceName,
 {
     closeDevice();
     selectedDeviceName = deviceName;
-    if (deviceName.isEmpty()) return;
+    isDawDevice = (deviceName == "DAW");
+    if (deviceName.isEmpty() || isDawDevice) return;  // DAW handled by ProcessingGraph
 
     devManager           = &manager;
     registeredDeviceName = deviceName;
@@ -158,7 +172,8 @@ void AudioInDeviceNode::openDevice (const juce::String& deviceName,
 {
     closeDevice();
     selectedDeviceName = deviceName;
-    if (deviceName.isEmpty()) return;
+    isDawDevice = (deviceName == "DAW");
+    if (deviceName.isEmpty() || isDawDevice) return;  // DAW handled by ProcessingGraph
 
     devManager           = &manager;
     registeredDeviceName = deviceName;

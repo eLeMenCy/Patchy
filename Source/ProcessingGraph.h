@@ -33,8 +33,10 @@ public:
     void process (juce::AudioBuffer<float>& hostAudio, juce::MidiBuffer& hostMidi);
 
     bool isEmpty()    const { return nodes.empty(); }
+    bool isStandaloneMode = true;  // set false in DAW/plugin mode
     int  getNodeCount() const { return (int) nodes.size(); }
     const std::vector<std::unique_ptr<NodeProcessor>>& getNodes() const { return nodes; }
+    std::vector<std::unique_ptr<NodeProcessor>>&       getNodes()       { return nodes; }
 
     // Device node accessors
     MidiOutDeviceNode*  findMidiOutNode  (const juce::String& nodeId);

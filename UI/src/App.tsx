@@ -14,6 +14,7 @@ import {
   Node,
   Edge,
   useReactFlow,
+  useUpdateNodeInternals,
   reconnectEdge,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -251,6 +252,7 @@ function FlowCanvas() {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { setHint } = useContext(HintContext);
   const { screenToFlowPosition, setViewport, updateNode, getNodes } = useReactFlow();
+  const updateNodeInternals = useUpdateNodeInternals();
   const [prefs, setPrefs]       = useState<GraphPreferences>(loadPrefs);
   const [showPrefs, setShowPrefs] = useState(false);
   const [allCollapsed, setAllCollapsed] = useState(false);
@@ -354,6 +356,11 @@ function FlowCanvas() {
         });
       });
       setEdges(state.connections.map(rawToFlowEdge));
+
+      // Update node internals so edge endpoints snap to port dots after load
+      setTimeout(() => {
+        state.nodes.forEach(n => updateNodeInternals(n.id));
+      }, 50);
 
       // Restore saved viewport if present
       if (state.viewportZoom && state.viewportZoom > 0) {

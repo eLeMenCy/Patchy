@@ -125,6 +125,7 @@ private:
     juce::String buildFileStateJson ();
 
     juce::File currentFile;
+    juce::File lastOpenDir;
 
     std::function<void()>                    onNewGraph;
     std::function<void(const juce::String&)> onLoadGraph;

@@ -671,6 +671,7 @@ void WebBridge::showSaveDialog()
             if (result != juce::File{})
             {
                 auto f = result.withFileExtension ("patchy");
+                lastOpenDir = f.getParentDirectory();
                 saveToFile (f);
             }
         });
@@ -678,10 +679,12 @@ void WebBridge::showSaveDialog()
 
 void WebBridge::showOpenDialog()
 {
-    auto chooser = std::make_shared<juce::FileChooser> (
-        "Open Patch",
-        juce::File::getSpecialLocation (juce::File::userDocumentsDirectory),
-        "*.patchy");
+    auto startDir = currentFile.existsAsFile()
+                    ? currentFile.getParentDirectory()
+                    : (lastOpenDir.isDirectory()
+                       ? lastOpenDir
+                       : juce::File::getSpecialLocation (juce::File::userDocumentsDirectory));
+    auto chooser = std::make_shared<juce::FileChooser> ("Open Patch", startDir, "*.patchy");
 
     chooser->launchAsync (juce::FileBrowserComponent::openMode
                         | juce::FileBrowserComponent::canSelectFiles,
@@ -694,6 +697,7 @@ void WebBridge::showOpenDialog()
                 if (json.isNotEmpty())
                 {
                     currentFile = result;
+                    lastOpenDir  = result.getParentDirectory();
                     if (onLoadGraph) onLoadGraph (json);
                     pushToUI ("onFileState", buildFileStateJson());
                 }

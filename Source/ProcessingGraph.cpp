@@ -199,10 +199,14 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
             if (dynamic_cast<MidiKeyboardNode*>  (n) != nullptr) continue;
 
             // Source node: give it the host's audio and MIDI
+            // Use inputAudioBuffers[0] if available (addon nodes), else inputAudio
+            auto& targetBuf = (!n->inputAudioBuffers.empty())
+                              ? n->inputAudioBuffers[0]
+                              : n->inputAudio;
             int chansToFeed = std::min (hostAudio.getNumChannels(),
-                                        n->inputAudio.getNumChannels());
+                                        targetBuf.getNumChannels());
             for (int ch = 0; ch < chansToFeed; ++ch)
-                n->inputAudio.copyFrom (ch, 0, hostAudio, ch, 0, numSamples);
+                targetBuf.copyFrom (ch, 0, hostAudio, ch, 0, numSamples);
 
             n->inputMidi = hostMidi;
         }
@@ -289,10 +293,14 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
         if (hasOutput.count (n->id) > 0) continue;   // not a sink
 
         // Mix audio output into host buffer
-        int chans = std::min (n->outputAudio.getNumChannels(),
+        // Use outputAudioBuffers[0] if available (addon nodes), else outputAudio
+        auto& srcBuf = (!n->outputAudioBuffers.empty())
+                       ? n->outputAudioBuffers[0]
+                       : n->outputAudio;
+        int chans = std::min (srcBuf.getNumChannels(),
                               hostAudio.getNumChannels());
         for (int ch = 0; ch < chans; ++ch)
-            hostAudio.addFrom (ch, 0, n->outputAudio, ch, 0, numSamples);
+            hostAudio.addFrom (ch, 0, srcBuf, ch, 0, numSamples);
 
         // Merge MIDI into host MIDI
         for (auto meta : n->outputMidi)

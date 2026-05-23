@@ -18,7 +18,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { Bridge, FileState, GraphState, RawNode, RawConnection, PortActivityEntry, AddonParamInfo } from './Bridge';
+import { Bridge, FileState, AudioSettings as AudioSettingsType, GraphState, RawNode, RawConnection, PortActivityEntry, AddonParamInfo } from './Bridge';
 import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
@@ -255,10 +255,20 @@ function FlowCanvas() {
   const [showPrefs, setShowPrefs] = useState(false);
   const [allCollapsed, setAllCollapsed] = useState(false);
   const [fileState, setFileState] = useState<FileState>({ fileName: 'Untitled', hasFile: false });
+  const [isStandalone, setIsStandalone] = useState(false);
+  const [audioSettings, setAudioSettings] = useState<AudioSettingsType | null>(null);
   const [showFileMenu, setShowFileMenu] = useState(false);
 
   useEffect(() => {
     return Bridge.onFileState(setFileState);
+  }, []);
+
+  useEffect(() => {
+    return Bridge.onStandaloneMode(setIsStandalone);
+  }, []);
+
+  useEffect(() => {
+    return Bridge.onAudioSettings(setAudioSettings);
   }, []);
 
   useEffect(() => {
@@ -642,6 +652,8 @@ function FlowCanvas() {
               <PreferencesPanel
                 prefs={prefs}
                 onChange={setPrefs}
+                isStandalone={isStandalone}
+                audioSettings={audioSettings}
                 onClose={() => setShowPrefs(false)}
               />
             )}

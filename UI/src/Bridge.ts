@@ -104,6 +104,14 @@ export interface AddonParamInfo {
   step:         number;   // 0=continuous, 1=integer, etc.
 }
 
+export interface AudioSettings {
+  sampleRate:           number;
+  bufferSize:           number;
+  muteFeedback:         boolean;
+  availableSampleRates: number[];
+  availableBufferSizes: number[];
+}
+
 export interface FileState {
   fileName: string;
   hasFile:  boolean;
@@ -126,8 +134,12 @@ export interface AddonInfo {
 let _onUpdate:         GraphUpdateCallback  | null = null;
 const _midiMonitorSubscribers: MidiMonitorCallback[] = [];
 const _onAddonListSubscribers: AddonListCallback[] = [];
-type FileStateCallback = (s: FileState) => void;
-const _onFileStateSubscribers: FileStateCallback[] = [];
+type FileStateCallback    = (s: FileState) => void;
+type AudioSettingsCallback = (s: AudioSettings) => void;
+type StandaloneModeCallback = (v: boolean) => void;
+const _onFileStateSubscribers:     FileStateCallback[]     = [];
+const _onAudioSettingsSubscribers: AudioSettingsCallback[] = [];
+const _onStandaloneModeSubscribers: StandaloneModeCallback[] = [];
 
 // MIDI devices use a subscriber array so multiple DeviceSelector components
 // can all receive updates, and a cache so late-mounting components get the
@@ -217,6 +229,18 @@ function _dispatchClaimed() {
       console.error('Bridge midiDevices parse error', e);
     }
   },
+  onStandaloneMode: (val: string) => {
+    const v = val === 'true';
+    _onStandaloneModeSubscribers.forEach(cb => cb(v));
+  },
+
+  onAudioSettings: (json: string) => {
+    try {
+      const s = JSON.parse(json) as AudioSettings;
+      _onAudioSettingsSubscribers.forEach(cb => cb(s));
+    } catch {}
+  },
+
   onFileState: (json: string) => {
     try {
       const s = JSON.parse(json) as FileState;
@@ -247,6 +271,26 @@ function sendToJuce(msg: object) {
 }
 
 export const Bridge = {
+  onStandaloneMode(cb: StandaloneModeCallback) {
+    _onStandaloneModeSubscribers.push(cb);
+    return () => {
+      const idx = _onStandaloneModeSubscribers.indexOf(cb);
+      if (idx >= 0) _onStandaloneModeSubscribers.splice(idx, 1);
+    };
+  },
+
+  onAudioSettings(cb: AudioSettingsCallback) {
+    _onAudioSettingsSubscribers.push(cb);
+    return () => {
+      const idx = _onAudioSettingsSubscribers.indexOf(cb);
+      if (idx >= 0) _onAudioSettingsSubscribers.splice(idx, 1);
+    };
+  },
+
+  setAudioEngineSettings(sampleRate: number, bufferSize: number, muteFeedback: boolean) {
+    sendToJuce({ type: 'setAudioEngineSettings', sampleRate, bufferSize, muteFeedback });
+  },
+
   onFileState(cb: FileStateCallback) {
     _onFileStateSubscribers.push(cb);
     return () => {

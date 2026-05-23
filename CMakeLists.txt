@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Patchy VERSION 0.0.531)
+project(Patchy VERSION 0.0.545)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -90,13 +90,13 @@ endif()
 
 # ── Plugin target ─────────────────────────────────────────────────────────────
 juce_add_plugin(Patchy
-    VERSION                  "0.0.531"
-    COMPANY_NAME             "YourCompany"
-    PLUGIN_MANUFACTURER_CODE "Ycmp"
+    VERSION                  "0.0.545"
+    COMPANY_NAME             "eLeMenCy"
+    PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGrp"
     FORMATS                  VST3 AU Standalone
     PRODUCT_NAME             "Patchy"
-    BUNDLE_ID                "com.yourcompany.nodegraphplugin"
+    BUNDLE_ID                "com.elemency.patchy"
     IS_SYNTH                 TRUE          # produces audio from MIDI
     NEEDS_MIDI_INPUT         TRUE
     NEEDS_MIDI_OUTPUT        TRUE
@@ -104,7 +104,7 @@ juce_add_plugin(Patchy
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     VST3_CATEGORIES          "Instrument" "Fx"
     AU_MAIN_TYPE             "kAudioUnitType_MusicDevice"
-    COPY_PLUGIN_AFTER_BUILD  FALSE
+    COPY_PLUGIN_AFTER_BUILD  TRUE
 )
 
 target_sources(Patchy PRIVATE
@@ -116,6 +116,7 @@ target_sources(Patchy PRIVATE
     Addons/AddonScanner.cpp
     Source/GraphModel.cpp
     Source/WebBridge.cpp
+    Source/StandaloneApp.cpp
     Source/MidiDeviceNodes.cpp
     Source/AudioDeviceNodes.cpp
     Source/MidiMonitorNode.cpp
@@ -142,6 +143,7 @@ target_link_libraries(Patchy
 )
 
 target_compile_definitions(Patchy PRIVATE
+        JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1
     JUCE_WEB_BROWSER=1
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0

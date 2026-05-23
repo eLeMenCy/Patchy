@@ -229,8 +229,7 @@ void WebBridge::pushToUI (const juce::String& bridgeFn, juce::String json)
 void WebBridge::loadUI()
 {
 #if HAS_BUNDLED_UI
-    connected = true;
-    // This is the exact URL used in JUCE's WebViewPluginDemo
+    // connected will be set true when UI sends "ready" message
     webView->goToURL (juce::WebBrowserComponent::getResourceProviderRoot());
 #else
     webView->goToURL (devServerUrl);
@@ -258,6 +257,9 @@ void WebBridge::handleMessage (const juce::String& json)
         pushMidiDevices();
         pushAudioDevices();
         pushGraphToUI();
+        juce::Logger::writeToLog ("WebBridge: calling onUIReady");
+        if (onUIReady) onUIReady();
+        juce::Logger::writeToLog ("WebBridge: onUIReady done");
         startTimerHz (30);
     }
     else if (type == "addNode")
@@ -382,6 +384,14 @@ void WebBridge::handleMessage (const juce::String& json)
         currentFile = juce::File();
         if (onNewGraph) onNewGraph();
         pushToUI ("onFileState", buildFileStateJson());
+    }
+    else if (type == "setAudioEngineSettings")
+    {
+        double sr   = (double) obj->getProperty ("sampleRate");
+        int    buf  = (int)    obj->getProperty ("bufferSize");
+        bool   mute = (bool)   obj->getProperty ("muteFeedback");
+        if (onSetAudioEngineSettings)
+            onSetAudioEngineSettings (sr, buf, mute);
     }
 }
 

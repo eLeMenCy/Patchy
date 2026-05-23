@@ -64,6 +64,9 @@ public:
     void resized() override;
     void loadUI();
     void pushGraphToUI();
+    void pushToUI (const juce::String& bridgeFn, juce::String json);
+    std::function<void(double, int, bool)> onSetAudioEngineSettings;
+    std::function<void()>                  onUIReady;
 
 private:
     // ── Resource provider (release) ───────────────────────────────────────
@@ -114,7 +117,6 @@ private:
     void pushPortActivity();
 
     void pushAddonList();
-    void pushToUI (const juce::String& bridgeFn, juce::String json);
 
     // ── File operations ───────────────────────────────────────────────────────
     void saveToFile     (const juce::File& file);

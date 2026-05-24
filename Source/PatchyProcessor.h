@@ -181,22 +181,40 @@ public:
                 // For AudioIn/Out device nodes — RMS from their audio buffers
                 float sl = 0.f, sr = 0.f;
                 int   count = 0;
-                // Use per-port buffer[0] for addon nodes, otherwise outputAudio/inputAudio
-                const auto& buf = !node->outputAudioBuffers.empty()
-                                  ? node->outputAudioBuffers[0]
-                                  : (node->outputAudio.getNumChannels() > 0
-                                     ? node->outputAudio : node->inputAudio);
-                count = buf.getNumSamples();
-                if (count > 0)
+
+                if (! node->outputAudioBuffers.empty())
                 {
-                    for (int i = 0; i < count; ++i) sl += buf.getSample(0,i) * buf.getSample(0,i);
-                    a.audioRmsL = std::sqrt (sl / (float) count);
-                    if (buf.getNumChannels() > 1)
+                    // Multi-port addon node: report per-port RMS
+                    for (auto& portBuf : node->outputAudioBuffers)
                     {
-                        for (int i = 0; i < count; ++i) sr += buf.getSample(1,i) * buf.getSample(1,i);
-                        a.audioRmsR = std::sqrt (sr / (float) count);
+                        float ps = 0.f;
+                        int   pc = portBuf.getNumSamples();
+                        if (pc > 0)
+                        {
+                            for (int i = 0; i < pc; ++i) ps += portBuf.getSample(0,i) * portBuf.getSample(0,i);
+                            a.portRms.push_back (std::sqrt (ps / (float) pc));
+                        }
+                        else a.portRms.push_back (0.f);
                     }
-                    else a.audioRmsR = a.audioRmsL;
+                    // Also set audioRmsL from port 0 for backwards compat
+                    if (! a.portRms.empty()) { a.audioRmsL = a.portRms[0]; a.audioRmsR = a.portRms[0]; }
+                }
+                else
+                {
+                    const auto& buf = node->outputAudio.getNumChannels() > 0
+                                      ? node->outputAudio : node->inputAudio;
+                    count = buf.getNumSamples();
+                    if (count > 0)
+                    {
+                        for (int i = 0; i < count; ++i) sl += buf.getSample(0,i) * buf.getSample(0,i);
+                        a.audioRmsL = std::sqrt (sl / (float) count);
+                        if (buf.getNumChannels() > 1)
+                        {
+                            for (int i = 0; i < count; ++i) sr += buf.getSample(1,i) * buf.getSample(1,i);
+                            a.audioRmsR = std::sqrt (sr / (float) count);
+                        }
+                        else a.audioRmsR = a.audioRmsL;
+                    }
                 }
             }
 

@@ -43,6 +43,7 @@ function DeviceSelector ({ nodeId, nodeType, selectedDeviceId }: {
   const isMidi = nodeType <= 2;
   const accent = isMidi ? 'var(--midi)' : 'var(--audio)';
   const { isStandalone, dawLoopbackEnabled } = useContext(DawContext);
+  const { setHint } = useContext(HintContext);
   const [devices,       setDevices]       = useState<Array<{ id: string; name: string }>>([]);
   const [selectedValue, setSelectedValue] = useState<string>(selectedDeviceId ?? '');
   const [claimed,       setClaimed]       = useState<Map<string, { deviceId: string; nodeType: number }>>(new Map());
@@ -65,12 +66,15 @@ function DeviceSelector ({ nodeId, nodeType, selectedDeviceId }: {
       takenByOthers.add(claim.deviceId);
   });
 
+  const isDawLocked = (d: { id: string }) =>
+    d.id === 'DAW' && nodeType === 4 && !isStandalone && !dawLoopbackEnabled;
+  const dawHint = { title: 'DAW Loopback Locked 🔒', body: 'Routing audio back to the DAW track risks a feedback loop.\nEnable "DAW loopback" in Preferences → Graph to unlock.' };
   const opts = devices.map(d => ({
     id:       d.id,
-    name:     d.name,
-    disabled: takenByOthers.has(d.id)
-              || (d.id === 'DAW' && nodeType === 4 && !isStandalone && !dawLoopbackEnabled),
-    warning:  d.id === 'DAW' && nodeType === 4 && !isStandalone && !dawLoopbackEnabled,
+    name:     isDawLocked(d) ? 'DAW  🔒' : d.name,
+    disabled: takenByOthers.has(d.id) || isDawLocked(d),
+    warning:  isDawLocked(d),
+    hint:     isDawLocked(d) ? dawHint : undefined,
   }));
   const paramKey = isMidi ? 'midiDeviceId' : 'audioDeviceId';
 
@@ -81,6 +85,7 @@ function DeviceSelector ({ nodeId, nodeType, selectedDeviceId }: {
       options={opts}
       disabled={devices.length === 0}
       accent={accent}
+      onOptionHover={h => setHint(h)}
     />
   );
 }

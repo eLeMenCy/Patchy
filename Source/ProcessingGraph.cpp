@@ -218,17 +218,21 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
         if (dynamic_cast<AudioMonitorNode*>  (n) != nullptr) continue;
         if (dynamic_cast<MidiKeyboardNode*>  (n) != nullptr) continue;
 
-        // Source nodes (no incoming edges): feed host audio/MIDI
+        // Only AudioIn device nodes (non-DAW) get host audio as source
+        // Addon/processing nodes with no connections stay silent
         if (hasInput.count (n->id) == 0)
         {
-            auto& targetBuf = (!n->inputAudioBuffers.empty())
-                              ? n->inputAudioBuffers[0]
-                              : n->inputAudio;
-            int chansToFeed = std::min (hostAudio.getNumChannels(),
-                                        targetBuf.getNumChannels());
-            for (int ch = 0; ch < chansToFeed; ++ch)
-                targetBuf.copyFrom (ch, 0, hostAudio, ch, 0, numSamples);
-            n->inputMidi = hostMidi;
+            if (dynamic_cast<AudioInDeviceNode*> (n) != nullptr)
+            {
+                // Physical AudioIn: host audio fed here (FIFO callback fills outputAudio)
+                // inputAudio not used by AudioInDeviceNode — it reads from FIFO
+                n->inputMidi = hostMidi;
+            }
+            else if (dynamic_cast<MidiInDeviceNode*> (n) != nullptr)
+            {
+                n->inputMidi = hostMidi;
+            }
+            // Addon/other nodes with no incoming connections stay silent
         }
     }
 

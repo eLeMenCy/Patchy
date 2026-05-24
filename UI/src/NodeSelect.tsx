@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 
 // ── Custom select component ──────────────────────────────────────────────────
-function NodeSelect({ value, onChange, options, disabled, accent, showEmpty = true }: {
-  value:      string;
-  onChange:   (v: string) => void;
-  options:    { id: string; name: string; disabled?: boolean }[];
-  disabled?:  boolean;
-  accent?:    string;
-  showEmpty?: boolean;
+function NodeSelect({ value, onChange, options, disabled, accent, showEmpty = true, onOptionHover }: {
+  value:          string;
+  onChange:       (v: string) => void;
+  options:        { id: string; name: string; disabled?: boolean; warning?: boolean; hint?: { title: string; body: string } }[];
+  disabled?:      boolean;
+  accent?:        string;
+  showEmpty?:     boolean;
+  onOptionHover?: (hint: { title: string; body: string } | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -121,21 +122,28 @@ function NodeSelect({ value, onChange, options, disabled, accent, showEmpty = tr
             <div
               key={opt.id}
               onClick={() => { if (!opt.disabled) { onChange(opt.id); setOpen(false); } }}
+              onMouseEnter={e => {
+                if (onOptionHover) onOptionHover(opt.hint ?? null);
+                if (!opt.disabled) (e.currentTarget as HTMLDivElement).style.background = opt.id === value ? `${accentColor}28` : 'var(--surface)';
+              }}
+              onMouseLeave={e => {
+                if (onOptionHover) onOptionHover(null);
+                (e.currentTarget as HTMLDivElement).style.background = opt.id === value ? `${accentColor}18` : 'transparent';
+              }}
               style={{
                 padding:    '5px 8px',
                 fontSize:   10,
                 fontFamily: "'JetBrains Mono', monospace",
-                color:      opt.disabled ? 'var(--text-muted)'
+                color:      opt.disabled && !opt.warning ? 'var(--text-muted)'
+                          : opt.warning ? '#f59e0b'
                           : opt.id === value ? accentColor : 'var(--text)',
                 background: opt.id === value ? `${accentColor}18` : 'transparent',
                 cursor:     opt.disabled ? 'not-allowed' : 'pointer',
-                opacity:    opt.disabled ? 0.45 : 1,
+                opacity:    opt.disabled && !opt.warning ? 0.6 : 1,
                 display:    'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
               }}
-              onMouseEnter={e => { if (!opt.disabled) (e.currentTarget as HTMLDivElement).style.background = opt.id === value ? `${accentColor}28` : 'var(--surface)'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = opt.id === value ? `${accentColor}18` : 'transparent'; }}
             >
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {opt.name}

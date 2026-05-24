@@ -611,12 +611,22 @@ void WebBridge::pushPortActivity()
             notesStr << (int) st << "," << (int) n;
         }
 
+        // Build portRms array for multi-port nodes
+        juce::String portRmsStr = "[";
+        for (size_t pi = 0; pi < a.portRms.size(); ++pi)
+        {
+            if (pi > 0) portRmsStr << ",";
+            portRmsStr << juce::jlimit (0, 1000, (int) (a.portRms[pi] * 1000.0f));
+        }
+        portRmsStr << "]";
+
         json << "{"
-             << Q << "id"    << Q << ":" << Q << a.nodeId       << Q << ","
-             << Q << "midi"  << Q << ":" << a.midiOutEvents             << ","
-             << Q << "l"     << Q << ":" << lv                          << ","
-             << Q << "r"     << Q << ":" << rv                          << ","
-             << Q << "notes" << Q << ":" << Q << notesStr        << Q
+             << Q << "id"       << Q << ":" << Q << a.nodeId       << Q << ","
+             << Q << "midi"     << Q << ":" << a.midiOutEvents             << ","
+             << Q << "l"        << Q << ":" << lv                          << ","
+             << Q << "r"        << Q << ":" << rv                          << ","
+             << Q << "portRms"  << Q << ":" << portRmsStr                  << ","
+             << Q << "notes"    << Q << ":" << Q << notesStr        << Q
              << "}";
     }
     json << "]";

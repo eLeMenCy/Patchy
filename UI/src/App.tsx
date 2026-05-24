@@ -104,12 +104,15 @@ function rmsToGlow (rms: number, col: string): string {
 }
 
 // ── Port activity — dynamic CSS injection ─────────────────────────────────────
-function usePortActivityStyles (edges: any[]) {
+function usePortActivityStyles (edges: any[], nodes: any[]) {
   const styleRef = useRef<HTMLStyleElement | null>(null);
   const midiTimers = useRef<Map<string, number>>(new Map());
-  const audioLevels = useRef<Map<string, number>>(new Map());
-  const edgeList = useRef(edges);
+  const audioLevels    = useRef<Map<string, number>>(new Map());
+  const portRmsLevels  = useRef<Map<string, number[]>>(new Map());
+  const edgeList  = useRef<typeof edges>(edges);
+  const nodesRef   = useRef<any[]>(nodes);
   useEffect(() => { edgeList.current = edges; }, [edges]);
+  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
 
   useEffect(() => {
     // Create a single <style> tag we'll update at 30fps
@@ -130,6 +133,17 @@ function usePortActivityStyles (edges: any[]) {
         const scaledRms = Math.min(rawRms * 4, 1.0);
         const prev = audioLevels.current.get(entry.id) ?? 0;
         audioLevels.current.set(entry.id, Math.max(scaledRms, prev * 0.88));
+        // Store per-port RMS for multi-port nodes
+        if (entry.portRms && entry.portRms.length > 1) {
+          const prevPorts = portRmsLevels.current.get(entry.id) ?? [];
+          const newPorts = entry.portRms.map((v, i) => {
+            const scaled = Math.min((v / 1000) * 4, 1.0);
+            return Math.max(scaled, (prevPorts[i] ?? 0) * 0.88);
+          });
+          portRmsLevels.current.set(entry.id, newPorts);
+        } else {
+          portRmsLevels.current.delete(entry.id);
+        }
       });
     });
     return unsub;
@@ -146,13 +160,22 @@ function usePortActivityStyles (edges: any[]) {
       audioLevels.current.forEach((v, k) => {
         audioLevels.current.set(k, v * 0.97);
       });
+      portRmsLevels.current.forEach((ports, k) => {
+        portRmsLevels.current.set(k, ports.map(v => v * 0.97));
+      });
       const allAudioEdges = edgeList.current.filter(e =>
         !!(e.sourceHandle ?? '').toLowerCase().includes('audio'));
       const allMidiEdges  = edgeList.current.filter(e =>
         !!(e.sourceHandle ?? '').toLowerCase().includes('midi'));
-      // Collect unique source node IDs
+      // Collect unique source node IDs — include ALL nodes with audio activity,
+      // not just ones with edges (so unconnected AudioIN shows VU)
       const audioSources = [...new Set(allAudioEdges.map((e: any) => e.source))];
       const midiSources  = [...new Set(allMidiEdges.map((e: any)  => e.source))];
+      // Add any node with audio activity even if it has no outgoing edges
+      audioLevels.current.forEach((rms, id) => {
+        if (rms > 0.01 && !audioSources.includes(id))
+          audioSources.push(id);
+      });
       const entries = [
         ...audioSources.map((id: string) => ({ id })),
         ...midiSources.filter((id: string) => !audioSources.includes(id))
@@ -171,22 +194,38 @@ function usePortActivityStyles (edges: any[]) {
         const hasAudioOut = audioEdges.length > 0;
         const hasMidiOut  = midiEdges.length > 0;
 
-        // ── Audio VU — always applied for audio source nodes ──────────────
-        if (audioRms > 0 || hasAudioOut) {
+        // ── Audio VU — always applied for all audio nodes ──────────────────
+        {
           const col  = rmsToColour(audioRms);
           const glow = rmsToGlow(audioRms, col);
 
-          // Always colour the Audio OUT port dot, edge or no edge
-          const audioOutHandleId = `${entry.id}_Audio Out_out`;
-          css += `[data-handleid="${audioOutHandleId}"] {
-  background: ${col} !important;
-  box-shadow: ${glow} !important;
-}`;
+          // Colour ALL audio output port dots for this node
+          const nodeData = nodesRef.current.find((n: any) => n.id === entry.id);
+          const audioPorts: string[] = nodeData
+            ? (nodeData.data?.ports as any[] ?? [])
+                .filter((p: any) => p.direction === 'output' && p.type === 'audio')
+                .map((p: any) => p.label as string)
+            : ['Audio Out'];
 
-          // Also colour connected audio OUT handles
+          const portRmsList = portRmsLevels.current.get(entry.id);
+
+          audioPorts.forEach((portLabel: string, portIdx: number) => {
+            const portRms = portRmsList ? (portRmsList[portIdx] ?? 0) : audioRms;
+            if (portRms > 0.01 || audioEdges.some(e => (e.sourceHandle ?? '').includes(portLabel))) {
+              const pCol  = rmsToColour(portRms);
+              const pGlow = rmsToGlow(portRms, pCol);
+              const hid = `${entry.id}_${portLabel}_out`;
+              css += `[data-handleid="${hid}"] {
+  background: ${pCol} !important;
+  box-shadow: ${pGlow} !important;
+}`;
+            }
+          });
+
+          // Also colour connected audio OUT handles (catches any missed above)
           const audioOutHandles = [...new Set(audioEdges.map(e => e.sourceHandle ?? ''))];
           audioOutHandles.forEach(hid => {
-            if (hid && hid !== audioOutHandleId) css += `[data-handleid="${hid}"] {
+            if (hid) css += `[data-handleid="${hid}"] {
   background: ${col} !important;
   box-shadow: ${glow} !important;
 }`;
@@ -334,7 +373,7 @@ function FlowCanvas() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [toggleAllCollapsed]);
-  usePortActivityStyles(edges);
+  usePortActivityStyles(edges, nodes);
 
 
   // ── Sync from JUCE model ─────────────────────────────────────────────────

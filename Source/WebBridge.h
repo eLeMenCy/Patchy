@@ -29,6 +29,7 @@ struct PortActivity
     int               midiOutEvents = 0;   // MIDI events since last push
     float             audioRmsL     = 0.f;
     float             audioRmsR     = 0.f;
+    std::vector<float> portRms;           // per-output-port RMS for multi-port nodes
     // For keyboard nodes: active notes in inputMidi this frame
     std::vector<std::pair<uint8_t,uint8_t>> incomingNotes; // {status, note}
 };

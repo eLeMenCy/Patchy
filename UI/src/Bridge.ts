@@ -45,11 +45,12 @@ export interface RawConnection {
 
 // ── Port activity types ───────────────────────────────────────────────────────
 export interface PortActivityEntry {
-  id:    string;   // nodeId
-  midi:  number;   // event count (0 = inactive)
-  l:     number;   // audio RMS left  ×1000
-  r:     number;   // audio RMS right ×1000
-  notes: string;   // "status,note status,note ..." for keyboard nodes
+  id:      string;    // nodeId
+  midi:    number;    // event count (0 = inactive)
+  l:       number;    // audio RMS left  ×1000
+  r:       number;    // audio RMS right ×1000
+  portRms: number[];  // per-output-port RMS ×1000 for multi-port nodes
+  notes:   string;    // "status,note status,note ..." for keyboard nodes
 }
 type PortActivityCallback = (entries: PortActivityEntry[]) => void;
 const _portActivitySubscribers: PortActivityCallback[] = [];

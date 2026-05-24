@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useContext } from 'react';
 import { Bridge, AudioSettings } from './Bridge';
+import { DawContext } from './DawContext';
 import { HintContext } from './HintPanel';
-import { useContext } from 'react';
 
 // ── Graph preferences ─────────────────────────────────────────────────────────
 export interface GraphPreferences {
@@ -194,9 +194,21 @@ function GraphTab ({ prefs, onChange }: {
     onChange(next);
     savePrefs(next);
   };
+  const { isStandalone, dawLoopbackEnabled, setDawLoopback } = useContext(DawContext);
 
   return (
     <>
+      {!isStandalone && (
+        <>
+          <SectionHeader label="DAW Routing" />
+          <ToggleRow
+            label="Enable DAW loopback"
+            desc="Allow AudioOUT to route back to the DAW track. Risk of feedback loop!"
+            value={dawLoopbackEnabled}
+            onChange={setDawLoopback}
+          />
+        </>
+      )}
       <SectionHeader label="Navigation" />
       <ToggleRow
         label="Invert zoom direction"

@@ -1,4 +1,5 @@
 import { DragEvent, useEffect, useState, useContext } from 'react';
+import { DawContext } from './DawContext';
 import { HintPanel, NODE_HINTS, HintContext } from './HintPanel';
 import { Bridge, AddonInfo } from './Bridge';
 
@@ -145,6 +146,7 @@ function Section({ label, accent, children, defaultOpen = true }: {
 }
 
 export default function Sidebar() {
+  const { isStandalone } = useContext(DawContext);
   const [addons, setAddons] = useState<AddonInfo[]>([]);
   useEffect(() => { Bridge.onAddonList(list => setAddons(list)); }, []);
   const hasAddons = addons.length > 0;

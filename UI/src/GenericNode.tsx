@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState, useContext } from 'react';
 import { HintContext, NODE_HINTS, BUTTON_HINTS } from './HintPanel';
+import { DawContext } from './DawContext';
 import { X } from 'lucide-react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, AddonParamInfo } from './Bridge';
@@ -41,6 +42,7 @@ function DeviceSelector ({ nodeId, nodeType, selectedDeviceId }: {
 }) {
   const isMidi = nodeType <= 2;
   const accent = isMidi ? 'var(--midi)' : 'var(--audio)';
+  const { isStandalone, dawLoopbackEnabled } = useContext(DawContext);
   const [devices,       setDevices]       = useState<Array<{ id: string; name: string }>>([]);
   const [selectedValue, setSelectedValue] = useState<string>(selectedDeviceId ?? '');
   const [claimed,       setClaimed]       = useState<Map<string, { deviceId: string; nodeType: number }>>(new Map());
@@ -63,7 +65,13 @@ function DeviceSelector ({ nodeId, nodeType, selectedDeviceId }: {
       takenByOthers.add(claim.deviceId);
   });
 
-  const opts = devices.map(d => ({ id: d.id, name: d.name, disabled: takenByOthers.has(d.id) }));
+  const opts = devices.map(d => ({
+    id:       d.id,
+    name:     d.name,
+    disabled: takenByOthers.has(d.id)
+              || (d.id === 'DAW' && nodeType === 4 && !isStandalone && !dawLoopbackEnabled),
+    warning:  d.id === 'DAW' && nodeType === 4 && !isStandalone && !dawLoopbackEnabled,
+  }));
   const paramKey = isMidi ? 'midiDeviceId' : 'audioDeviceId';
 
   return (

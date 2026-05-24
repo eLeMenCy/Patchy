@@ -104,6 +104,9 @@ export interface AddonParamInfo {
   step:         number;   // 0=continuous, 1=integer, etc.
 }
 
+// ── DAW context (shared via React context, not Bridge) ───────────────────────
+// isStandalone and dawLoopbackEnabled are managed in App.tsx via React context
+
 export interface AudioSettings {
   sampleRate:           number;
   bufferSize:           number;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useContext, DragEvent } from 'react';
+import { DawContext } from './DawContext';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -245,6 +246,7 @@ g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path {
 
 // ── Inner component (needs useReactFlow hook) ─────────────────────────────────
 function FlowCanvas() {
+  const { isStandalone } = useContext(DawContext);
   const [nodes, setNodes] = useState<Node<any>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -255,16 +257,11 @@ function FlowCanvas() {
   const [showPrefs, setShowPrefs] = useState(false);
   const [allCollapsed, setAllCollapsed] = useState(false);
   const [fileState, setFileState] = useState<FileState>({ fileName: 'Untitled', hasFile: false });
-  const [isStandalone, setIsStandalone] = useState(false);
   const [audioSettings, setAudioSettings] = useState<AudioSettingsType | null>(null);
   const [showFileMenu, setShowFileMenu] = useState(false);
 
   useEffect(() => {
     return Bridge.onFileState(setFileState);
-  }, []);
-
-  useEffect(() => {
-    return Bridge.onStandaloneMode(setIsStandalone);
   }, []);
 
   useEffect(() => {
@@ -687,14 +684,25 @@ function FlowCanvas() {
 
 // ── Root export ───────────────────────────────────────────────────────────────
 export default function App() {
+  const [isStandalone, setIsStandalone] = useState(false);
+  const [dawLoopbackEnabled, setDawLoopback] = useState(false);
+  const dawInRef  = useRef<HTMLDivElement>(null);
+  const dawOutRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    return Bridge.onStandaloneMode(setIsStandalone);
+  }, []);
+
   return (
-    <HintProvider>
-      <div style={{ display: 'flex', width: '100%', height: '100%' }}>
-        <ReactFlowProvider>
-          <Sidebar />
-          <FlowCanvas />
-        </ReactFlowProvider>
-      </div>
-    </HintProvider>
+    <DawContext.Provider value={{ isStandalone, dawLoopbackEnabled, setDawLoopback }}>
+      <HintProvider>
+        <div style={{ display: 'flex', width: '100%', height: '100%' }}>
+          <ReactFlowProvider>
+            <Sidebar />
+            <FlowCanvas />
+          </ReactFlowProvider>
+        </div>
+      </HintProvider>
+    </DawContext.Provider>
   );
 }

@@ -25,7 +25,7 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
                [&p](const juce::String& json) { p.loadGraphFromJson (json); })
 {
     addAndMakeVisible (bridge);
-    setSize (1280, 800);
+    setSize (640, 400);
     setResizable (true, false);
     bridge.loadUI();
 }

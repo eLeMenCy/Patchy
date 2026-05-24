@@ -61,7 +61,7 @@ public:
     /** Call after any structural change to the graph model. */
     void rebuildProcessingGraph();
     void forceDawDeviceSelection (ProcessingGraph& graph);
-    bool isStandalone = true;
+    bool isStandalone = false;  // true only in standalone app, false in DAW/plugin mode
 
     /** Access the registry (for UI sidebar population). */
     AddonRegistry& getRegistry()       { return registry; }

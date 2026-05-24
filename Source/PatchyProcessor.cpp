@@ -171,7 +171,9 @@ void PatchyProcessor::rebuildProcessingGraph()
 }
 juce::AudioProcessorEditor* PatchyProcessor::createEditor()
 {
-    return new PatchyEditor (*this);
+    auto* ed = new PatchyEditor (*this);
+    ed->getBridge().isStandalone = isStandalone;
+    return ed;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

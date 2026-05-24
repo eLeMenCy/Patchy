@@ -170,28 +170,26 @@ function usePortActivityStyles (edges: any[]) {
         const hasAudioOut = audioEdges.length > 0;
         const hasMidiOut  = midiEdges.length > 0;
 
-        // ── Audio VU — always applied for audio nodes, silence colour at 0 ──
-        if (hasAudioOut) {
+        // ── Audio VU — always applied for audio source nodes ──────────────
+        if (audioRms > 0 || hasAudioOut) {
           const col  = rmsToColour(audioRms);
           const glow = rmsToGlow(audioRms, col);
 
-          // Colour all audio OUT handle dots via their edge source handles
-          if (hasAudioOut) {
-            // Collect unique source handle IDs from all audio outgoing edges
-            const audioOutHandles = [...new Set(audioEdges.map(e => e.sourceHandle ?? ''))];
-            audioOutHandles.forEach(hid => {
-              if (hid) css += `[data-handleid="${hid}"] {
+          // Always colour the Audio OUT port dot, edge or no edge
+          const audioOutHandleId = `${entry.id}_Audio Out_out`;
+          css += `[data-handleid="${audioOutHandleId}"] {
   background: ${col} !important;
   box-shadow: ${glow} !important;
 }`;
-            });
-          } else if (!hasMidiOut) {
-            // Pure audio node with no edges yet — use position selector
-            css += `div[data-nodeid="${entry.id}"][data-handlepos="right"] {
+
+          // Also colour connected audio OUT handles
+          const audioOutHandles = [...new Set(audioEdges.map(e => e.sourceHandle ?? ''))];
+          audioOutHandles.forEach(hid => {
+            if (hid && hid !== audioOutHandleId) css += `[data-handleid="${hid}"] {
   background: ${col} !important;
   box-shadow: ${glow} !important;
 }`;
-          }
+          });
 
           // Audio edges — colour edge path AND target IN handle
           audioEdges.forEach(e => {

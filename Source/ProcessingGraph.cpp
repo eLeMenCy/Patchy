@@ -182,47 +182,45 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
     for (auto* n : sortedNodes)
         n->resetBuffers (numSamples);
 
-    // ── 1b. DAW device nodes: inject/collect host audio directly ────────────
-    for (auto* n : sortedNodes)
-    {
-        if (auto* inNode = dynamic_cast<AudioInDeviceNode*> (n))
-        {
-            if (inNode->getIsDawDevice())
-            {
-                // Copy host audio into outputAudio so downstream nodes can use it
-                int ch = std::min (hostAudio.getNumChannels(), n->outputAudio.getNumChannels());
-                for (int i = 0; i < ch; ++i)
-                    n->outputAudio.copyFrom (i, 0, hostAudio, i, 0, numSamples);
-            }
-        }
-    }
-
-    // ── 2. Feed host input into source nodes (no incoming connections) ────
-    //    Build set of nodes that have at least one incoming edge
+    // Build connectivity sets (used in steps 2 and 4)
     std::unordered_set<juce::String> hasInput;
     for (auto& e : edges)
         hasInput.insert (e.dstNodeId);
 
+    std::unordered_set<juce::String> hasOutput;
+    for (auto& e : edges)
+        hasOutput.insert (e.srcNodeId);
+
+    // ── 2. Feed inputs into source nodes ─────────────────────────────────
+
     for (auto* n : sortedNodes)
     {
+        // AudioInDeviceNode: gets audio from physical device FIFO (standalone)
+        // or from hostAudio (DAW mode via isDawDevice)
+        if (auto* inNode = dynamic_cast<AudioInDeviceNode*> (n))
+        {
+            if (inNode->getIsDawDevice())
+            {
+                // DAW mode: inject host audio directly into outputAudio
+                int ch = std::min (hostAudio.getNumChannels(), n->outputAudio.getNumChannels());
+                for (int i = 0; i < ch; ++i)
+                    n->outputAudio.copyFrom (i, 0, hostAudio, i, 0, numSamples);
+            }
+            // else: physical device — FIFO filled by audio callback, process() reads it
+            continue;  // AudioInDeviceNode never gets hostAudio as inputAudio
+        }
+
+        // AudioOutDeviceNode: never gets hostAudio fed in — it's a pure sink
+        if (dynamic_cast<AudioOutDeviceNode*> (n) != nullptr) continue;
+
+        // Skip observer nodes — they only see what's explicitly connected
+        if (dynamic_cast<MidiMonitorNode*>  (n) != nullptr) continue;
+        if (dynamic_cast<AudioMonitorNode*>  (n) != nullptr) continue;
+        if (dynamic_cast<MidiKeyboardNode*>  (n) != nullptr) continue;
+
+        // Source nodes (no incoming edges): feed host audio/MIDI
         if (hasInput.count (n->id) == 0)
         {
-            // Monitor nodes are pass-through observers — skip host input injection.
-            // They only receive data from explicitly connected upstream nodes.
-            if (dynamic_cast<MidiMonitorNode*>  (n) != nullptr) continue;
-            if (dynamic_cast<AudioMonitorNode*>  (n) != nullptr) continue;
-            if (dynamic_cast<MidiKeyboardNode*>  (n) != nullptr) continue;
-            // Skip AudioIn/Out device nodes in DAW mode — they handle their own I/O
-            if (! isStandaloneMode)
-            {
-                if (dynamic_cast<AudioInDeviceNode*>  (n) != nullptr) continue;
-                if (dynamic_cast<AudioOutDeviceNode*> (n) != nullptr) continue;
-            }
-            else if (auto* inNode = dynamic_cast<AudioInDeviceNode*> (n))
-                if (inNode->getIsDawDevice()) continue;
-
-            // Source node: give it the host's audio and MIDI
-            // Use inputAudioBuffers[0] if available (addon nodes), else inputAudio
             auto& targetBuf = (!n->inputAudioBuffers.empty())
                               ? n->inputAudioBuffers[0]
                               : n->inputAudio;
@@ -230,7 +228,6 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
                                         targetBuf.getNumChannels());
             for (int ch = 0; ch < chansToFeed; ++ch)
                 targetBuf.copyFrom (ch, 0, hostAudio, ch, 0, numSamples);
-
             n->inputMidi = hostMidi;
         }
     }
@@ -238,7 +235,7 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
     // ── 3. Process each node in topological order ─────────────────────────
     for (auto* n : sortedNodes)
     {
-        // Copy outputs from upstream neighbours into this node's inputs
+        // Route edges: copy upstream outputAudio → this node's inputAudio
         for (auto& e : edges)
         {
             if (e.dstNodeId != n->id) continue;
@@ -249,8 +246,6 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
 
             if (isAudioPort (e.srcPortId))
             {
-                // Determine which port index this connection uses
-                // Port ID format: "nodeId_Audio Out_out" or "nodeId_Audio Out 2_out"
                 int srcPortIdx = 0;
                 auto srcLabel = e.srcPortId.fromLastOccurrenceOf (e.srcNodeId + "_", false, false)
                                            .upToLastOccurrenceOf ("_", false, false);
@@ -263,7 +258,6 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
                 if (dstLabel.containsIgnoreCase ("Audio In "))
                     dstPortIdx = dstLabel.getTrailingIntValue() - 1;
 
-                // Use per-port buffers when available, otherwise single buffer
                 auto& srcBuf = (srcPortIdx < (int) src->outputAudioBuffers.size())
                                ? src->outputAudioBuffers[static_cast<size_t>(srcPortIdx)]
                                : src->outputAudio;
@@ -277,12 +271,9 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
             }
             else
             {
-                // Merge MIDI from source output into this node's input
                 for (auto meta : src->outputMidi)
                     n->inputMidi.addEvent (meta.getMessage(), meta.samplePosition);
 
-                // For MidiMonitorNode: push events with per-edge source info
-                // so each event correctly shows which node/device it came from
                 if (auto* mon = dynamic_cast<MidiMonitorNode*> (n))
                 {
                     juce::String srcLabel = labelMap.count (src->id) ? labelMap.at (src->id) : src->id;
@@ -298,83 +289,74 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
             }
         }
 
-        // Skip process() for DAW device nodes — their I/O is handled in steps 1b/3b
-        bool isDawNode = false;
-        if (auto* inNode  = dynamic_cast<AudioInDeviceNode*>  (n)) isDawNode = inNode->getIsDawDevice();
-        if (auto* outNode = dynamic_cast<AudioOutDeviceNode*> (n)) isDawNode = outNode->getIsDawDevice();
-        if (! isDawNode)
-            n->process (numSamples);
+        // DAW AudioIn: outputAudio already filled in step 2 — skip process()
+        // to prevent FIFO read from overwriting it with silence
+        if (auto* inNode = dynamic_cast<AudioInDeviceNode*> (n))
+            if (inNode->getIsDawDevice()) continue;
 
-    }
-
-    // ── 3b. DAW Out nodes: collect inputAudio → host buffer ──────────────────
-    bool dawOutHandled = false;
-    for (auto* n : sortedNodes)
-    {
+        // DAW AudioOut: inputAudio will be collected below — skip process()
+        // to prevent FIFO write (physical device not available in DAW)
         if (auto* outNode = dynamic_cast<AudioOutDeviceNode*> (n))
-        {
-            if (outNode->getIsDawDevice())
-            {
-                if (! dawOutHandled) { hostAudio.clear(); dawOutHandled = true; }
-                int ch = std::min (n->inputAudio.getNumChannels(), hostAudio.getNumChannels());
-                for (int i = 0; i < ch; ++i)
-                    hostAudio.addFrom (i, 0, n->inputAudio, i, 0, numSamples);
-            }
-        }
+            if (outNode->getIsDawDevice()) continue;
+
+        n->process (numSamples);
     }
 
-    // ── 4. Collect sink node outputs → host buffer ────────────────────────
-    //    Sink = nodes with no outgoing connections
-    std::unordered_set<juce::String> hasOutput;
-    for (auto& e : edges)
-        hasOutput.insert (e.srcNodeId);
-
-    // ── 4. Collect non-device sink outputs → host buffer ─────────────────────
-    // AudioIn/Out device nodes handle their own I/O — skip them here.
-    // In DAW mode: NEVER clear hostAudio — either step 3b handled it,
-    // or we want to pass it through unchanged.
-    // In standalone: only clear if we have non-device sinks to collect from.
+    // ── 4. Collect outputs → hostAudio ───────────────────────────────────────
     hostMidi.clear();
 
-    bool hasNonDeviceSink = false;
-    for (auto* n : sortedNodes)
+    // DAW mode: ONLY replace hostAudio if a DAW AudioOut node has signal.
+    // Otherwise always pass through — incomplete chains never block audio.
+    // Standalone mode: collect non-device sinks into hostAudio.
+    if (! isStandaloneMode)
     {
-        if (hasOutput.count (n->id) > 0) continue;
-        if (dynamic_cast<AudioOutDeviceNode*> (n) != nullptr) continue;
-        if (dynamic_cast<AudioInDeviceNode*>  (n) != nullptr) continue;
-        hasNonDeviceSink = true;
+        // Only replace hostAudio if a DAW AudioOut node has an incoming connection
+        // (i.e. it actually has signal to output). No connection = pass through.
+        bool dawOutFound = false;
+        for (auto* n : sortedNodes)
+        {
+            if (auto* outNode = dynamic_cast<AudioOutDeviceNode*> (n))
+            {
+                if (outNode->getIsDawDevice() && hasInput.count (n->id) > 0)
+                {
+                    if (! dawOutFound) { hostAudio.clear(); dawOutFound = true; }
+                    int ch = std::min (n->inputAudio.getNumChannels(), hostAudio.getNumChannels());
+                    for (int i = 0; i < ch; ++i)
+                        hostAudio.addFrom (i, 0, n->inputAudio, i, 0, numSamples);
+                }
+            }
+        }
+        // No connected DAW AudioOut → hostAudio untouched (pass through)
     }
-
-    // Clear hostAudio for collection:
-    // - Standalone: only if we have non-device sinks
-    // - DAW mode: always clear if step 3b didn't handle it (prevents pass-through)
-    if (! dawOutHandled)
+    else
     {
-        if (isStandaloneMode && hasNonDeviceSink)
-            hostAudio.clear();
-        else if (! isStandaloneMode)
-            hostAudio.clear();  // DAW: clear so nodes control output, no implicit pass-through
-    }
+        // Standalone: collect non-device sinks
+        bool hasNonDeviceSink = false;
+        for (auto* n : sortedNodes)
+        {
+            if (hasOutput.count (n->id) > 0) continue;
+            if (dynamic_cast<AudioOutDeviceNode*> (n) != nullptr) continue;
+            if (dynamic_cast<AudioInDeviceNode*>  (n) != nullptr) continue;
+            hasNonDeviceSink = true;
+        }
+        if (hasNonDeviceSink) hostAudio.clear();
 
-    for (auto* n : sortedNodes)
-    {
-        if (hasOutput.count (n->id) > 0) continue;
-        if (dynamic_cast<AudioOutDeviceNode*> (n) != nullptr) continue;
-        if (dynamic_cast<AudioInDeviceNode*>  (n) != nullptr) continue;
+        for (auto* n : sortedNodes)
+        {
+            if (hasOutput.count (n->id) > 0) continue;
+            if (dynamic_cast<AudioOutDeviceNode*> (n) != nullptr) continue;
+            if (dynamic_cast<AudioInDeviceNode*>  (n) != nullptr) continue;
 
-        // In DAW mode, only collect addon sinks if explicitly chained
-        // (no AudioOUT device means signal stays in graph, doesn't go to DAW bus)
-        if (! isStandaloneMode) continue;
+            auto& srcBuf = (!n->outputAudioBuffers.empty())
+                           ? n->outputAudioBuffers[0]
+                           : n->outputAudio;
+            int chans = std::min (srcBuf.getNumChannels(), hostAudio.getNumChannels());
+            for (int ch = 0; ch < chans; ++ch)
+                hostAudio.addFrom (ch, 0, srcBuf, ch, 0, numSamples);
 
-        auto& srcBuf = (!n->outputAudioBuffers.empty())
-                       ? n->outputAudioBuffers[0]
-                       : n->outputAudio;
-        int chans = std::min (srcBuf.getNumChannels(), hostAudio.getNumChannels());
-        for (int ch = 0; ch < chans; ++ch)
-            hostAudio.addFrom (ch, 0, srcBuf, ch, 0, numSamples);
-
-        for (auto meta : n->outputMidi)
-            hostMidi.addEvent (meta.getMessage(), meta.samplePosition);
+            for (auto meta : n->outputMidi)
+                hostMidi.addEvent (meta.getMessage(), meta.samplePosition);
+        }
     }
 }
 

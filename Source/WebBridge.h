@@ -66,7 +66,7 @@ public:
     void loadUI();
     void pushGraphToUI();
     void pushToUI (const juce::String& bridgeFn, juce::String json);
-    bool isStandalone = true;  // false = DAW/plugin mode
+    bool isStandalone = false;  // true only in standalone app
     std::function<void(double, int, bool)> onSetAudioEngineSettings;
     std::function<void()>                  onUIReady;
 

@@ -20,7 +20,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { Bridge, FileState, AudioSettings as AudioSettingsType, GraphState, RawNode, RawConnection, PortActivityEntry, AddonParamInfo } from './Bridge';
+import { Bridge, FileState, AudioSettings, GraphState, RawNode, RawConnection, PortActivityEntry, AddonParamInfo } from './Bridge';
 import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
@@ -109,10 +109,10 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
   const midiTimers = useRef<Map<string, number>>(new Map());
   const audioLevels    = useRef<Map<string, number>>(new Map());
   const portRmsLevels  = useRef<Map<string, number[]>>(new Map());
-  const edgeList  = useRef<typeof edges>(edges);
-  const nodesRef   = useRef<any[]>(nodes);
+  const edgeList = useRef<typeof edges>(edges);
+  const nodesRef = useRef<any[]>(nodes);
   useEffect(() => { edgeList.current = edges; }, [edges]);
-  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+  useEffect(() => { nodesRef.current = nodes;  }, [nodes]);
 
   useEffect(() => {
     // Create a single <style> tag we'll update at 30fps
@@ -157,26 +157,26 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
       if (!style) { rafId = requestAnimationFrame(render); return; }
       const now = Date.now();
       // Decay audio levels each frame
-      audioLevels.current.forEach((v, k) => {
+      audioLevels.current.forEach((v: number, k: string) => {
         audioLevels.current.set(k, v * 0.97);
       });
-      portRmsLevels.current.forEach((ports, k) => {
-        portRmsLevels.current.set(k, ports.map(v => v * 0.97));
+      portRmsLevels.current.forEach((ports: number[], k: string) => {
+        portRmsLevels.current.set(k, ports.map((v: number) => v * 0.97));
       });
-      const allAudioEdges = edgeList.current.filter(e =>
+      const allAudioEdges: any[] = edgeList.current.filter((e: any) =>
         !!(e.sourceHandle ?? '').toLowerCase().includes('audio'));
-      const allMidiEdges  = edgeList.current.filter(e =>
+      const allMidiEdges: any[]  = edgeList.current.filter((e: any) =>
         !!(e.sourceHandle ?? '').toLowerCase().includes('midi'));
       // Collect unique source node IDs — include ALL nodes with audio activity,
       // not just ones with edges (so unconnected AudioIN shows VU)
-      const audioSources = [...new Set(allAudioEdges.map((e: any) => e.source))];
-      const midiSources  = [...new Set(allMidiEdges.map((e: any)  => e.source))];
+      const audioSources: string[] = [...new Set(allAudioEdges.map((e: any) => e.source as string))];
+      const midiSources: string[]  = [...new Set(allMidiEdges.map((e: any)  => e.source as string))];
       // Add any node with audio activity even if it has no outgoing edges
-      audioLevels.current.forEach((rms, id) => {
-        if (rms > 0.01 && !audioSources.includes(id))
-          audioSources.push(id);
+      audioLevels.current.forEach((rms: number, id: string) => {
+        if ((rms as number) > 0.01 && !audioSources.includes(id as string))
+          audioSources.push(id as string);
       });
-      const entries = [
+      const entries: { id: string }[] = [
         ...audioSources.map((id: string) => ({ id })),
         ...midiSources.filter((id: string) => !audioSources.includes(id))
           .map((id: string) => ({ id })),
@@ -296,7 +296,7 @@ function FlowCanvas() {
   const [showPrefs, setShowPrefs] = useState(false);
   const [allCollapsed, setAllCollapsed] = useState(false);
   const [fileState, setFileState] = useState<FileState>({ fileName: 'Untitled', hasFile: false });
-  const [audioSettings, setAudioSettings] = useState<AudioSettingsType | null>(null);
+  const [audioSettings, setAudioSettings] = useState<AudioSettings | null>(null);
   const [showFileMenu, setShowFileMenu] = useState(false);
 
   useEffect(() => {

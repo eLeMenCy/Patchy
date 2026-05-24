@@ -257,9 +257,7 @@ void WebBridge::handleMessage (const juce::String& json)
         pushMidiDevices();
         pushAudioDevices();
         pushGraphToUI();
-        juce::Logger::writeToLog ("WebBridge: calling onUIReady");
         if (onUIReady) onUIReady();
-        juce::Logger::writeToLog ("WebBridge: onUIReady done");
         startTimerHz (30);
     }
     else if (type == "addNode")

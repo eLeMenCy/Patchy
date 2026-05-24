@@ -194,7 +194,7 @@ function GraphTab ({ prefs, onChange }: {
     onChange(next);
     savePrefs(next);
   };
-  const { isStandalone, dawLoopbackEnabled, setDawLoopback } = useContext(DawContext);
+  const { isStandalone, dawLoopbackEnabled, setDawLoopback, dawHostEnabled, setDawHost } = useContext(DawContext);
 
   return (
     <>
@@ -206,6 +206,12 @@ function GraphTab ({ prefs, onChange }: {
             desc="Allow AudioOUT to route back to the DAW track. Risk of feedback loop!"
             value={dawLoopbackEnabled}
             onChange={setDawLoopback}
+          />
+          <ToggleRow
+            label="Enable DAW host devices"
+            desc="Allow selection of your DAW's own virtual audio devices. May cause signal doubling!"
+            value={dawHostEnabled}
+            onChange={setDawHost}
           />
         </>
       )}

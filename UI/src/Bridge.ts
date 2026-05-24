@@ -89,7 +89,7 @@ export interface MidiDeviceList  {
   midiOutDevices: MidiDeviceInfo[];
   midiInDevices:  MidiDeviceInfo[];
 }
-export interface AudioDeviceInfo { id: string; name: string; }
+export interface AudioDeviceInfo { id: string; name: string; dawHost?: boolean; }
 export interface AudioDeviceList {
   audioOutDevices: AudioDeviceInfo[];
   audioInDevices:  AudioDeviceInfo[];

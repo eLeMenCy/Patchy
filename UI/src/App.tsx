@@ -725,6 +725,7 @@ function FlowCanvas() {
 export default function App() {
   const [isStandalone, setIsStandalone] = useState(false);
   const [dawLoopbackEnabled, setDawLoopback] = useState(false);
+  const [dawHostEnabled, setDawHost]         = useState(false);
   const dawInRef  = useRef<HTMLDivElement>(null);
   const dawOutRef = useRef<HTMLDivElement>(null);
 
@@ -733,7 +734,7 @@ export default function App() {
   }, []);
 
   return (
-    <DawContext.Provider value={{ isStandalone, dawLoopbackEnabled, setDawLoopback }}>
+    <DawContext.Provider value={{ isStandalone, dawLoopbackEnabled, setDawLoopback, dawHostEnabled, setDawHost }}>
       <HintProvider>
         <div style={{ display: 'flex', width: '100%', height: '100%' }}>
           <ReactFlowProvider>

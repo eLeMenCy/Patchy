@@ -60,22 +60,37 @@ juce::var AudioDeviceManager::getAvailableDevicesVar (bool isStandalone)
     juce::AudioDeviceManager tempManager;
     tempManager.initialiseWithDefaultDevices (2, 2);
 
+    // Known DAW virtual device patterns — confusing and potentially dangerous
+    auto isDawVirtualDevice = [](const juce::String& name) -> bool {
+        return name.containsIgnoreCase ("Bitwig")
+            || name.containsIgnoreCase ("Ableton")
+            || name.containsIgnoreCase ("Logic Pro")
+            || name.containsIgnoreCase ("Pro Tools")
+            || name.containsIgnoreCase ("Reaper")
+            || name.containsIgnoreCase ("Cubase")
+            || name.containsIgnoreCase ("Studio One")
+            || name.containsIgnoreCase ("FL Studio")
+            || name.containsIgnoreCase ("Ardour");
+    };
+
     for (auto* type : tempManager.getAvailableDeviceTypes())
     {
         // Output devices
         for (const auto& name : type->getDeviceNames (false))
         {
             auto* obj = new juce::DynamicObject();
-            obj->setProperty ("id",   name);
-            obj->setProperty ("name", name);
+            obj->setProperty ("id",      name);
+            obj->setProperty ("name",    name);
+            obj->setProperty ("dawHost", isDawVirtualDevice (name));
             outArr.add (obj);
         }
         // Input devices
         for (const auto& name : type->getDeviceNames (true))
         {
             auto* obj = new juce::DynamicObject();
-            obj->setProperty ("id",   name);
-            obj->setProperty ("name", name);
+            obj->setProperty ("id",      name);
+            obj->setProperty ("name",    name);
+            obj->setProperty ("dawHost", isDawVirtualDevice (name));
             inArr.add (obj);
         }
     }

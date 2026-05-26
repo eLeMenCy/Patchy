@@ -10,11 +10,19 @@ import { Settings, X } from 'lucide-react';
 
 const ACCENT = 'var(--audio)';
 const UI_BINS = 64;
-const CANVAS_W = 224;
+const CANVAS_W = 250;
 const CANVAS_H = 60;
+const BAND_COLORS = ['#a78bfa', '#60a5fa', '#34d399', '#fb923c', '#f87171'];
 
 const DEFAULT_LOW  = [20,   200,  2000,  8000, 16000];
 const DEFAULT_HIGH = [200, 2000,  8000, 16000, 20000];
+
+// Logarithmic frequency scale helpers (20Hz - 20000Hz)
+const FREQ_MIN = 20, FREQ_MAX = 20000;
+const toSlider  = (hz: number) =>
+  Math.round((Math.log(hz / FREQ_MIN) / Math.log(FREQ_MAX / FREQ_MIN)) * 1000);
+const fromSlider = (v: number) =>
+  Math.round(FREQ_MIN * Math.pow(FREQ_MAX / FREQ_MIN, v / 1000));
 
 function freqLabel(hz: number) {
   return hz >= 1000 ? `${(hz/1000).toFixed(1)}k` : `${Math.round(hz)}`;
@@ -23,7 +31,7 @@ function freqLabel(hz: number) {
 // ── Spectrum canvas ───────────────────────────────────────────────────────────
 function SpectrumDisplay({ mags, bands }: { mags: number[]; bands: { lo: number; hi: number }[] }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const COLORS = ['#7c3aed44','#2563eb44','#05966944','#d9770644','#dc262644'];
+  const COLORS = BAND_COLORS.map(col => col + '44');
 
   useEffect(() => {
     const c = ref.current; if (!c) return;
@@ -68,7 +76,20 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
   const [bandLow,   setBandLow]   = useState([...DEFAULT_LOW]);
   const [bandHigh,  setBandHigh]  = useState([...DEFAULT_HIGH]);
 
-  const portBodyRef = useRef<HTMLDivElement>(null);
+  const portBodyRef  = useRef<HTMLDivElement>(null);
+  const cmdDown      = useRef(false);
+  const [linked, setLinked] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const down = e.metaKey || e.ctrlKey;
+      cmdDown.current = down;
+      setLinked(down);
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('keyup',   onKey);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey); };
+  }, []);
   const ports    = (data as any)?.ports ?? [];
   const inPorts  = ports.filter((p: any) => p.type === 'audio' && p.direction === 'input');
   const outPorts = ports.filter((p: any) => p.type === 'audio' && p.direction === 'output');
@@ -83,34 +104,64 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
   }), [id]);
 
   const handleParam = useCallback((idx: number, val: number) => {
-    Bridge.setAddonParameter(id, idx, val);
     if (idx === 0) {
       const n = Math.round(val);
+      Bridge.setAddonParameter(id, idx, val);
       setBandCount(n);
       setBands(Array.from({length:n}, (_,b) => ({
         lo: bandLow[b] ?? DEFAULT_LOW[b],
         hi: bandHigh[b] ?? DEFAULT_HIGH[b],
       })));
-    } else if ((idx-1) % 2 === 0) {
-      const b = (idx-1)/2;
+      return;
+    }
+
+    const isLow  = (idx - 1) % 2 === 0;
+    const b      = isLow ? (idx-1)/2 : (idx-2)/2;
+    const linked = cmdDown.current;
+
+    if (isLow) {
+      Bridge.setAddonParameter(id, idx, val);
       setBandLow(p => { const a=[...p]; a[b]=val; return a; });
-      setBands(p => p.map((bd,i) => i===b ? {...bd,lo:val} : bd));
+      setBands(p => p.map((bd,i) => i===b ? {...bd, lo:val} : bd));
+      if (linked) {
+        // Delta in slider space (log scale) so both thumbs move at equal speed
+        const prevSlider = toSlider(bandLow[b] ?? DEFAULT_LOW[b]);
+        const newSlider  = toSlider(val);
+        const delta      = newSlider - prevSlider;
+        const newHiSlider = Math.min(1000, Math.max(0, toSlider(bandHigh[b] ?? DEFAULT_HIGH[b]) + delta));
+        const newHi = fromSlider(newHiSlider);
+        Bridge.setAddonParameter(id, idx+1, newHi);
+        setBandHigh(p => { const a=[...p]; a[b]=newHi; return a; });
+        setBands(p => p.map((bd,i) => i===b ? {...bd, lo:val, hi:newHi} : bd));
+      }
     } else {
-      const b = (idx-2)/2;
+      Bridge.setAddonParameter(id, idx, val);
       setBandHigh(p => { const a=[...p]; a[b]=val; return a; });
-      setBands(p => p.map((bd,i) => i===b ? {...bd,hi:val} : bd));
+      setBands(p => p.map((bd,i) => i===b ? {...bd, hi:val} : bd));
+      if (linked) {
+        // Delta in slider space (log scale) so both thumbs move at equal speed
+        const prevSlider = toSlider(bandHigh[b] ?? DEFAULT_HIGH[b]);
+        const newSlider  = toSlider(val);
+        const delta      = newSlider - prevSlider;
+        const newLoSlider = Math.min(1000, Math.max(0, toSlider(bandLow[b] ?? DEFAULT_LOW[b]) + delta));
+        const newLo = fromSlider(newLoSlider);
+        Bridge.setAddonParameter(id, idx-1, newLo);
+        setBandLow(p => { const a=[...p]; a[b]=newLo; return a; });
+        setBands(p => p.map((bd,i) => i===b ? {...bd, lo:newLo, hi:val} : bd));
+      }
     }
   }, [id, bandLow, bandHigh]);
 
   const handleReset = useCallback(() => {
-    Bridge.setAddonParameter(id, 0, 3);
-    DEFAULT_LOW.forEach((lo,b)  => Bridge.setAddonParameter(id, 1+b*2, lo));
-    DEFAULT_HIGH.forEach((hi,b) => Bridge.setAddonParameter(id, 2+b*2, hi));
-    setBandCount(3);
+    // Reset only frequency boundaries for current band count — not the count itself
+    for (let b = 0; b < bandCount; b++) {
+      Bridge.setAddonParameter(id, 1+b*2,   DEFAULT_LOW[b]);
+      Bridge.setAddonParameter(id, 1+b*2+1, DEFAULT_HIGH[b]);
+    }
     setBandLow([...DEFAULT_LOW]);
     setBandHigh([...DEFAULT_HIGH]);
-    setBands(DEFAULT_LOW.slice(0,3).map((lo,i) => ({ lo, hi: DEFAULT_HIGH[i] })));
-  }, [id]);
+    setBands(Array.from({length: bandCount}, (_,b) => ({ lo: DEFAULT_LOW[b], hi: DEFAULT_HIGH[b] })));
+  }, [id, bandCount]);
 
   const label = (data as any)?.label ?? 'Spectrumyser';
 
@@ -141,7 +192,7 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
       {/* OUT ports — use portBodyRef so they merge to centre when collapsed */}
       {outPorts.map((p: any, i: number) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="out"
-          colour={ACCENT} index={i} total={outPorts.length}
+          colour={BAND_COLORS[i] ?? ACCENT} index={i} total={outPorts.length}
           portBodyRef={portBodyRef} offset={4} />
       ))}
 
@@ -230,24 +281,31 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
             <div key={b} className="nodrag"
               onMouseDown={e => e.stopPropagation()}
               style={{ display:'flex', alignItems:'center', gap:4, marginBottom:4 }}>
-              <span style={{ color:'var(--text-muted)', minWidth:24 }}>B{b+1}</span>
-              <input type="range" min={20} max={20000} step={1}
-                value={bandLow[b] ?? DEFAULT_LOW[b]}
+              <span style={{ color: BAND_COLORS[b], minWidth:24, fontWeight:700 }}>B{b+1}</span>
+              <input type="range" min={0} max={1000} step={1}
+                value={toSlider(bandLow[b] ?? DEFAULT_LOW[b])}
                 className="nodrag"
                 onMouseDown={e => e.stopPropagation()}
-                onChange={e => handleParam(1+b*2, parseFloat(e.target.value))}
-                style={{ width:70, accentColor:ACCENT }} />
+                onDoubleClick={e => { e.stopPropagation(); handleParam(1+b*2, DEFAULT_LOW[b]); }}
+                onChange={e => handleParam(1+b*2, fromSlider(parseInt(e.target.value)))}
+                style={{ width:70, ['--thumb-color' as any]: BAND_COLORS[b] }} />
               <span style={{ minWidth:28, color:ACCENT }}>{freqLabel(bandLow[b] ?? DEFAULT_LOW[b])}</span>
-              <span style={{ color:'var(--text-muted)' }}>→</span>
-              <input type="range" min={20} max={20000} step={1}
-                value={bandHigh[b] ?? DEFAULT_HIGH[b]}
+              <span style={{ color: linked ? '#fbbf24' : 'var(--text-muted)', fontSize: linked ? 11 : 9, transition: 'all 0.1s' }}>{linked ? '⇔' : '→'}</span>
+              <input type="range" min={0} max={1000} step={1}
+                value={toSlider(bandHigh[b] ?? DEFAULT_HIGH[b])}
                 className="nodrag"
                 onMouseDown={e => e.stopPropagation()}
-                onChange={e => handleParam(1+b*2+1, parseFloat(e.target.value))}
-                style={{ width:70, accentColor:ACCENT }} />
+                onDoubleClick={e => { e.stopPropagation(); handleParam(1+b*2+1, DEFAULT_HIGH[b]); }}
+                onChange={e => handleParam(1+b*2+1, fromSlider(parseInt(e.target.value)))}
+                style={{ width:70, ['--thumb-color' as any]: BAND_COLORS[b] }} />
               <span style={{ minWidth:32, color:ACCENT }}>{freqLabel(bandHigh[b] ?? DEFAULT_HIGH[b])}</span>
             </div>
           ))}
+          {linked && (
+            <div style={{ padding:'2px 0 4px', fontSize:8, color:'#fbbf24', textAlign:'center' }}>
+              ⌘/Ctrl held — sliders linked
+            </div>
+          )}
         </div>
       )}
     </div>

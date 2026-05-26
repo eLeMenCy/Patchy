@@ -59,16 +59,18 @@ public:
         using GetParamCountFn = int   (*)(NGA_Instance*);
         using GetParamInfoFn  = void  (*)(NGA_Instance*, int, NGA_ParameterInfo*);
         using GetParamFn      = float (*)(NGA_Instance*, int);
-        using SetParamFn      = void  (*)(NGA_Instance*, int, float);
+        using SetParamFn          = void  (*)(NGA_Instance*, int, float);
+        using GetAudioOutCountFn  = int   (*)(NGA_Instance*);
 
-        CreateFn        create        = nullptr;
-        DestroyFn       destroy       = nullptr;
-        PrepareFn       prepare       = nullptr;
-        ProcessFn       process       = nullptr;
-        GetParamCountFn getParamCount = nullptr;
-        GetParamInfoFn  getParamInfo  = nullptr;
-        GetParamFn      getParam      = nullptr;
-        SetParamFn      setParam      = nullptr;
+        CreateFn           create           = nullptr;
+        DestroyFn          destroy          = nullptr;
+        PrepareFn          prepare          = nullptr;
+        ProcessFn          process          = nullptr;
+        GetParamCountFn    getParamCount    = nullptr;
+        GetParamInfoFn     getParamInfo     = nullptr;
+        GetParamFn         getParam         = nullptr;
+        SetParamFn         setParam         = nullptr;
+        GetAudioOutCountFn getAudioOutCount = nullptr;
     };
 
     const std::vector<Entry>& getEntries() const { return entries; }
@@ -98,6 +100,7 @@ public:
 
     const juce::String& getAddonName() const { return addonName; }
     juce::String customName;   // user-defined display name (for MidiMonitor NAME column)
+    std::function<void()> onPortCountChanged;  // called when dynamic port count changes
     int audioInputCount  = 1;  // number of audio input ports
     int audioOutputCount = 1;  // number of audio output ports
 
@@ -106,6 +109,24 @@ public:
     void  getParameterInfo  (int index, NGA_ParameterInfo& info) const;
     float getParameter      (int index) const;
     void  setParameter      (int index, float value);
+
+    // Spectrum data access (for Spectrumyser addon)
+    struct SpectrumData
+    {
+        int           fftSize   = 0;
+        const float*  mags      = nullptr;  // points into addon memory — valid until next process()
+        bool          valid     = false;
+    };
+    SpectrumData getSpectrumData() const
+    {
+        if (! lib) return {};
+        using GetFFTSize = int         (*)(NGA_Instance*);
+        using GetFFTMags = const float* (*)(NGA_Instance*);
+        auto getSize = (GetFFTSize) lib->getFunction ("NGA_getFFTSize");
+        auto getMags = (GetFFTMags) lib->getFunction ("NGA_getFFTMagnitudes");
+        if (! getSize || ! getMags) return {};
+        return { getSize (instance), getMags (instance), true };
+    }
 
 private:
     std::shared_ptr<juce::DynamicLibrary> lib;
@@ -117,7 +138,8 @@ private:
     AddonRegistry::Entry::GetParamCountFn fnGetParamCount = nullptr;
     AddonRegistry::Entry::GetParamInfoFn  fnGetParamInfo  = nullptr;
     AddonRegistry::Entry::GetParamFn      fnGetParam      = nullptr;
-    AddonRegistry::Entry::SetParamFn      fnSetParam      = nullptr;
+    AddonRegistry::Entry::SetParamFn          fnSetParam          = nullptr;
+    AddonRegistry::Entry::GetAudioOutCountFn  fnGetAudioOutCount  = nullptr;
 
     NGA_Instance* instance   = nullptr;
     juce::String  addonName;

@@ -1,7 +1,7 @@
 {
   "name": "nodegraph-ui",
   "private": true,
-  "version": "0.0.554",
+  "version": "0.0.644",
   "type": "module",
   "scripts": {
     "dev": "vite",

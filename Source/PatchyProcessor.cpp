@@ -59,6 +59,7 @@ void PatchyProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
                              [this](const juce::String& nid) { return getOrCreateAudioMonitorBuffer(nid); },
                              [this](const juce::String& nid) { return getOrCreateKeyboardMonitorBuffer(nid); });
     processingGraph.isStandaloneMode = isStandalone;
+    processingGraph.graphModel        = &graphModel;
     processingGraph.prepare (sampleRate, samplesPerBlock);
 midiDeviceManager.applyDeviceSelections  (processingGraph);
     audioDeviceManager.applyDeviceSelections (processingGraph);
@@ -83,6 +84,7 @@ void PatchyProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         processingGraph = std::move (*pendingGraph);
         pendingGraph.reset();
         processingGraph.isStandaloneMode = isStandalone;
+        processingGraph.graphModel        = &graphModel;
         processingGraph.prepare (lastSampleRate, lastBlockSize);
     }
 

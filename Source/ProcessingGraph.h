@@ -33,6 +33,26 @@ public:
     void process (juce::AudioBuffer<float>& hostAudio, juce::MidiBuffer& hostMidi);
 
     bool isEmpty()    const { return nodes.empty(); }
+
+    /** Remove edges involving ports that no longer exist on a node.
+     *  Called after dynamic port count changes to keep edges in sync with GraphModel. */
+    void pruneEdgesForNode (const juce::String& nodeId, const std::vector<juce::String>& validPortIds)
+    {
+        edges.erase (
+            std::remove_if (edges.begin(), edges.end(),
+                [&] (const Edge& e)
+                {
+                    if (e.srcNodeId == nodeId)
+                        return std::find (validPortIds.begin(), validPortIds.end(), e.srcPortId) == validPortIds.end();
+                    if (e.dstNodeId == nodeId)
+                        return std::find (validPortIds.begin(), validPortIds.end(), e.dstPortId) == validPortIds.end();
+                    return false;
+                }),
+            edges.end()
+        );
+        topologicalSort();
+    }
+    GraphModel* graphModel = nullptr;  // set by PatchyProcessor, used for dynamic port updates
     bool isStandaloneMode = false;  // set true only in standalone app
     int  getNodeCount() const { return (int) nodes.size(); }
     const std::vector<std::unique_ptr<NodeProcessor>>& getNodes() const { return nodes; }

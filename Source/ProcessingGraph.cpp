@@ -334,30 +334,18 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
     }
     else
     {
-        // Standalone: collect non-device sinks
-        bool hasNonDeviceSink = false;
-        for (auto* n : sortedNodes)
-        {
-            if (hasOutput.count (n->id) > 0) continue;
-            if (dynamic_cast<AudioOutDeviceNode*> (n) != nullptr) continue;
-            if (dynamic_cast<AudioInDeviceNode*>  (n) != nullptr) continue;
-            hasNonDeviceSink = true;
-        }
-        if (hasNonDeviceSink) hostAudio.clear();
-
+        // Standalone: AudioOutDeviceNode handles its own output via FIFO.
+        // Other sink nodes (monitors, addons) are observers only — they must NOT
+        // contribute to hostAudio. Audio only reaches the physical output via
+        // an explicit AudioOutDeviceNode connection.
+        // hostMidi sinks however are still collected.
         for (auto* n : sortedNodes)
         {
             if (hasOutput.count (n->id) > 0) continue;
             if (dynamic_cast<AudioOutDeviceNode*> (n) != nullptr) continue;
             if (dynamic_cast<AudioInDeviceNode*>  (n) != nullptr) continue;
 
-            auto& srcBuf = (!n->outputAudioBuffers.empty())
-                           ? n->outputAudioBuffers[0]
-                           : n->outputAudio;
-            int chans = std::min (srcBuf.getNumChannels(), hostAudio.getNumChannels());
-            for (int ch = 0; ch < chans; ++ch)
-                hostAudio.addFrom (ch, 0, srcBuf, ch, 0, numSamples);
-
+            // Collect MIDI only — not audio
             for (auto meta : n->outputMidi)
                 hostMidi.addEvent (meta.getMessage(), meta.samplePosition);
         }

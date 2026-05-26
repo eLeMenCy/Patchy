@@ -61,7 +61,13 @@ StandaloneWindow::~StandaloneWindow()
 {
     deviceManager.removeAudioCallback (&player);
     player.setProcessor (nullptr);
-    if (editor) processor->editorBeingDeleted (editor);
+    clearContentComponent();
+    if (editor)
+    {
+        processor->editorBeingDeleted (editor);
+        delete editor;
+        editor = nullptr;
+    }
     processor.reset();
 }
 

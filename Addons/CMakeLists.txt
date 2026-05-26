@@ -33,7 +33,8 @@ add_node_addon(LevelAddon      LevelAddon/LevelAddon.cpp)
 add_node_addon(TransposeAddon TransposeAddon/TransposeAddon.cpp)
 add_node_addon(AmpAddon       AmpAddon/AmpAddon.cpp)
 add_node_addon(EnvelopeAddon      EnvelopeAddon/EnvelopeAddon.cpp)
-add_node_addon(StereoSplitterAddon StereoSplitterAddon/StereoSplitterAddon.cpp)
+add_node_addon(StereoSplitterAddon  StereoSplitterAddon/StereoSplitterAddon.cpp)
+add_node_addon(SpectrumyserAddon    SpectrumyserAddon/SpectrumyserAddon.cpp)
 
 # ── Install target (optional) ─────────────────────────────────────────────────
 # cmake --install build --prefix ~ will copy addons to the right folder.

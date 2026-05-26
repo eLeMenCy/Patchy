@@ -60,7 +60,46 @@ public:
 
     /** Call after any structural change to the graph model. */
     void rebuildProcessingGraph();
-    bool isStandalone = false;  // true only in standalone app, false in DAW/plugin mode
+    bool isStandalone = false;
+
+    /** Prune ProcessingGraph edges for ports removed from a node. Call after GraphModel update. */
+    void pruneProcessingGraphEdges (const juce::String& nodeId)
+    {
+        std::vector<juce::String> validPorts;
+        for (auto& n : graphModel.getNodes())
+            if (n.id == nodeId)
+                for (auto& p : n.ports) validPorts.push_back (p.id);
+        // Edge pruning only needed when reducing — no suspend needed (read-only on audio thread)
+        processingGraph.pruneEdgesForNode (nodeId, validPorts);
+    }
+
+    // Returns the current audio output count for a dynamic addon node (e.g. Spectrumyser)
+    // Also resizes the live node's output buffers to avoid a full graph rebuild
+    int getAddonAudioOutCount (const juce::String& nodeId)
+    {
+        for (auto& node : processingGraph.getNodes())
+        {
+            if (node->id != nodeId) continue;
+            if (auto* dyn = dynamic_cast<DynamicNodeProcessor*> (node.get()))
+            {
+                if (dyn->audioOutputCount > 0)
+                {
+                    int newCount  = dyn->audioOutputCount;
+                    int prevCount = (int) dyn->outputAudioBuffers.size();
+
+                    if (newCount != prevCount)
+                    {
+                        // allocatePortBuffers uses resize() which is safe without suspend:
+                        // - Growing: new buffers appended, existing untouched
+                        // - Shrinking: existing buffers remain valid until next process() tick
+                        dyn->allocatePortBuffers (dyn->audioInputCount, newCount, lastBlockSize);
+                    }
+                    return newCount;
+                }
+            }
+        }
+        return 0;
+    }  // true only in standalone app, false in DAW/plugin mode
 
     /** Access the registry (for UI sidebar population). */
     AddonRegistry& getRegistry()       { return registry; }
@@ -147,6 +186,34 @@ public:
     }
 
     /** Collect per-node port activity for the 30fps visualisation push. */
+    std::vector<SpectrumSnapshot> getSpectrumSnapshots()
+    {
+        std::vector<SpectrumSnapshot> result;
+        for (auto& node : processingGraph.getNodes())
+        {
+            auto* dyn = dynamic_cast<DynamicNodeProcessor*> (node.get());
+            if (! dyn || dyn->getAddonName() != "Spectrumyser") continue;
+
+            auto sd = dyn->getSpectrumData();
+            if (! sd.valid || sd.fftSize <= 0 || ! sd.mags) continue;
+
+            SpectrumSnapshot snap;
+            snap.nodeId     = node->id;
+            snap.sampleRate = lastSampleRate;
+            snap.magnitudes.assign (sd.mags, sd.mags + sd.fftSize);
+
+            int bands = (int) dyn->getParameter (0);
+            snap.bandCount = bands;
+            for (int b = 0; b < bands; ++b)
+            {
+                snap.bandLow.push_back  (dyn->getParameter (1 + b * 2));
+                snap.bandHigh.push_back (dyn->getParameter (1 + b * 2 + 1));
+            }
+            result.push_back (std::move (snap));
+        }
+        return result;
+    }
+
     std::vector<PortActivity> getPortActivity()
     {
         std::vector<PortActivity> result;

@@ -65,8 +65,9 @@ public:
         viewportZoom = 1.0f;
     }
 
-    void        suspendNotifications()  { notificationsSuspended = true; }
-    void        resumeNotifications()   { notificationsSuspended = false; if (onChange) onChange(); }
+    void        suspendNotifications()       { notificationsSuspended = true; }
+    void        resumeNotifications()            { notificationsSuspended = false; if (onChange) onChange(); }
+    void        resumeNotificationsQuiet()       { notificationsSuspended = false; }  // resumes without firing onChange
     bool        removeNode    (const juce::String& nodeId);
     NodeData*   findNode      (const juce::String& nodeId);
 
@@ -74,6 +75,7 @@ public:
                                 const juce::String& dstNode, const juce::String& dstPort);
     bool        removeConnection (const juce::String& connId);
     void        renameNode       (const juce::String& nodeId, const juce::String& newLabel);
+    void        updateNodeAudioOutputCount (const juce::String& nodeId, int newAudioOut);
     void        setNodeSettings  (const juce::String& nodeId, const juce::String& json);
 
     juce::var   toVar() const;

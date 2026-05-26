@@ -49,7 +49,8 @@ void AddonRegistry::load (const std::vector<AddonScanner::ScanResult>& results)
         e.getParamCount = (Entry::GetParamCountFn) lib->getFunction ("NGA_getParameterCount");
         e.getParamInfo  = (Entry::GetParamInfoFn)  lib->getFunction ("NGA_getParameterInfo");
         e.getParam      = (Entry::GetParamFn)      lib->getFunction ("NGA_getParameter");
-        e.setParam      = (Entry::SetParamFn)      lib->getFunction ("NGA_setParameter");
+        e.setParam          = (Entry::SetParamFn)          lib->getFunction ("NGA_setParameter");
+        e.getAudioOutCount  = (Entry::GetAudioOutCountFn) lib->getFunction ("NGA_getAudioOutputCount");
 
         if (! e.create || ! e.destroy || ! e.prepare || ! e.process)
         {
@@ -101,7 +102,8 @@ DynamicNodeProcessor::DynamicNodeProcessor (const juce::String&             node
       fnGetParamCount (e.getParamCount),
       fnGetParamInfo  (e.getParamInfo),
       fnGetParam      (e.getParam),
-      fnSetParam      (e.setParam),
+      fnSetParam          (e.setParam),
+      fnGetAudioOutCount  (e.getAudioOutCount),
       addonName       (e.name)
 {
     jassert (fnCreate != nullptr);
@@ -234,4 +236,15 @@ void DynamicNodeProcessor::setParameter (int index, float value)
 {
     if (fnSetParam && instance)
         fnSetParam (instance, index, value);
+
+    // Check if audio output count changed (e.g. band count in Spectrumyser)
+    if (fnGetAudioOutCount && instance)
+    {
+        int newCount = fnGetAudioOutCount (instance);
+        if (newCount > 0 && newCount != audioOutputCount)
+        {
+            audioOutputCount = newCount;
+            if (onPortCountChanged) onPortCountChanged();
+        }
+    }
 }

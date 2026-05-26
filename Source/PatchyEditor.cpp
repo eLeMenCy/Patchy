@@ -24,6 +24,9 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
                // Load graph from JSON
                [&p](const juce::String& json) { p.loadGraphFromJson (json); })
 {
+    bridge.getSpectrumSnapshots      = [&p]() { return p.getSpectrumSnapshots(); };
+    bridge.onGetAddonAudioOutCount   = [&p](const juce::String& nid) { return p.getAddonAudioOutCount (nid); };
+    bridge.onPruneAddonEdges         = [&p](const juce::String& nid) { p.pruneProcessingGraphEdges (nid); };
     addAndMakeVisible (bridge);
     setSize (640, 400);
     setResizable (true, false);

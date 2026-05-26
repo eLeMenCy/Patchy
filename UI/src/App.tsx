@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useContext, DragEvent } from 'react';
+import { flushSync } from 'react-dom';
 import { DawContext } from './DawContext';
 import {
   ReactFlow,
@@ -29,9 +30,10 @@ import PreferencesPanel, { GraphPreferences, loadPrefs, savePrefs } from './Pref
 import { HintProvider, HintContext, BUTTON_HINTS, PORT_HINTS, EDGE_HINTS } from './HintPanel';
 import { Menu, ChevronsDownUp, ChevronsUpDown, Settings } from 'lucide-react';
 import Sidebar from './Sidebar';
+import SpectrumyserNode from './SpectrumyserNode';
 
 // ── Node type registry ────────────────────────────────────────────────────────
-const nodeTypes = { custom: GenericNode, monitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode };
+const nodeTypes = { custom: GenericNode, monitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 // Module-level addon params map — populated when addon list arrives
@@ -43,7 +45,8 @@ function rawToFlowNode(raw: RawNode, addonParamsMap?: Map<string, AddonParamInfo
   const isMidiKeyboard = raw.nodeType === 7;
   return {
     id:       raw.id,
-    type:     isMonitor ? 'monitor' : isAudioMonitor ? 'audioMonitor' : isMidiKeyboard ? 'midiKeyboard' : 'custom',
+    type:     isMonitor ? 'monitor' : isAudioMonitor ? 'audioMonitor' : isMidiKeyboard ? 'midiKeyboard'
+            : raw.addonName === 'Spectrumyser' ? 'spectrumyser' : 'custom',
     position: { x: raw.x, y: raw.y },
     data: isMonitor
       ? { label: raw.label, nodeType: 5, ports: raw.ports, settingsJson: raw.settingsJson } as MidiMonitorNodeData
@@ -379,17 +382,18 @@ function FlowCanvas() {
   // ── Sync from JUCE model ─────────────────────────────────────────────────
   useEffect(() => {
     Bridge.onGraphUpdate((state: GraphState) => {
-      setNodes(prev => {
-        // Preserve runtime styles (e.g. zIndex from open settings panels)
-        const styleMap = new Map(prev.map(n => [n.id, n.style]));
-        return state.nodes.map(raw => {
-          const node = rawToFlowNode(raw, _addonParamsMap);
-          const existing = styleMap.get(raw.id);
-          if (existing) node.style = { ...node.style, ...existing };
-          return node;
+      flushSync(() => {
+        setNodes(prev => {
+          const styleMap = new Map(prev.map(n => [n.id, n.style]));
+          return state.nodes.map(raw => {
+            const node = rawToFlowNode(raw, _addonParamsMap);
+            const existing = styleMap.get(raw.id);
+            if (existing) node.style = { ...node.style, ...existing };
+            return node;
+          });
         });
+        setEdges(state.connections.map(rawToFlowEdge));
       });
-      setEdges(state.connections.map(rawToFlowEdge));
 
       // Update node internals so edge endpoints snap to port dots after load
       setTimeout(() => {

@@ -66,10 +66,10 @@ function DeviceSelector ({ nodeId, nodeType, selectedDeviceId }: {
       takenByOthers.add(claim.deviceId);
   });
 
-  const isDawLocked = (d: { id: string }) =>
+  const isDawLocked = (d: { id: string; dawHost?: boolean }) =>
     d.id === 'DAW' && nodeType === 4 && !isStandalone && !dawLoopbackEnabled;
   const dawHint = { title: 'DAW Loopback Locked 🔒', body: 'Routing audio back to the DAW track risks a feedback loop.\nEnable "DAW loopback" in Preferences → Graph to unlock.' };
-  const isDawHostLocked = (d: { dawHost?: boolean }) => !!d.dawHost && !isStandalone && !dawHostEnabled;
+  const isDawHostLocked = (d: { id: string; dawHost?: boolean }) => !!d.dawHost && !isStandalone && !dawHostEnabled;
   const dawHostHint = { title: 'DAW Host Device ⚠', body: 'This is your DAW\'s own virtual audio device.\nUsing it may cause signal doubling or unexpected behaviour.\nUse the "DAW" option instead for proper routing.' };
   const opts = devices.map(d => ({
     id:       d.id,

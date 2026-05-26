@@ -294,6 +294,25 @@ void WebBridge::handleMessage (const juce::String& json)
         float value = (float) obj->getProperty ("value");
         if (onSetAddonParameter)
             onSetAddonParameter (nodeId, index, value);
+
+        // Only update port count when band count changes (index 0)
+        // Frequency boundary changes (index 1+) do NOT need any graph update
+        if (index == 0 && onGetAddonAudioOutCount)
+        {
+            int newCount = onGetAddonAudioOutCount (nodeId);
+            if (newCount > 0)
+            {
+                // Suspend onChange to prevent full graph rebuild —
+                // buffers were already resized live in onGetAddonAudioOutCount
+                graph.suspendNotifications();
+                graph.updateNodeAudioOutputCount (nodeId, newCount);
+                graph.resumeNotificationsQuiet();  // no onChange — buffers already resized live
+                // Prune stale edges from ProcessingGraph (GraphModel already updated)
+                if (onPruneAddonEdges) onPruneAddonEdges (nodeId);
+                // Push updated graph to UI so port dots update without rebuild
+                pushGraphToUI();
+            }
+        }
     }
     else if (type == "setNodeSettings")
     {
@@ -468,6 +487,7 @@ void WebBridge::timerCallback()
     {
         pushMidiMonitorEvents();
         pushAudioSnapshots();
+        pushSpectrumSnapshots();
         pushPortActivity();
     }
 }
@@ -711,4 +731,60 @@ void WebBridge::showOpenDialog()
                 }
             }
         });
+}
+
+// ── Push spectrum snapshots (FFT magnitudes for Spectrumyser nodes) ───────────
+void WebBridge::pushSpectrumSnapshots()
+{
+    if (! connected || ! getSpectrumSnapshots || webView == nullptr) return;
+
+    auto snaps = getSpectrumSnapshots();
+    if (snaps.empty()) return;
+
+    const juce::String Q = "\"";
+    juce::String json = "[";
+    bool first = true;
+    for (auto& s : snaps)
+    {
+        if (! first) json += ",";
+        first = false;
+
+        // Magnitude bins — compress to 64 log-spaced values for UI performance
+        constexpr int UI_BINS = 64;
+        juce::String mags = "[";
+        int total = (int) s.magnitudes.size();
+        for (int i = 0; i < UI_BINS; ++i)
+        {
+            float t   = (float) i / UI_BINS;
+            int   idx = (int) (std::pow (10.f, t * std::log10 ((float) total)) - 1);
+            idx = std::max (0, std::min (total - 1, idx));
+            float mag = s.magnitudes[static_cast<size_t> (idx)];
+            float db  = mag > 0.f ? 20.f * std::log10 (mag) : -80.f;
+            float v   = std::max (0.f, std::min (1.f, (db + 80.f) / 80.f));
+            if (i > 0) mags += ",";
+            mags += juce::String ((int) (v * 1000.f));
+        }
+        mags += "]";
+
+        // Band boundaries
+        juce::String bands = "[";
+        for (int b = 0; b < s.bandCount; ++b)
+        {
+            if (b > 0) bands += ",";
+            juce::String loStr = juce::String ((int) s.bandLow  [static_cast<size_t> (b)]);
+            juce::String hiStr = juce::String ((int) s.bandHigh [static_cast<size_t> (b)]);
+            bands += "{" + Q + "lo" + Q + ":" + loStr
+                  + "," + Q + "hi" + Q + ":" + hiStr + "}";
+        }
+        bands += "]";
+
+        json += "{"   + Q + "id"    + Q + ":" + Q + s.nodeId + Q
+              + ","   + Q + "sr"    + Q + ":" + juce::String ((int) s.sampleRate)
+              + ","   + Q + "mags"  + Q + ":" + mags
+              + ","   + Q + "bands" + Q + ":" + bands
+              + "}";
+    }
+    json += "]";
+
+    pushToUI ("onSpectrumSnapshots", json);
 }

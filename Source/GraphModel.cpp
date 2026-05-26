@@ -1,4 +1,6 @@
 #include "GraphModel.h"
+#include <unordered_set>
+#include <algorithm>
 
 std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
                                                int audioIn, int audioOut,
@@ -256,4 +258,47 @@ void GraphModel::setNodeSettings (const juce::String& nodeId, const juce::String
 {
     for (auto& n : nodes)
         if (n.id == nodeId) { n.settingsJson = json; return; }
+}
+
+void GraphModel::updateNodeAudioOutputCount (const juce::String& nodeId, int newAudioOut)
+{
+    for (auto& n : nodes)
+    {
+        if (n.id != nodeId) continue;
+
+        // Collect valid port IDs after the update
+        int audioIn = 0, midiIn = 0, midiOut = 0;
+        for (auto& p : n.ports)
+        {
+            if (p.type == PortType::Audio && p.direction == PortDirection::Input)  ++audioIn;
+            if (p.type == PortType::Midi  && p.direction == PortDirection::Input)  ++midiIn;
+            if (p.type == PortType::Midi  && p.direction == PortDirection::Output) ++midiOut;
+        }
+
+        // Build new port list so we know which port IDs will exist
+        auto newPorts = portsForType (n.nodeType, n.id, audioIn, newAudioOut, midiIn, midiOut);
+        std::unordered_set<juce::String> validPortIds;
+        for (auto& p : newPorts) validPortIds.insert (p.id);
+
+        // Remove connections to/from ports that no longer exist
+        connections.erase (
+            std::remove_if (connections.begin(), connections.end(),
+                [&] (const Connection& c)
+                {
+                    // Check if this connection involves our node
+                    bool srcIsUs = (c.sourceNodeId == nodeId);
+                    bool dstIsUs = (c.targetNodeId == nodeId);
+                    if (! srcIsUs && ! dstIsUs) return false;
+                    // Remove if the port no longer exists
+                    if (srcIsUs && validPortIds.find (c.sourcePortId) == validPortIds.end()) return true;
+                    if (dstIsUs && validPortIds.find (c.targetPortId) == validPortIds.end()) return true;
+                    return false;
+                }),
+            connections.end()
+        );
+
+        n.ports = std::move (newPorts);
+        if (! notificationsSuspended) notifyChange();
+        return;
+    }
 }

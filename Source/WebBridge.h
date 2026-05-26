@@ -34,6 +34,16 @@ struct PortActivity
     std::vector<std::pair<uint8_t,uint8_t>> incomingNotes; // {status, note}
 };
 
+struct SpectrumSnapshot
+{
+    juce::String       nodeId;
+    double             sampleRate  = 44100.0;
+    int                bandCount   = 3;
+    std::vector<float> magnitudes; // FFT_SIZE/2 magnitude bins
+    std::vector<float> bandLow;    // Hz
+    std::vector<float> bandHigh;   // Hz
+};
+
 // Free struct — used by both WebBridge and PatchyProcessor
 struct AudioSnapshot
 {
@@ -67,6 +77,9 @@ public:
     void pushGraphToUI();
     void pushToUI (const juce::String& bridgeFn, juce::String json);
     bool isStandalone = false;  // true only in standalone app
+    std::function<std::vector<SpectrumSnapshot>()> getSpectrumSnapshots;
+    std::function<int(const juce::String&)>        onGetAddonAudioOutCount;
+    std::function<void(const juce::String&)>       onPruneAddonEdges;
     std::function<void(double, int, bool)> onSetAudioEngineSettings;
     std::function<void()>                  onUIReady;
 
@@ -104,18 +117,19 @@ private:
     AddonRegistry*  registry         = nullptr;
     std::function<std::vector<MidiMonitorBatch>()> drainMonitor;
 
-    std::function<std::vector<AudioSnapshot>()> getAudioSnapshots;
+    std::function<std::vector<AudioSnapshot>()>    getAudioSnapshots;
     std::function<std::vector<PortActivity>()>  getPortActivity;
     std::function<void()> clearGraphTrash;
     std::function<void(const juce::String&, uint8_t, uint8_t, uint8_t)> onMidiKeyEvent;
     std::function<void(const juce::String&, const juce::String&)>          onSetNodeLabel;
-    std::function<void(const juce::String&, int, float)>                      onSetAddonParameter;
+    std::function<void(const juce::String&, int, float)> onSetAddonParameter;
     std::function<void(const juce::String&, const juce::String&)> onSetMidiDevice;
     std::function<void(const juce::String&, const juce::String&)> onSetAudioDevice;
 
     void timerCallback() override;
     void pushMidiMonitorEvents();
     void pushAudioSnapshots();
+    void pushSpectrumSnapshots();
     void pushPortActivity();
 
     void pushAddonList();

@@ -108,6 +108,16 @@ export interface AddonParamInfo {
 // ── DAW context (shared via React context, not Bridge) ───────────────────────
 // isStandalone and dawLoopbackEnabled are managed in App.tsx via React context
 
+export interface SpectrumBand  { lo: number; hi: number; }
+export interface SpectrumSnapshot {
+  id:    string;
+  sr:    number;
+  mags:  number[];   // 64 magnitude bins ×1000
+  bands: SpectrumBand[];
+}
+type SpectrumCallback = (snaps: SpectrumSnapshot[]) => void;
+const _spectrumSubscribers: SpectrumCallback[] = [];
+
 export interface AudioSettings {
   sampleRate:           number;
   bufferSize:           number;
@@ -233,6 +243,13 @@ function _dispatchClaimed() {
       console.error('Bridge midiDevices parse error', e);
     }
   },
+  onSpectrumSnapshots: (json: string) => {
+    try {
+      const snaps = JSON.parse(json) as SpectrumSnapshot[];
+      _spectrumSubscribers.forEach(cb => cb(snaps));
+    } catch {}
+  },
+
   onStandaloneMode: (val: string) => {
     const v = val === 'true';
     _onStandaloneModeSubscribers.forEach(cb => cb(v));
@@ -275,6 +292,14 @@ function sendToJuce(msg: object) {
 }
 
 export const Bridge = {
+  onSpectrumSnapshots(cb: SpectrumCallback) {
+    _spectrumSubscribers.push(cb);
+    return () => {
+      const idx = _spectrumSubscribers.indexOf(cb);
+      if (idx >= 0) _spectrumSubscribers.splice(idx, 1);
+    };
+  },
+
   onStandaloneMode(cb: StandaloneModeCallback) {
     _onStandaloneModeSubscribers.push(cb);
     return () => {

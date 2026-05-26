@@ -40,3 +40,6 @@ Addons/**/*.dll
 
 # ── Patchy patch files (user data) ────────────────────────────────────────────
 *.patchy
+
+# Private architecture notes
+Architecture.md

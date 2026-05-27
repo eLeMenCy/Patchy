@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Patchy VERSION 0.0.670)
+project(Patchy VERSION 0.0.672)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -90,7 +90,7 @@ endif()
 
 # ── Plugin target ─────────────────────────────────────────────────────────────
 juce_add_plugin(Patchy
-    VERSION                  "0.0.670"
+    VERSION                  "0.0.672"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGrp"

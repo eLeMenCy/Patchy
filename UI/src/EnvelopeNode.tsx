@@ -23,7 +23,7 @@ const freqLabel  = (hz: number) =>
   hz >= 1000 ? `${(hz / 1000).toFixed(1)}k` : `${Math.round(hz)}`;
 
 // ── Envelope display canvas ───────────────────────────────────────────────────
-function EnvelopeDisplay({ ccValue }: { ccValue: number }) {
+function EnvelopeDisplay({ ccValue, attack, release }: { ccValue: number; attack: number; release: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const history   = useRef<number[]>(new Array(CANVAS_W).fill(0));
 
@@ -40,6 +40,22 @@ function EnvelopeDisplay({ ccValue }: { ccValue: number }) {
     // Grid line at 50%
     ctx.strokeStyle = '#ffffff12'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, CANVAS_H/2); ctx.lineTo(CANVAS_W, CANVAS_H/2); ctx.stroke();
+
+    // Ghost envelope shape (attack + sustain + release)
+    const totalMs  = attack + 200 + release; // attack + sustain plateau + release
+    const atkX     = (attack / totalMs) * CANVAS_W;
+    const relX     = CANVAS_W - (release / totalMs) * CANVAS_W;
+    ctx.strokeStyle = '#fb923c33';
+    ctx.fillStyle   = '#fb923c0a';
+    ctx.lineWidth   = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0,    CANVAS_H);          // start bottom-left
+    ctx.lineTo(atkX, 4);                 // attack up
+    ctx.lineTo(relX, 4);                 // sustain plateau
+    ctx.lineTo(CANVAS_W, CANVAS_H);      // release down
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
 
     // Envelope curve
     const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
@@ -244,6 +260,17 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
     });
   }, [id]);
 
+  const handleReset = useCallback(() => {
+    setParam(0, 0);     // Mode: Amplitude
+    setParam(1, 11);    // CC: 11
+    setParam(2, 1);     // MIDI Ch: 1
+    setParam(3, 10);    // Attack: 10ms
+    setParam(4, 200);   // Release: 200ms
+    setParam(5, 1.0);   // Sensitivity: ×1.0
+    setParam(6, 200);   // Band Low: 200Hz
+    setParam(7, 2000);  // Band High: 2000Hz
+  }, []);
+
   const setParam = useCallback((idx: number, val: number) => {
     Bridge.setAddonParameter(id, idx, val);
     switch (idx) {
@@ -340,6 +367,13 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
         </div>
 
         <div onDoubleClick={e => e.stopPropagation()}>
+          <NodeHeaderButton onClick={handleReset}
+            onHint={{ onMouseEnter: () => setHint({title:'Reset',body:'Reset all parameters to defaults.'}), onMouseLeave: () => setHint(null) }}>
+            <span style={{ fontSize:11, fontWeight:700 }}>R</span>
+          </NodeHeaderButton>
+        </div>
+
+        <div onDoubleClick={e => e.stopPropagation()}>
           <NodeHeaderButton onClick={() => setShowSettings(v => !v)}
             onHint={{ onMouseEnter: () => setHint({title:'Settings',body:'Configure envelope parameters.'}), onMouseLeave: () => setHint(null) }}>
             <span style={{
@@ -363,7 +397,7 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
       {/* Body */}
       {!collapsed && (
         <div ref={portBodyRef} style={{ padding:'6px 8px 4px' }}>
-          <EnvelopeDisplay ccValue={ccValue} />
+          <EnvelopeDisplay ccValue={ccValue} attack={attack} release={release} />
         </div>
       )}
 

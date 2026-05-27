@@ -67,7 +67,7 @@ function SpectrumDisplay({ mags, bands }: { mags: number[]; bands: { lo: number;
 // ── Main node ─────────────────────────────────────────────────────────────────
 export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
   const { setHint } = useContext(HintContext);
-  const { collapsed, toggleCollapsed } = useNodeCollapsed(id);
+  const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
   const [showSettings, setShowSettings] = useState(false);
   const [mags,      setMags]      = useState<number[]>(new Array(UI_BINS).fill(0));
   const [bands,     setBands]     = useState(() =>

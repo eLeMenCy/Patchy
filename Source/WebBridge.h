@@ -75,6 +75,12 @@ public:
     void resized() override;
     void loadUI();
     void pushGraphToUI();
+
+    // Called directly from C++ (e.g. keyboard shortcuts in PatchyEditor)
+    void handleFileNew();
+    void handleFileOpen();
+    void handleFileSave();
+    void handleFileSaveAs();
     void pushToUI (const juce::String& bridgeFn, juce::String json);
     bool isStandalone = false;  // true only in standalone app
     std::function<std::vector<SpectrumSnapshot>()> getSpectrumSnapshots;

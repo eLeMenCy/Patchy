@@ -195,6 +195,14 @@ function _dispatchClaimed() {
   onGraphUpdate: (json: string) => {
     try {
       const state: GraphState = JSON.parse(json);
+      // Rebuild claimed devices from graph state — keeps claims in sync with C++
+      // (handles New graph, Load graph, and any other full graph reset)
+      _claimedDevices.clear();
+      for (const node of state.nodes) {
+        if (node.selectedDeviceId && (node.nodeType === 3 || node.nodeType === 4)) {
+          _claimedDevices.set(node.id, { deviceId: node.selectedDeviceId, nodeType: node.nodeType });
+        }
+      }
       _onUpdate?.(state);
     } catch (e) {
       console.error('Bridge parse error', e);

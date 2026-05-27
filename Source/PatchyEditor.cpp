@@ -42,3 +42,25 @@ void PatchyEditor::resized()
 {
     bridge.setBounds (getLocalBounds());
 }
+
+bool PatchyEditor::keyPressed (const juce::KeyPress& key, juce::Component*)
+{
+    const bool cmd   = key.getModifiers().isCommandDown();
+    const bool shift = key.getModifiers().isShiftDown();
+    if (! cmd) return false;
+
+    if      (key.getKeyCode() == 'N')              { bridge.handleFileNew();    return true; }
+    else if (key.getKeyCode() == 'O')              { bridge.handleFileOpen();   return true; }
+    else if (key.getKeyCode() == 'S' && ! shift)   { bridge.handleFileSave();   return true; }
+    else if (key.getKeyCode() == 'S' &&   shift)   { bridge.handleFileSaveAs(); return true; }
+
+    return false;
+}
+
+void PatchyEditor::parentHierarchyChanged()
+{
+    // Register as key listener on the top-level window so we intercept
+    // shortcuts even when WebBrowserComponent has keyboard focus
+    if (auto* topLevel = getTopLevelComponent())
+        topLevel->addKeyListener (this);
+}

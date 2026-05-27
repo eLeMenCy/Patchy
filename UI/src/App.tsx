@@ -631,17 +631,22 @@ function FlowCanvas() {
                   minWidth: 160, zIndex: 100,
                 }}>
                 {([
-                  { label: 'New',      action: () => { Bridge.fileNew();    setShowFileMenu(false); } },
-                  { label: 'Open…',    action: () => { Bridge.fileOpen();   setShowFileMenu(false); } },
-                  { label: fileState.hasFile ? 'Save' : 'Save…', action: () => { Bridge.fileSave(); setShowFileMenu(false); } },
-                  { label: 'Save As…', action: () => { Bridge.fileSaveAs(); setShowFileMenu(false); } },
-                ] as {label:string; action:()=>void}[]).map(item => (
+                  { label: 'New',      shortcut: '⌘N',  action: () => { Bridge.fileNew();    setShowFileMenu(false); } },
+                  { label: 'Open…',    shortcut: '⌘O',  action: () => { Bridge.fileOpen();   setShowFileMenu(false); } },
+                  { label: fileState.hasFile ? 'Save' : 'Save…', shortcut: '⌘S',  action: () => { Bridge.fileSave(); setShowFileMenu(false); } },
+                  { label: 'Save As…', shortcut: '⌘⇧S', action: () => { Bridge.fileSaveAs(); setShowFileMenu(false); } },
+                ] as {label:string; shortcut:string; action:()=>void}[]).map(item => (
                   <div key={item.label} onClick={item.action}
                     style={{ padding: '6px 14px', fontSize: 11, color: 'var(--text)',
-                             cursor: 'pointer', fontFamily: "'JetBrains Mono', monospace" }}
+                             cursor: 'pointer', fontFamily: "'JetBrains Mono', monospace",
+                             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                             gap: 24 }}
                     onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface)')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                  >{item.label}</div>
+                  >
+                    <span>{item.label}</span>
+                    <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>{item.shortcut}</span>
+                  </div>
                 ))}
                 {fileState.hasFile && (
                   <div style={{ padding: '4px 14px 2px', fontSize: 9, color: 'var(--text-muted)',

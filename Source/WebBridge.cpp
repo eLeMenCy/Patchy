@@ -788,3 +788,14 @@ void WebBridge::pushSpectrumSnapshots()
 
     pushToUI ("onSpectrumSnapshots", json);
 }
+// ── C++-callable file operations (e.g. from keyboard shortcuts) ──────────────
+void WebBridge::handleFileNew()
+{
+    currentFile = juce::File();
+    if (onNewGraph) onNewGraph();
+    pushToUI ("onFileState", buildFileStateJson());
+}
+
+void WebBridge::handleFileOpen()   { showOpenDialog(); }
+void WebBridge::handleFileSave()   { if (currentFile.existsAsFile()) saveToFile (currentFile); else showSaveDialog(); }
+void WebBridge::handleFileSaveAs() { showSaveDialog(); }

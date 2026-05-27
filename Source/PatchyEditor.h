@@ -13,14 +13,17 @@
  * The editor is intentionally thin — all UI logic lives in React,
  * all audio logic lives in PatchyProcessor / ProcessingGraph.
  */
-class PatchyEditor : public juce::AudioProcessorEditor
+class PatchyEditor : public juce::AudioProcessorEditor,
+                       public juce::KeyListener
 {
 public:
     explicit PatchyEditor (PatchyProcessor& p);
     ~PatchyEditor() override = default;
 
-    void paint   (juce::Graphics&) override;
-    void resized ()                override;
+    void paint                  (juce::Graphics&) override;
+    void resized                ()                override;
+    void parentHierarchyChanged ()                override;
+    bool keyPressed             (const juce::KeyPress&, juce::Component*) override;
 
     WebBridge& getBridge() { return bridge; }
 

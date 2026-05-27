@@ -31,9 +31,10 @@ import { HintProvider, HintContext, BUTTON_HINTS, PORT_HINTS, EDGE_HINTS } from 
 import { Menu, ChevronsDownUp, ChevronsUpDown, Settings } from 'lucide-react';
 import Sidebar from './Sidebar';
 import SpectrumyserNode from './SpectrumyserNode';
+import EnvelopeNode     from './EnvelopeNode';
 
 // ── Node type registry ────────────────────────────────────────────────────────
-const nodeTypes = { custom: GenericNode, monitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode };
+const nodeTypes = { custom: GenericNode, monitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 // Module-level addon params map — populated when addon list arrives
@@ -46,7 +47,8 @@ function rawToFlowNode(raw: RawNode, addonParamsMap?: Map<string, AddonParamInfo
   return {
     id:       raw.id,
     type:     isMonitor ? 'monitor' : isAudioMonitor ? 'audioMonitor' : isMidiKeyboard ? 'midiKeyboard'
-            : raw.addonName === 'Spectrumyser' ? 'spectrumyser' : 'custom',
+            : raw.addonName === 'Spectrumyser' ? 'spectrumyser'
+            : raw.addonName === 'Envelope'     ? 'envelope' : 'custom',
     position: { x: raw.x, y: raw.y },
     data: isMonitor
       ? { label: raw.label, nodeType: 5, ports: raw.ports, settingsJson: raw.settingsJson } as MidiMonitorNodeData

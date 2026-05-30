@@ -302,15 +302,20 @@ void WebBridge::handleMessage (const juce::String& json)
             int newCount = onGetAddonAudioOutCount (nodeId);
             if (newCount > 0)
             {
-                // Suspend onChange to prevent full graph rebuild —
-                // buffers were already resized live in onGetAddonAudioOutCount
-                graph.suspendNotifications();
-                graph.updateNodeAudioOutputCount (nodeId, newCount);
-                graph.resumeNotificationsQuiet();  // no onChange — buffers already resized live
-                // Prune stale edges from ProcessingGraph (GraphModel already updated)
-                if (onPruneAddonEdges) onPruneAddonEdges (nodeId);
-                // Push updated graph to UI so port dots update without rebuild
-                pushGraphToUI();
+                // Check current port count — only update if it actually changed
+                // (avoids pushGraphToUI on every slider tick for fixed-port nodes like Amp)
+                int currentCount = 0;
+                for (auto& n : graph.getNodes())
+                    if (n.id == nodeId) { for (auto& p : n.ports) if (p.type == PortType::Audio && p.direction == PortDirection::Output) currentCount++; break; }
+
+                if (newCount != currentCount)
+                {
+                    graph.suspendNotifications();
+                    graph.updateNodeAudioOutputCount (nodeId, newCount);
+                    graph.resumeNotificationsQuiet();
+                    if (onPruneAddonEdges) onPruneAddonEdges (nodeId);
+                    pushGraphToUI();
+                }
             }
         }
     }

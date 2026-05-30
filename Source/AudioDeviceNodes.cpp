@@ -1,4 +1,5 @@
 #include "AudioDeviceNodes.h"
+
 #include "ProcessingGraph.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -108,10 +109,11 @@ juce::var AudioDeviceManager::getAvailableDevicesVar (bool isStandalone)
 void AudioOutDeviceNode::openDevice (const juce::String& deviceName,
                                       juce::AudioDeviceManager& manager)
 {
+
     closeDevice();
     selectedDeviceName = deviceName;
     isDawDevice = (deviceName == "DAW");
-    if (deviceName.isEmpty() || isDawDevice) return;  // DAW handled by ProcessingGraph
+    if (deviceName.isEmpty() || isDawDevice) { return; }  // DAW handled by ProcessingGraph
 
     devManager           = &manager;
     registeredDeviceName = deviceName;
@@ -188,7 +190,7 @@ void AudioInDeviceNode::openDevice (const juce::String& deviceName,
     closeDevice();
     selectedDeviceName = deviceName;
     isDawDevice = (deviceName == "DAW");
-    if (deviceName.isEmpty() || isDawDevice) return;  // DAW handled by ProcessingGraph
+    if (deviceName.isEmpty() || isDawDevice) { return; }  // DAW handled by ProcessingGraph
 
     devManager           = &manager;
     registeredDeviceName = deviceName;

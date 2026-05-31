@@ -110,17 +110,17 @@ function rmsToGlow (rms: number, col: string): string {
 
 // ── Port activity — dynamic CSS injection ─────────────────────────────────────
 function usePortActivityStyles (edges: any[], nodes: any[]) {
-  const styleRef = useRef<HTMLStyleElement | null>(null);
-  const midiTimers = useRef<Map<string, number>>(new Map());
-  const audioLevels    = useRef<Map<string, number>>(new Map());
-  const portRmsLevels  = useRef<Map<string, number[]>>(new Map());
-  const edgeList = useRef<typeof edges>(edges);
-  const nodesRef = useRef<any[]>(nodes);
+  const styleRef      = useRef<HTMLStyleElement | null>(null);
+  const midiTimers    = useRef<Map<string, number>>(new Map());
+  const audioLevels   = useRef<Map<string, number>>(new Map());
+  const portRmsLevels = useRef<Map<string, number[]>>(new Map());
+  const edgeList      = useRef(edges);
+  const nodesRef      = useRef(nodes);
   useEffect(() => { edgeList.current = edges; }, [edges]);
   useEffect(() => { nodesRef.current = nodes;  }, [nodes]);
 
+  // Create style tag once
   useEffect(() => {
-    // Create a single <style> tag we'll update at 30fps
     const el = document.createElement('style');
     el.id = 'port-activity-styles';
     document.head.appendChild(el);
@@ -128,154 +128,84 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
     return () => el.remove();
   }, []);
 
+  // Receive port activity data
   useEffect(() => {
-    const unsub = Bridge.onPortActivity((entries: PortActivityEntry[]) => {
+    return Bridge.onPortActivity((entries: PortActivityEntry[]) => {
       const now = Date.now();
       entries.forEach(entry => {
-        if (entry.midi > 0)
-          midiTimers.current.set(entry.id, now + 80);
-        const rawRms = Math.max(entry.l, entry.r) / 1000;
-        const scaledRms = Math.min(rawRms * 4, 1.0);
+        if (entry.midi > 0) midiTimers.current.set(entry.id, now + 80);
+        const rms  = Math.min(Math.max(entry.l, entry.r) / 1000 * 4, 1.0);
         const prev = audioLevels.current.get(entry.id) ?? 0;
-        audioLevels.current.set(entry.id, Math.max(scaledRms, prev * 0.88));
-        // Store per-port RMS for multi-port nodes
+        audioLevels.current.set(entry.id, Math.max(rms, prev * 0.88));
         if (entry.portRms && entry.portRms.length > 1) {
           const prevPorts = portRmsLevels.current.get(entry.id) ?? [];
-          const newPorts = entry.portRms.map((v, i) => {
-            const scaled = Math.min((v / 1000) * 4, 1.0);
-            return Math.max(scaled, (prevPorts[i] ?? 0) * 0.88);
-          });
-          portRmsLevels.current.set(entry.id, newPorts);
+          portRmsLevels.current.set(entry.id, entry.portRms.map((v, i) =>
+            Math.max(Math.min((v / 1000) * 4, 1.0), (prevPorts[i] ?? 0) * 0.88)));
         } else {
           portRmsLevels.current.delete(entry.id);
         }
       });
     });
-    return unsub;
   }, []);
 
-  // Separate RAF loop — always renders ALL edges every frame
+  // RAF render loop — injects CSS for all active nodes/edges
   useEffect(() => {
     let rafId: number;
     const render = () => {
       const style = styleRef.current;
       if (!style) { rafId = requestAnimationFrame(render); return; }
       const now = Date.now();
-      // Decay audio levels each frame
-      audioLevels.current.forEach((v: number, k: string) => {
-        audioLevels.current.set(k, v * 0.97);
-      });
-      portRmsLevels.current.forEach((ports: number[], k: string) => {
-        portRmsLevels.current.set(k, ports.map((v: number) => v * 0.97));
-      });
-      const allAudioEdges: any[] = edgeList.current.filter((e: any) =>
-        !!(e.sourceHandle ?? '').toLowerCase().includes('audio'));
-      const allMidiEdges: any[]  = edgeList.current.filter((e: any) =>
-        !!(e.sourceHandle ?? '').toLowerCase().includes('midi'));
-      // Collect unique source node IDs — include ALL nodes with audio activity,
-      // not just ones with edges (so unconnected AudioIN shows VU)
-      const audioSources: string[] = [...new Set(allAudioEdges.map((e: any) => e.source as string))];
-      const midiSources: string[]  = [...new Set(allMidiEdges.map((e: any)  => e.source as string))];
-      // Add any node with audio activity even if it has no outgoing edges
-      audioLevels.current.forEach((rms: number, id: string) => {
-        if ((rms as number) > 0.01 && !audioSources.includes(id as string))
-          audioSources.push(id as string);
-      });
-      const entries: { id: string }[] = [
-        ...audioSources.map((id: string) => ({ id })),
-        ...midiSources.filter((id: string) => !audioSources.includes(id))
-          .map((id: string) => ({ id })),
-      ];
+
+      // Decay levels each frame
+      audioLevels.current.forEach((v, k) => audioLevels.current.set(k, v * 0.97));
+      portRmsLevels.current.forEach((ports, k) =>
+        portRmsLevels.current.set(k, ports.map(v => v * 0.97)));
+
+      // Collect active node ids (audio + midi sources, including unconnected)
+      const audioEdges = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('audio'));
+      const midiEdges  = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('midi'));
+      const audioSources = new Set<string>(audioEdges.map(e => e.source));
+      audioLevels.current.forEach((rms, id) => { if (rms > 0.01) audioSources.add(id); });
+      const midiSources  = new Set<string>(midiEdges.map(e => e.source));
+      const allSources   = new Set([...audioSources, ...midiSources]);
+
       let css = '';
 
-      entries.forEach(entry => {
-        const isMidiFlash = (midiTimers.current.get(entry.id) ?? 0) > now;
-        const audioRms    = audioLevels.current.get(entry.id) ?? 0;
-        // Separate outgoing edges by port type
-        const midiEdges  = edgeList.current.filter(e => e.source === entry.id &&
-                            !!(e.sourceHandle ?? '').toLowerCase().includes('midi'));
-        const audioEdges = edgeList.current.filter(e => e.source === entry.id &&
-                            !!(e.sourceHandle ?? '').toLowerCase().includes('audio'));
-        const hasAudioOut = audioEdges.length > 0;
-        const hasMidiOut  = midiEdges.length > 0;
+      allSources.forEach(id => {
+        const audioRms    = audioLevels.current.get(id) ?? 0;
+        const isMidiFlash = (midiTimers.current.get(id) ?? 0) > now;
+        const nodeAudioEdges = audioEdges.filter(e => e.source === id);
+        const nodeMidiEdges  = midiEdges.filter(e => e.source === id);
+        const col  = rmsToColour(audioRms);
+        const glow = rmsToGlow(audioRms, col);
 
-        // ── Audio VU — always applied for all audio nodes ──────────────────
-        {
-          const col  = rmsToColour(audioRms);
-          const glow = rmsToGlow(audioRms, col);
+        // Audio OUT port dots (per-port RMS for multi-port nodes)
+        const nodeData  = nodesRef.current.find(n => n.id === id);
+        const ports: any[] = nodeData?.data?.ports ?? [];
+        const audioPorts = ports.filter(p => p.direction === 'output' && p.type === 'audio')
+                               .map(p => p.label as string);
+        const portRmsList = portRmsLevels.current.get(id);
+        (audioPorts.length ? audioPorts : ['Audio Out']).forEach((label, i) => {
+          const pRms  = portRmsList ? (portRmsList[i] ?? 0) : audioRms;
+          if (pRms < 0.01) return;
+          const pCol  = rmsToColour(pRms);
+          const pGlow = rmsToGlow(pRms, pCol);
+          css += `[data-handleid="${id}_${label}_out"]{background:${pCol}!important;box-shadow:${pGlow}!important}`;
+        });
 
-          // Colour ALL audio output port dots for this node
-          const nodeData = nodesRef.current.find((n: any) => n.id === entry.id);
-          const audioPorts: string[] = nodeData
-            ? (nodeData.data?.ports as any[] ?? [])
-                .filter((p: any) => p.direction === 'output' && p.type === 'audio')
-                .map((p: any) => p.label as string)
-            : ['Audio Out'];
+        // Audio edges + target IN dots
+        nodeAudioEdges.forEach(e => {
+          css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${col}!important;filter:drop-shadow(0 0 3px ${col})}`;
+          if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${col}!important;box-shadow:${glow}!important}`;
+        });
 
-          const portRmsList = portRmsLevels.current.get(entry.id);
-
-          audioPorts.forEach((portLabel: string, portIdx: number) => {
-            const portRms = portRmsList ? (portRmsList[portIdx] ?? 0) : audioRms;
-            if (portRms > 0.01 || audioEdges.some(e => (e.sourceHandle ?? '').includes(portLabel))) {
-              const pCol  = rmsToColour(portRms);
-              const pGlow = rmsToGlow(portRms, pCol);
-              const hid = `${entry.id}_${portLabel}_out`;
-              css += `[data-handleid="${hid}"] {
-  background: ${pCol} !important;
-  box-shadow: ${pGlow} !important;
-}`;
-            }
-          });
-
-          // Also colour connected audio OUT handles (catches any missed above)
-          const audioOutHandles = [...new Set(audioEdges.map(e => e.sourceHandle ?? ''))];
-          audioOutHandles.forEach(hid => {
-            if (hid) css += `[data-handleid="${hid}"] {
-  background: ${col} !important;
-  box-shadow: ${glow} !important;
-}`;
-          });
-
-          // Audio edges — colour edge path AND target IN handle
-          audioEdges.forEach(e => {
-            const tgtId = e.targetHandle ?? '';
-            css += `
-g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path {
-  stroke: ${col} !important;
-  filter: drop-shadow(0 0 3px ${col});
-}
-[data-handleid="${tgtId}"] {
-  background: ${col} !important;
-  box-shadow: ${glow} !important;
-}`;
-          });
-        }
-
-        // ── MIDI flash — written LAST so it wins over audio VU ─────────
-        // Only flash if this node actually has a MIDI OUT handle or MIDI edges
-        if (isMidiFlash && hasMidiOut) {
-          const flashCol = '#B2EBF2';
-          const midiOutHandleId = `${entry.id}_MIDI Out_out`;
-          // Flash MIDI OUT dot
-          css += `[data-handleid="${midiOutHandleId}"] {
-  background: ${flashCol} !important;
-  box-shadow: 0 0 10px ${flashCol} !important;
-  transition: none;
-}`;
-          // Flash MIDI outgoing edges AND target IN handles
-          midiEdges.forEach(e => {
-            const tgtId = e.targetHandle ?? '';
-            css += `
-g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path {
-  stroke: ${flashCol} !important;
-  filter: drop-shadow(0 0 4px ${flashCol});
-  transition: none;
-}
-[data-handleid="${tgtId}"] {
-  background: ${flashCol} !important;
-  box-shadow: 0 0 10px ${flashCol} !important;
-  transition: none;
-}`;
+        // MIDI flash — written last so it wins over audio VU
+        if (isMidiFlash && nodeMidiEdges.length > 0) {
+          const fc = '#B2EBF2';
+          css += `[data-handleid="${id}_MIDI Out_out"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
+          nodeMidiEdges.forEach(e => {
+            css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${fc}!important;filter:drop-shadow(0 0 4px ${fc});transition:none}`;
+            if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
           });
         }
       });
@@ -385,7 +315,7 @@ function FlowCanvas() {
 
   // ── Sync from JUCE model ─────────────────────────────────────────────────
   useEffect(() => {
-    Bridge.onGraphUpdate((state: GraphState) => {
+    const unsubGraph = Bridge.onGraphUpdate((state: GraphState) => {
       flushSync(() => {
         setNodes(prev => {
           const styleMap = new Map(prev.map(n => [n.id, n.style]));
@@ -427,6 +357,7 @@ function FlowCanvas() {
       addons.forEach(a => _addonParamsMap.set(a.name, a.params ?? []));
     });
     Bridge.ready();
+    return () => unsubGraph();
   }, []);
 
   // ── Node / edge change handlers ──────────────────────────────────────────

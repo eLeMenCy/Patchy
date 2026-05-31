@@ -4,7 +4,7 @@ import { DawContext } from './DawContext';
 import { X } from 'lucide-react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, AddonParamInfo } from './Bridge';
-import { useNodeDelete, NodeHeaderButton, useNodeCollapsed, NodeHandle } from './NodeUtils';
+import { useNodeDelete, NodeHeaderButton, useNodeCollapsed, NodeHandle, nodeContainerStyle } from './NodeUtils';
 
 import { NodeSelect } from './NodeSelect';
 
@@ -154,17 +154,9 @@ function GenericNode({ id, data, selected }: NodeProps) {
   return (
     <div
       style={{
-        minWidth:     Math.max(theme.tag.length * 10 + 80, 220),
-        background:   'var(--surface)',
-        border:       `1px solid ${selected ? theme.accent : 'var(--border)'}`,
-        borderTop:    `3px solid ${theme.accent}`,
-        borderRadius: 'var(--radius)',
-        boxShadow:    selected
-          ? `0 0 0 1px ${theme.accent}, 0 8px 32px ${theme.glow}`
-          : `0 4px 16px rgba(0,0,0,.5)`,
-        transition:   'box-shadow .15s, border-color .15s',
-        position:     'relative',
-        userSelect:   'none',
+        minWidth:   Math.max(theme.tag.length * 10 + 80, 220),
+        userSelect: 'none',
+        ...nodeContainerStyle(theme.accent, !!selected, { bg: 'var(--surface)', glow: theme.glow }),
       }}
     >
       {/* Header */}

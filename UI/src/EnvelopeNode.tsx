@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge } from './Bridge';
-import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow } from './NodeUtils';
+import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle } from './NodeUtils';
 import { HintContext } from './HintPanel';
 import { Settings, X } from 'lucide-react';
 
@@ -297,17 +297,8 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
       onMouseEnter={() => setHint({ title:'Envelope', body:'Converts audio amplitude or a frequency band into a MIDI CC stream.\nIdeal for driving automation, LED controllers or modulation.' })}
       onMouseLeave={() => setHint(null)}
       style={{
-        background:   'var(--surface2)',
-        border:       `1px solid ${selected ? ACCENT : 'var(--border)'}`,
-        borderTop:    `3px solid ${ACCENT}`,
-        borderRadius: 'var(--radius)',
-        minWidth:     280,
-        fontFamily:   "'JetBrains Mono', monospace",
-        boxShadow:    selected
-          ? `0 0 0 1px ${ACCENT}, 0 8px 32px #fb923c33`
-          : '0 4px 16px rgba(0,0,0,.5)',
-        transition:   'box-shadow .15s, border-color .15s',
-        position:     'relative',
+        ...nodeContainerStyle(ACCENT, !!selected),
+        minWidth: 280,
       }}
     >
       {/* IN ports — all anchored to canvas via portBodyRef so they stay together */}
@@ -397,8 +388,7 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
 
       {/* Settings */}
       {showSettings && !collapsed && (
-        <div style={{ padding:'8px 10px', fontSize:9, color:'var(--text)',
-          borderTop:`1px solid var(--border)` }}>
+        <div style={settingsPanelStyle}>
 
           <SliderRow label="Attack"      value={attack}      min={1}    max={500}  step={1}
             format={v => `${Math.round(v)}ms`} onChange={v => setParam(3,v)} color={ACCENT}
@@ -410,7 +400,7 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
             format={v => `×${v.toFixed(2)}`}  onChange={v => setParam(5,v)} color={ACCENT}
             onDoubleClick={() => setParam(5, 1.0)} />
 
-          <div style={{ borderTop:'1px solid var(--border)', marginTop:4, paddingTop:4 }}>
+          <div style={sectionDividerStyle}>
             <Stepper label="CC Number" value={ccNumber} min={0} max={127}
               onChange={v => setParam(1, v)} />
             <Stepper label="MIDI Ch"   value={midiCh}   min={1} max={16}
@@ -419,7 +409,7 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
 
           {/* Band filters — only in Spectral mode */}
           {mode === 1 && (
-            <div style={{ borderTop:'1px solid var(--border)', marginTop:4, paddingTop:4 }}>
+            <div style={sectionDividerStyle}>
               <div style={{ color:'var(--text-muted)', fontSize:8, marginBottom:4 }}>Band Filter</div>
               <SliderRow label="Low"  value={toSlider(bandLow)}  min={0} max={1000} step={1}
                 format={() => freqLabel(bandLow)}

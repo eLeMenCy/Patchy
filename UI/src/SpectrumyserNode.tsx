@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, SpectrumSnapshot } from './Bridge';
-import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow } from './NodeUtils';
+import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle } from './NodeUtils';
 import { HintContext } from './HintPanel';
 import { Settings, X } from 'lucide-react';
 
@@ -170,17 +170,8 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
       onMouseEnter={() => setHint({ title:'Spectrumyser', body:'FFT spectrum analyser.\nEach output port carries audio filtered to that band.' })}
       onMouseLeave={() => setHint(null)}
       style={{
-        background:   'var(--surface2)',
-        border:       `1px solid ${selected ? ACCENT : 'var(--border)'}`,
-        borderTop:    `3px solid ${ACCENT}`,
-        borderRadius: 'var(--radius)',
-        minWidth:     248,
-        fontFamily:   "'JetBrains Mono', monospace",
-        boxShadow:    selected
-          ? `0 0 0 1px ${ACCENT}, 0 8px 32px var(--audio-glow, #22c55e33)`
-          : '0 4px 16px rgba(0,0,0,.5)',
-        transition:   'box-shadow .15s, border-color .15s',
-        position:     'relative',
+        ...nodeContainerStyle(ACCENT, !!selected),
+        minWidth: 248,
       }}
     >
       {/* IN port — centred on canvas via portBodyRef */}
@@ -248,8 +239,7 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
 
       {/* Settings panel */}
       {showSettings && !collapsed && (
-        <div style={{ padding:'8px 10px', fontSize:9, color:'var(--text)',
-          borderTop:`1px solid var(--border)` }}>
+        <div style={settingsPanelStyle}>
           {/* Band count + reset */}
           <div className="nodrag" style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
             <span style={{ color:'var(--text-muted)', minWidth:40 }}>Bands</span>

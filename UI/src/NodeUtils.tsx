@@ -243,6 +243,42 @@ export function NodeHeaderButton ({
   );
 }
 
+// ── nodeContainerStyle ────────────────────────────────────────────────────────
+/** Standard node container style — border, shadow, selection highlight. */
+export function nodeContainerStyle (
+  accent: string, selected: boolean,
+  opts?: { bg?: string; glow?: string }
+): React.CSSProperties {
+  const bg   = opts?.bg   ?? 'var(--surface2)';
+  const glow = opts?.glow ?? `${accent}33`;
+  return {
+    background:   bg,
+    border:       `1px solid ${selected ? accent : 'var(--border)'}`,
+    borderTop:    `3px solid ${accent}`,
+    borderRadius: 'var(--radius)',
+    fontFamily:   "'JetBrains Mono', monospace",
+    boxShadow:    selected
+      ? `0 0 0 1px ${accent}, 0 8px 32px ${glow}`
+      : '0 4px 16px rgba(0,0,0,.5)',
+    transition:   'box-shadow .15s, border-color .15s',
+    position:     'relative' as const,
+  };
+}
+
+// ── Shared style constants ────────────────────────────────────────────────────
+export const settingsPanelStyle: React.CSSProperties = {
+  padding: '8px 10px',
+  fontSize: 9,
+  color: 'var(--text)',
+  borderTop: '1px solid var(--border)',
+};
+
+export const sectionDividerStyle: React.CSSProperties = {
+  borderTop: '1px solid var(--border)',
+  marginTop: 4,
+  paddingTop: 4,
+};
+
 // ── NodeCollapseArrow ─────────────────────────────────────────────────────────
 /** Reusable collapse/expand arrow — used in all custom node headers. */
 export function NodeCollapseArrow ({ collapsed, accent }: { collapsed: boolean; accent: string }) {

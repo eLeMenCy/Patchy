@@ -145,15 +145,15 @@ export interface AddonInfo {
 
 // ── Singleton bridge ─────────────────────────────────────────────────────────
 
-let _onUpdate:         GraphUpdateCallback  | null = null;
+const _graphUpdateSubscribers: GraphUpdateCallback[] = [];
 const _midiMonitorSubscribers: MidiMonitorCallback[] = [];
-const _onAddonListSubscribers: AddonListCallback[] = [];
+const _addonListSubscribers: AddonListCallback[] = [];
 type FileStateCallback    = (s: FileState) => void;
 type AudioSettingsCallback = (s: AudioSettings) => void;
 type StandaloneModeCallback = (v: boolean) => void;
-const _onFileStateSubscribers:     FileStateCallback[]     = [];
-const _onAudioSettingsSubscribers: AudioSettingsCallback[] = [];
-const _onStandaloneModeSubscribers: StandaloneModeCallback[] = [];
+const _fileStateSubscribers: FileStateCallback[] = [];
+const _audioSettingsSubscribers: AudioSettingsCallback[] = [];
+const _standaloneModeSubscribers: StandaloneModeCallback[] = [];
 
 // MIDI devices use a subscriber array so multiple DeviceSelector components
 // can all receive updates, and a cache so late-mounting components get the
@@ -203,7 +203,7 @@ function _dispatchClaimed() {
           _claimedDevices.set(node.id, { deviceId: node.selectedDeviceId, nodeType: node.nodeType });
         }
       }
-      _onUpdate?.(state);
+      _graphUpdateSubscribers.forEach(cb => cb(state));
     } catch (e) {
       console.error('Bridge parse error', e);
     }
@@ -260,20 +260,20 @@ function _dispatchClaimed() {
 
   onStandaloneMode: (val: string) => {
     const v = val === 'true';
-    _onStandaloneModeSubscribers.forEach(cb => cb(v));
+    _standaloneModeSubscribers.forEach(cb => cb(v));
   },
 
   onAudioSettings: (json: string) => {
     try {
       const s = JSON.parse(json) as AudioSettings;
-      _onAudioSettingsSubscribers.forEach(cb => cb(s));
+      _audioSettingsSubscribers.forEach(cb => cb(s));
     } catch {}
   },
 
   onFileState: (json: string) => {
     try {
       const s = JSON.parse(json) as FileState;
-      _onFileStateSubscribers.forEach(cb => cb(s));
+      _fileStateSubscribers.forEach(cb => cb(s));
     } catch {}
   },
 
@@ -281,7 +281,7 @@ function _dispatchClaimed() {
     try {
       const data = JSON.parse(json);
       const addons = data.addons ?? [];
-      _onAddonListSubscribers.forEach(cb => cb(addons));
+      _addonListSubscribers.forEach(cb => cb(addons));
     } catch (e) {
       console.error('Bridge addon list parse error', e);
     }
@@ -309,18 +309,18 @@ export const Bridge = {
   },
 
   onStandaloneMode(cb: StandaloneModeCallback) {
-    _onStandaloneModeSubscribers.push(cb);
+    _standaloneModeSubscribers.push(cb);
     return () => {
-      const idx = _onStandaloneModeSubscribers.indexOf(cb);
-      if (idx >= 0) _onStandaloneModeSubscribers.splice(idx, 1);
+      const idx = _standaloneModeSubscribers.indexOf(cb);
+      if (idx >= 0) _standaloneModeSubscribers.splice(idx, 1);
     };
   },
 
   onAudioSettings(cb: AudioSettingsCallback) {
-    _onAudioSettingsSubscribers.push(cb);
+    _audioSettingsSubscribers.push(cb);
     return () => {
-      const idx = _onAudioSettingsSubscribers.indexOf(cb);
-      if (idx >= 0) _onAudioSettingsSubscribers.splice(idx, 1);
+      const idx = _audioSettingsSubscribers.indexOf(cb);
+      if (idx >= 0) _audioSettingsSubscribers.splice(idx, 1);
     };
   },
 
@@ -329,10 +329,10 @@ export const Bridge = {
   },
 
   onFileState(cb: FileStateCallback) {
-    _onFileStateSubscribers.push(cb);
+    _fileStateSubscribers.push(cb);
     return () => {
-      const idx = _onFileStateSubscribers.indexOf(cb);
-      if (idx >= 0) _onFileStateSubscribers.splice(idx, 1);
+      const idx = _fileStateSubscribers.indexOf(cb);
+      if (idx >= 0) _fileStateSubscribers.splice(idx, 1);
     };
   },
 
@@ -342,10 +342,10 @@ export const Bridge = {
   fileNew()     { sendToJuce({ type: 'fileNew' }); },
 
   onAddonList(cb: AddonListCallback) {
-    _onAddonListSubscribers.push(cb);
+    _addonListSubscribers.push(cb);
     return () => {
-      const idx = _onAddonListSubscribers.indexOf(cb);
-      if (idx >= 0) _onAddonListSubscribers.splice(idx, 1);
+      const idx = _addonListSubscribers.indexOf(cb);
+      if (idx >= 0) _addonListSubscribers.splice(idx, 1);
     };
   },
   onPortActivity(cb: PortActivityCallback) {
@@ -423,7 +423,11 @@ export const Bridge = {
   },
 
   onGraphUpdate(cb: GraphUpdateCallback) {
-    _onUpdate = cb;
+    _graphUpdateSubscribers.push(cb);
+    return () => {
+      const idx = _graphUpdateSubscribers.indexOf(cb);
+      if (idx !== -1) _graphUpdateSubscribers.splice(idx, 1);
+    };
   },
 
   ready() {

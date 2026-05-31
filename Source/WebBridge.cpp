@@ -248,6 +248,12 @@ void WebBridge::handleMessage (const juce::String& json)
     auto* obj  = v.getDynamicObject();
     auto  type = obj->getProperty ("type").toString();
 
+    if (type == "log")
+    {
+        juce::Logger::writeToLog ("[JS] " + obj->getProperty ("msg").toString());
+        return;
+    }
+
     if (type == "ready")
     {
         connected = true;
@@ -363,7 +369,13 @@ void WebBridge::handleMessage (const juce::String& json)
     }
     else if (type == "moveNode")
     {
-        if (auto* node = graph.findNode (obj->getProperty ("nodeId").toString()))
+        auto nodeId = obj->getProperty ("nodeId").toString();
+        if (nodeId.startsWith ("LOG:"))
+        {
+            juce::Logger::writeToLog ("[JS] " + nodeId);
+            return;
+        }
+        if (auto* node = graph.findNode (nodeId))
         {
             node->x = (float) obj->getProperty ("x");
             node->y = (float) obj->getProperty ("y");

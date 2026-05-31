@@ -45,10 +45,9 @@ public:
     StandaloneWindow();
     ~StandaloneWindow() override;
 
-    void closeButtonPressed() override
-    {
-        juce::JUCEApplication::getInstance()->systemRequestedQuit();
-    }
+    void closeButtonPressed() override;
+    void saveWindowBounds();
+    void restoreWindowBounds();
 
     // Audio settings
     AudioSettings     getAudioSettings() const { return audioSettings; }

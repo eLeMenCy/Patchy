@@ -21,7 +21,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { Bridge, FileState, AudioSettings, GraphState, RawNode, RawConnection, PortActivityEntry, AddonParamInfo } from './Bridge';
+import { Bridge, juceLog, FileState, AudioSettings, GraphState, RawNode, RawConnection, PortActivityEntry, AddonParamInfo } from './Bridge';
 import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
@@ -295,7 +295,9 @@ function FlowCanvas() {
   const [edges, setEdges] = useState<Edge[]>([]);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { setHint } = useContext(HintContext);
-  const { screenToFlowPosition, setViewport, updateNode, getNodes } = useReactFlow();
+  const { screenToFlowPosition, setViewport, updateNode, getNodes, getViewport } = useReactFlow();
+  const pendingDrop   = useRef<{ dropX: number; dropY: number } | null>(null);
+  const knownNodeIds  = useRef<Set<string>>(new Set());
   const updateNodeInternals = useUpdateNodeInternals();
   const [prefs, setPrefs]       = useState<GraphPreferences>(loadPrefs);
   const [showPrefs, setShowPrefs] = useState(false);
@@ -433,8 +435,23 @@ function FlowCanvas() {
     for (const c of changes) {
       if (c.type === 'position' && c.position)
         Bridge.moveNode(c.id, c.position.x, c.position.y);
+      // dimensions fires when ReactFlow measures a node — only centre if it's new
+      if (c.type === 'dimensions' && c.dimensions?.width && pendingDrop.current
+          && !(knownNodeIds.current.has((c as any).id))) {
+        const { dropX, dropY } = pendingDrop.current;
+        const id = (c as any).id;
+        const w = c.dimensions.width;
+        const centredX = dropX - w / 2;
+        updateNode(id, { position: { x: centredX, y: dropY } });
+        Bridge.moveNode(id, centredX, dropY);
+        knownNodeIds.current.add(id);
+        pendingDrop.current = null;
+      } else if (c.type === 'dimensions') {
+        // Track all existing nodes
+        knownNodeIds.current.add((c as any).id);
+      }
     }
-  }, []);
+  }, [updateNode]);
 
   const onEdgesChange = useCallback((changes: EdgeChange[]) => {
     setEdges(es => applyEdgeChanges(changes, es));
@@ -565,6 +582,7 @@ function FlowCanvas() {
     const cppNodeType = addonName ? (100 + ngaType) : nodeType;
 
     const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    pendingDrop.current = { dropX: position.x, dropY: position.y };
     Bridge.addNode(cppNodeType, position.x, position.y, addonName);
   }, [screenToFlowPosition]);
 

@@ -21,7 +21,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { Bridge, juceLog, FileState, AudioSettings, GraphState, RawNode, RawConnection, PortActivityEntry, AddonParamInfo } from './Bridge';
+import { Bridge, FileState, AudioSettings, GraphState, RawNode, RawConnection, PortActivityEntry, AddonParamInfo } from './Bridge';
 import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';

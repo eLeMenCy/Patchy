@@ -289,8 +289,6 @@ function _dispatchClaimed() {
 
 };
 
-export function juceLog(msg: string) { sendToJuce({ type: 'log', msg }); }
-
 function sendToJuce(msg: object) {
   // JUCE 8 injects window.__JUCE__.backend — NOT window.Juce
   // See: https://docs.juce.com/master/classWebBrowserComponent_1_1Options.html

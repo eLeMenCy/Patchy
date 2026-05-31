@@ -248,12 +248,6 @@ void WebBridge::handleMessage (const juce::String& json)
     auto* obj  = v.getDynamicObject();
     auto  type = obj->getProperty ("type").toString();
 
-    if (type == "log")
-    {
-        juce::Logger::writeToLog ("[JS] " + obj->getProperty ("msg").toString());
-        return;
-    }
-
     if (type == "ready")
     {
         connected = true;
@@ -369,12 +363,7 @@ void WebBridge::handleMessage (const juce::String& json)
     }
     else if (type == "moveNode")
     {
-        auto nodeId = obj->getProperty ("nodeId").toString();
-        if (nodeId.startsWith ("LOG:"))
-        {
-            juce::Logger::writeToLog ("[JS] " + nodeId);
-            return;
-        }
+        juce::String nodeId = obj->getProperty ("nodeId").toString();
         if (auto* node = graph.findNode (nodeId))
         {
             node->x = (float) obj->getProperty ("x");
@@ -816,3 +805,4 @@ void WebBridge::handleFileNew()
 void WebBridge::handleFileOpen()   { showOpenDialog(); }
 void WebBridge::handleFileSave()   { if (currentFile.existsAsFile()) saveToFile (currentFile); else showSaveDialog(); }
 void WebBridge::handleFileSaveAs() { showSaveDialog(); }
+

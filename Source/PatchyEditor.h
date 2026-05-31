@@ -23,7 +23,8 @@ public:
     void paint                  (juce::Graphics&) override;
     void resized                ()                override;
     void parentHierarchyChanged ()                override;
-    bool keyPressed             (const juce::KeyPress&, juce::Component*) override;
+    using juce::Component::keyPressed;  // prevent hiding Component::keyPressed
+    bool keyPressed (const juce::KeyPress&, juce::Component*) override;  // juce::KeyListener
 
     WebBridge& getBridge() { return bridge; }
 

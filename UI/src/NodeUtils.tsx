@@ -243,6 +243,20 @@ export function NodeHeaderButton ({
   );
 }
 
+// ── NodeCollapseArrow ─────────────────────────────────────────────────────────
+/** Reusable collapse/expand arrow — used in all custom node headers. */
+export function NodeCollapseArrow ({ collapsed, accent }: { collapsed: boolean; accent: string }) {
+  return (
+    <span style={{ color: accent, opacity: 0.7, display: 'inline-block',
+      transform: collapsed ? 'rotate(0deg)' : 'rotate(90deg)',
+      transition: 'transform 0.2s' }}>
+      <svg width="8" height="10" viewBox="0 0 8 10" style={{ display: 'block' }}>
+        <polygon points="0,0 8,5 0,10" fill="currentColor" />
+      </svg>
+    </span>
+  );
+}
+
 // ── NodeHeader ────────────────────────────────────────────────────────────────
 /**
  * Standard node header bar: title on the left, action buttons on the right.

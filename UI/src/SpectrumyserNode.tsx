@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, SpectrumSnapshot } from './Bridge';
-import { NodeHandle, useNodeCollapsed, NodeHeaderButton } from './NodeUtils';
+import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow } from './NodeUtils';
 import { HintContext } from './HintPanel';
 import { Settings, X } from 'lucide-react';
 
@@ -208,13 +208,7 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
       >
         <NodeHeaderButton onClick={toggleCollapsed}
           onHint={{ onMouseEnter: ()=>{}, onMouseLeave: ()=>{} }}>
-          <span style={{ color:ACCENT, opacity:0.7, display:'inline-block',
-            transform: collapsed ? 'rotate(0deg)' : 'rotate(90deg)',
-            transition:'transform 0.2s' }}>
-            <svg width="8" height="10" viewBox="0 0 8 10" style={{ display:'block' }}>
-              <polygon points="0,0 8,5 0,10" fill="currentColor" />
-            </svg>
-          </span>
+          <NodeCollapseArrow collapsed={collapsed} accent={ACCENT} />
         </NodeHeaderButton>
 
         <div style={{ flex:1, fontSize:'11px', fontWeight:700, color:ACCENT,

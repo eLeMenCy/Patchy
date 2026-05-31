@@ -34,23 +34,23 @@ import SpectrumyserNode from './SpectrumyserNode';
 import EnvelopeNode     from './EnvelopeNode';
 
 // ── Node type registry ────────────────────────────────────────────────────────
-const nodeTypes = { custom: GenericNode, monitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode };
+const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 // Module-level addon params map — populated when addon list arrives
 const _addonParamsMap = new Map<string, AddonParamInfo[]>();
 
 function rawToFlowNode(raw: RawNode, addonParamsMap?: Map<string, AddonParamInfo[]>): Node<NodeData | MidiMonitorNodeData> {
-  const isMonitor      = raw.nodeType === 5;
+  const isMidiMonitor  = raw.nodeType === 5;
   const isAudioMonitor = raw.nodeType === 6;
   const isMidiKeyboard = raw.nodeType === 7;
   return {
     id:       raw.id,
-    type:     isMonitor ? 'monitor' : isAudioMonitor ? 'audioMonitor' : isMidiKeyboard ? 'midiKeyboard'
+    type:     isMidiMonitor ? 'midiMonitor' : isAudioMonitor ? 'audioMonitor' : isMidiKeyboard ? 'midiKeyboard'
             : raw.addonName === 'Spectrumyser' ? 'spectrumyser'
             : raw.addonName === 'Envelope'     ? 'envelope' : 'custom',
     position: { x: raw.x, y: raw.y },
-    data: isMonitor
+    data: isMidiMonitor
       ? { label: raw.label, nodeType: 5, ports: raw.ports, settingsJson: raw.settingsJson } as MidiMonitorNodeData
       : isAudioMonitor
       ? { label: raw.label, nodeType: 6, ports: raw.ports, settingsJson: raw.settingsJson } as AudioMonitorNodeData
@@ -295,7 +295,7 @@ function FlowCanvas() {
   const [edges, setEdges] = useState<Edge[]>([]);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { setHint } = useContext(HintContext);
-  const { screenToFlowPosition, setViewport, updateNode, getNodes, getViewport } = useReactFlow();
+  const { screenToFlowPosition, setViewport, updateNode, getNodes } = useReactFlow();
   const pendingDrop   = useRef<{ dropX: number; dropY: number } | null>(null);
   const knownNodeIds  = useRef<Set<string>>(new Set());
   const updateNodeInternals = useUpdateNodeInternals();

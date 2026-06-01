@@ -74,7 +74,7 @@ function SelectRow ({ label, value, options, onChange }: {
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Element)) setOpen(false);
     };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
@@ -229,11 +229,12 @@ function GraphTab ({ prefs, onChange }: {
 
 // ── Main panel ────────────────────────────────────────────────────────────────
 export default function PreferencesPanel ({
-  prefs, onChange, onClose, isStandalone, audioSettings,
+  prefs, onChange, onClose, isStandalone, audioSettings, excludeRef,
 }: {
   prefs:         GraphPreferences;
   onChange:      (p: GraphPreferences) => void;
   onClose:       () => void;
+  excludeRef?:   React.RefObject<HTMLElement | null>;
   isStandalone:  boolean;
   audioSettings: AudioSettings | null;
 }) {
@@ -243,7 +244,8 @@ export default function PreferencesPanel ({
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+      if (excludeRef?.current?.contains(e.target as Element)) return;
+      if (ref.current && !ref.current.contains(e.target as Element)) onClose();
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);

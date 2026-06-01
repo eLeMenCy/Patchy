@@ -226,8 +226,10 @@ function FlowCanvas() {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { setHint } = useContext(HintContext);
   const { screenToFlowPosition, setViewport, updateNode, getNodes } = useReactFlow();
-  const pendingDrop   = useRef<{ dropX: number; dropY: number } | null>(null);
-  const knownNodeIds  = useRef<Set<string>>(new Set());
+  const pendingDrop     = useRef<{ dropX: number; dropY: number } | null>(null);
+  const knownNodeIds    = useRef<Set<string>>(new Set());
+  const burgerBtnRef    = useRef<HTMLButtonElement>(null);
+  const prefsBtnRef     = useRef<HTMLButtonElement>(null);
   const updateNodeInternals = useUpdateNodeInternals();
   const [prefs, setPrefs]       = useState<GraphPreferences>(loadPrefs);
   const [showPrefs, setShowPrefs] = useState(false);
@@ -246,7 +248,10 @@ function FlowCanvas() {
 
   useEffect(() => {
     if (!showFileMenu) return;
-    const close = () => setShowFileMenu(false);
+    const close = (e: MouseEvent) => {
+      if (burgerBtnRef.current?.contains(e.target as Element)) return;
+      setShowFileMenu(false);
+    };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, [showFileMenu]);
@@ -526,6 +531,8 @@ function FlowCanvas() {
       onDrop={onDrop}
     >
       <ReactFlow
+        onPaneClick={() => { setShowFileMenu(false); setShowPrefs(false); }}
+        onNodeClick={() => { setShowFileMenu(false); setShowPrefs(false); }}
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
@@ -557,7 +564,9 @@ function FlowCanvas() {
           {/* ☰ Hamburger file menu */}
           <div style={{ position: 'relative' }}>
             <button
-              onClick={e => { e.stopPropagation(); setShowFileMenu(v => !v); }}
+              ref={burgerBtnRef}
+              onMouseDown={e => { e.stopPropagation(); setShowPrefs(false); setShowFileMenu(v => !v); }}
+              onClick={e => e.stopPropagation()}
               onMouseEnter={() => setHint({ title: 'File Menu', body: 'New, Open, Save or Save As a patch file (.patchy).' })}
               onMouseLeave={() => setHint(null)}
               style={{
@@ -631,7 +640,9 @@ function FlowCanvas() {
         <div style={{ position: 'relative' }}>
           <div style={{ position: 'relative' }}>
             <button
-              onClick={() => setShowPrefs(v => !v)}
+              ref={prefsBtnRef}
+              onMouseDown={e => { e.stopPropagation(); setShowFileMenu(false); setShowPrefs(v => !v); }}
+              onClick={e => e.stopPropagation()}
              
               onMouseEnter={() => setHint(BUTTON_HINTS.preferences)}
               onMouseLeave={() => setHint(null)}
@@ -656,6 +667,7 @@ function FlowCanvas() {
                 isStandalone={isStandalone}
                 audioSettings={audioSettings}
                 onClose={() => setShowPrefs(false)}
+                excludeRef={prefsBtnRef}
               />
             )}
           </div>

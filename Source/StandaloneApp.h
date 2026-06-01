@@ -49,6 +49,9 @@ public:
     void saveWindowBounds();
     void restoreWindowBounds();
 
+private:
+    juce::ApplicationProperties appProperties;
+
     // Audio settings
     AudioSettings     getAudioSettings() const { return audioSettings; }
     void              applyAudioSettings (const AudioSettings& s);

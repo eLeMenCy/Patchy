@@ -54,29 +54,15 @@ StandaloneWindow::StandaloneWindow()
 
     setContentNonOwned (editor, true);
 
-    // Restore saved window bounds, or default to centred 1200x750
+    // Initialise settings storage
     juce::PropertiesFile::Options opts;
-    opts.applicationName = "Patchy";
-    opts.filenameSuffix  = ".settings";
+    opts.applicationName     = "Patchy";
+    opts.filenameSuffix      = ".settings";
     opts.osxLibrarySubFolder = "Application Support";
-    juce::ApplicationProperties props;
-    props.setStorageParameters (opts);
-    if (auto* p = props.getUserSettings())
-    {
-        int x = p->getIntValue ("windowX",      -1);
-        int y = p->getIntValue ("windowY",      -1);
-        int w = p->getIntValue ("windowWidth",  1200);
-        int h = p->getIntValue ("windowHeight", 750);
-        if (x >= 0 && y >= 0)
-            setBounds (x, y, juce::jmax (500, w), juce::jmax (300, h));
-        else
-            centreWithSize (1200, 750);
-    }
-    else
-    {
-        centreWithSize (1200, 750);
-    }
+    appProperties.setStorageParameters (opts);
+
     setVisible (true);
+    restoreWindowBounds();
 }
 
 StandaloneWindow::~StandaloneWindow()
@@ -197,32 +183,25 @@ void StandaloneWindow::pushAudioSettingsToUI()
     bridge.pushToUI ("onAudioSettings", json);
 }
 
-static juce::PropertiesFile* getSettingsFile()
-{
-    juce::PropertiesFile::Options opts;
-    opts.applicationName     = "Patchy";
-    opts.filenameSuffix      = ".settings";
-    opts.osxLibrarySubFolder = "Application Support";
-    static juce::ApplicationProperties props;
-    props.setStorageParameters (opts);
-    return props.getUserSettings();
-}
-
 void StandaloneWindow::saveWindowBounds()
 {
-    if (auto* p = getSettingsFile())
+    if (auto* p = appProperties.getUserSettings())
     {
         p->setValue ("windowX",      getX());
         p->setValue ("windowY",      getY());
         p->setValue ("windowWidth",  getWidth());
         p->setValue ("windowHeight", getHeight());
+        // Persist last open directory so file dialogs remember location
+        auto& bridge = editor->getBridge();
+        if (bridge.getLastOpenDir().isDirectory())
+            p->setValue ("lastOpenDir", bridge.getLastOpenDir().getFullPathName());
         p->saveIfNeeded();
     }
 }
 
 void StandaloneWindow::restoreWindowBounds()
 {
-    if (auto* p = getSettingsFile())
+    if (auto* p = appProperties.getUserSettings())
     {
         int x = p->getIntValue ("windowX",      -1);
         int y = p->getIntValue ("windowY",      -1);
@@ -232,6 +211,10 @@ void StandaloneWindow::restoreWindowBounds()
             setBounds (x, y, juce::jmax (500, w), juce::jmax (300, h));
         else
             centreWithSize (1200, 750);
+        // Restore last open directory
+        auto lastDir = juce::File (p->getValue ("lastOpenDir", ""));
+        if (lastDir.isDirectory())
+            editor->getBridge().setLastOpenDir (lastDir);
     }
     else
     {

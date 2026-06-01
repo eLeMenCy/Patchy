@@ -72,6 +72,22 @@ void ProcessingGraph::rebuild (const GraphModel& model, AddonRegistry* reg,
 
         if (proc != nullptr)
         {
+            // Restore addon parameters from settingsJson so a graph rebuild
+            // (e.g. dropping a node or adding a connection) doesn't reset sliders
+            if (auto* dyn = dynamic_cast<DynamicNodeProcessor*> (proc.get()))
+            {
+                auto settingsJson = nd->getProperty ("settingsJson").toString();
+                if (settingsJson.isNotEmpty())
+                {
+                    auto parsed = juce::JSON::parse (settingsJson);
+                    if (auto* arr = parsed.getArray())
+                    {
+                        for (int i = 0; i < arr->size(); ++i)
+                            dyn->setParameter (i, (float) (double) (*arr)[i]);
+                    }
+                }
+            }
+
             nodeMap[id]  = proc.get();
             labelMap[id] = nd->getProperty ("label").toString();
             nodes.push_back (std::move (proc));

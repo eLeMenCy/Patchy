@@ -81,6 +81,8 @@ public:
     void handleFileOpen();
     void handleFileSave();
     void handleFileSaveAs();
+    void setLastOpenDir (const juce::File& dir) { lastOpenDir = dir; }
+    juce::File getLastOpenDir() const { return lastOpenDir; }
     void pushToUI (const juce::String& bridgeFn, juce::String json);
     bool isStandalone = false;  // true only in standalone app
     std::function<std::vector<SpectrumSnapshot>()> getSpectrumSnapshots;

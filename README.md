@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.654
+> Version 0.0.757
 
 ---
 
@@ -15,25 +15,31 @@
 3. [Built-in Nodes](#built-in-nodes)
 4. [Signal Flow Visualisation](#signal-flow-visualisation)
 5. [DAW Mode](#daw-mode)
-6. [Addon System](#addon-system)
-7. [Patch Files](#patch-files)
-8. [Building](#building)
-9. [Writing an Addon](#writing-an-addon)
-10. [API Reference](#api-reference)
-11. [Thread Safety](#thread-safety)
-12. [Licensing](#licensing)
+6. [Standalone Mode](#standalone-mode)
+7. [Addon System](#addon-system)
+8. [Patch Files](#patch-files)
+9. [Keyboard Shortcuts](#keyboard-shortcuts)
+10. [Building](#building)
+11. [Writing an Addon](#writing-an-addon)
+12. [API Reference](#api-reference)
+13. [Thread Safety](#thread-safety)
+14. [Performance](#performance)
+15. [Licensing](#licensing)
 
 ---
 
 ## Feature Overview
 
 - **Visual node graph** — drag, connect and rearrange processing nodes on a zoomable/pannable canvas
+- **Centred node drop** — nodes appear centred on the drop point, sized correctly for every node type
 - **Real-time signal flow** — ports and edges animate with live MIDI flash and audio VU colour (green → yellow → red)
 - **Per-port VU** — multi-output nodes (Splitter, Spectrumyser) colour each output dot independently
 - **DAW mode** — full bidirectional audio routing between Patchy and your DAW track via a virtual "DAW" device
+- **Standalone mode** — full standalone app with its own audio device selection, window bounds persistence and last-folder memory
 - **DAW device protection** — DAW loopback and DAW host devices locked by default; unlockable via Preferences
-- **Patch files** — save/load/new graph state as human-readable `.patchy` JSON files via the ☰ file menu
+- **Patch files** — save/load/new graph state as human-readable `.patchy` JSON files via the ☰ file menu or keyboard shortcuts
 - **Auto-save** — full graph state also persisted automatically via DAW project state
+- **Parameter persistence** — addon parameters (sliders, steps) survive graph rebuilds, file loads and app restarts
 - **Built-in nodes** — MIDI In/Out, Audio In/Out, MIDI Monitor, Audio Monitor (oscilloscope), MIDI Keyboard
 - **Addon system** — drop a `.dylib/.so/.dll` into the addons folder; new node type appears in the sidebar on next launch
 - **Dynamic port counts** — addons can change their output port count at runtime (e.g. Spectrumyser band count) without audio interruption
@@ -49,7 +55,7 @@
 Patchy/
 ├── Source/                          Core C++ engine
 │   ├── PatchyProcessor.h/.cpp       AudioProcessor — owns all state
-│   ├── PatchyEditor.h/.cpp          AudioProcessorEditor — owns WebBridge
+│   ├── PatchyEditor.h/.cpp          AudioProcessorEditor + keyboard shortcuts
 │   ├── WebBridge.h/.cpp             JS↔C++ bridge + 30fps timer + file I/O
 │   ├── GraphModel.h/.cpp            UI data model (message thread)
 │   ├── ProcessingGraph.h/.cpp       Topological sort + audio/MIDI routing
@@ -59,7 +65,7 @@ Patchy/
 │   ├── MidiMonitorNode.h/.cpp       MIDI Monitor (type 5)
 │   ├── AudioMonitorNode.h/.cpp      Audio Monitor (type 6)
 │   ├── MidiKeyboardNode.h           MIDI Keyboard (type 7)
-│   └── StandaloneApp.h/.cpp         Standalone wrapper (AudioDeviceManager)
+│   └── StandaloneApp.h/.cpp         Standalone wrapper (window bounds, file location)
 │
 ├── Addons/                          Addon ecosystem
 │   ├── AddonAPI.h                   The ONLY header an addon author needs
@@ -74,22 +80,24 @@ Patchy/
 │
 ├── UI/                              React / TypeScript frontend
 │   └── src/
-│       ├── App.tsx                  ReactFlow canvas, graph state, port activity
+│       ├── App.tsx                  ReactFlow canvas, graph sync, port activity
 │       ├── Bridge.ts                JS↔C++ typed façade + subscriber system
+│       ├── NodeUtils.tsx            Shared hooks, components + style helpers
 │       ├── GenericNode.tsx          Device nodes + addon nodes (types 1–4, 100+)
 │       ├── MidiMonitorNode.tsx      MIDI Monitor node (type 5)
 │       ├── AudioMonitorNode.tsx     Audio Monitor node (type 6)
 │       ├── MidiKeyboardNode.tsx     MIDI Keyboard node (type 7)
 │       ├── SpectrumyserNode.tsx     Spectrumyser custom node with FFT canvas
-│       ├── NodeUtils.tsx            Shared hooks + NodeHandle + NodeHeaderButton
+│       ├── EnvelopeNode.tsx         Envelope custom node with live canvas
 │       ├── HintPanel.tsx            Hint context, panel, and hint dictionaries
 │       ├── Sidebar.tsx              Node palette + hint panel
 │       ├── NodeSelect.tsx           Shared custom combobox with hint + warning support
 │       ├── DawContext.ts            DAW mode context (loopback + host device toggles)
-│       └── PreferencesPanel.tsx     Graph preferences (DAW routing, etc.)
+│       └── PreferencesPanel.tsx     Graph preferences (DAW routing, audio settings)
 │
 ├── CMakeLists.txt                   Main build — host + UI bundle
 ├── CMakePresets.json                Build presets
+├── Architecture.md                  Detailed technical architecture
 └── README.md                        This file
 ```
 
@@ -114,7 +122,7 @@ Patchy/
 
 All ports and edges animate live at 30fps:
 
-**MIDI activity** — flashes bright cyan-white (150ms) on OUT port, edge and downstream IN port
+**MIDI activity** — flashes bright cyan-white (80ms) on OUT port, edge and downstream IN port
 
 **Audio level** — continuously reflects RMS level via colour:
 - Silence → dim base colour
@@ -147,6 +155,18 @@ Both can be unlocked via **Preferences → Graph → DAW Routing**.
 
 ---
 
+## Standalone Mode
+
+When launched as a standalone application, Patchy:
+
+- Opens with its own `AudioDeviceManager` — select input/output devices per node
+- **Remembers window position and size** across sessions
+- **Remembers last file location** — file dialogs reopen in the last used folder
+- Audio settings (sample rate, buffer size, feedback mute) configurable via Preferences
+- Supports the same patch file workflow as DAW mode
+
+---
+
 ## Addon System
 
 Addons are shared libraries implementing the `NGA_Descriptor` C API in `Addons/AddonAPI.h`. Discovered at startup by `AddonScanner`, loaded by `AddonRegistry`.
@@ -155,7 +175,7 @@ Addons are shared libraries implementing the `NGA_Descriptor` C API in `Addons/A
 
 | Platform | Path |
 |----------|------|
-| macOS | `~/Library/Audio/Plug-Ins/Patchy Addons/` |
+| macOS | `~/Library/Patchy/Addons/` |
 | Windows | `%APPDATA%\Patchy\Addons\` |
 | Linux | `~/.patchy/addons/` |
 
@@ -170,9 +190,16 @@ Addons are shared libraries implementing the `NGA_Descriptor` C API in `Addons/A
 | Splitter | Audio | 1in/2out | — (L→out1, R→out2) |
 | Spectrumyser | Audio | 1in/1-5out | Band count (1-5), per-band frequency range |
 
+### Parameter persistence
+
+Addon parameters are automatically saved in `settingsJson` on every change and restored when:
+- A patch file is loaded
+- The graph is rebuilt (adding/connecting nodes)
+- The app is restarted (via DAW project state or patch file)
+
 ### Dynamic port counts
 
-Addons can change their output port count at runtime by exporting `NGA_getAudioOutputCount`. Patchy will update the node's ports and routing live without a full graph rebuild or audio interruption.
+Addons can change their output port count at runtime by exporting `NGA_getAudioOutputCount`. Patchy updates the node's ports and routing live — without a full graph rebuild or audio interruption — only when the count actually changes.
 
 ### Building an addon (macOS example)
 
@@ -180,7 +207,7 @@ Addons can change their output port count at runtime by exporting `NGA_getAudioO
 cd Addons/SpectrumyserAddon
 clang++ -std=c++20 -shared -fPIC SpectrumyserAddon.cpp \
         -o SpectrumyserAddon.dylib
-cp SpectrumyserAddon.dylib ~/Library/Audio/Plug-Ins/Patchy\ Addons/
+cp SpectrumyserAddon.dylib ~/Library/Patchy/Addons/
 ```
 
 ---
@@ -189,11 +216,25 @@ cp SpectrumyserAddon.dylib ~/Library/Audio/Plug-Ins/Patchy\ Addons/
 
 Patches are saved as `.patchy` files — plain JSON containing nodes, connections, viewport and settings. Fully human-readable and tweakable in any text editor.
 
-**File menu (☰ top-right):**
-- **New** — clear the graph
-- **Open…** — load a `.patchy` file
-- **Save** — save to current file (or prompt if unsaved)
-- **Save As…** — always prompt for location
+**File menu (☰ top-right) or keyboard shortcuts:**
+- **New** — clear the graph (`⌘N`)
+- **Open…** — load a `.patchy` file (`⌘O`)
+- **Save** — save to current file, or prompt if unsaved (`⌘S`)
+- **Save As…** — always prompt for location (`⌘⇧S`)
+
+---
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `⌘N` | New graph |
+| `⌘O` | Open patch file |
+| `⌘S` | Save |
+| `⌘⇧S` | Save As |
+| `F` | Fold / unfold all nodes |
+| `Delete` | Delete selected node or edge |
+| Double-click header | Collapse / expand node |
 
 ---
 
@@ -337,6 +378,20 @@ typedef struct {
 
 ---
 
+## Performance
+
+Tested on MacBook Air (Apple Silicon), 44100 Hz / 512 samples:
+
+| Scenario | Result |
+|----------|--------|
+| 200 nodes added in batches | ~52ms total |
+| Audio chain: AudioIN → 400 chained Level nodes → AudioOUT | Smooth, no crackle |
+| Audio chain: AudioIN → 500 chained Level nodes → AudioOUT | Begins to break down |
+
+Practical patches rarely exceed 20–50 nodes. The bottleneck at scale is the 30fps port activity CSS injection across all nodes — not the audio processing itself.
+
+---
+
 ## Licensing
 
 Patchy uses a **source-open, binary-paid** model:
@@ -352,4 +407,4 @@ Addon developers are free to license their addons under any terms — proprietar
 
 ---
 
-*Patchy v0.0.654 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.757 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

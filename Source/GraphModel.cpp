@@ -108,7 +108,7 @@ NodeData& GraphModel::addNode (int t, float x, float y, const juce::String& addo
                                int audioIn, int audioOut, int midiIn, int midiOut)
 {
     NodeData n;
-    n.id       = "node_" + juce::String (++nodeCounter);
+    n.id       = juce::Uuid().toString();
     n.nodeType = t;
     n.x = x; n.y = y;
     n.addonName = addonName;
@@ -150,7 +150,7 @@ Connection* GraphModel::addConnection (const juce::String& sn, const juce::Strin
             return &c;
 
     Connection c;
-    c.id           = "conn_" + juce::String (++connCounter);
+    c.id           = juce::Uuid().toString();
     c.sourceNodeId = sn; c.sourcePortId = sp;
     c.targetNodeId = tn; c.targetPortId = tp;
     connections.push_back (c);
@@ -230,11 +230,6 @@ NodeData& GraphModel::restoreNode (const juce::String& savedId,
     n.addonName = addonName;
     n.label = labelForType (t, addonName);
     n.ports      = portsForType (t, n.id, audioIn, audioOut, midiIn, midiOut);
-
-    // Update nodeCounter so future addNode() calls don't clash
-    auto numStr = savedId.fromLastOccurrenceOf ("_", false, false);
-    int  num    = numStr.getIntValue();
-    if (num > nodeCounter) nodeCounter = num;
 
     nodes.push_back (std::move (n));
     // onChange intentionally not fired here — caller uses resumeNotifications()

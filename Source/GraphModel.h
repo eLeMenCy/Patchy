@@ -60,7 +60,6 @@ public:
     {
         nodes.clear();
         connections.clear();
-        nodeCounter = 0;
         viewportX = viewportY = 0.0f;
         viewportZoom = 1.0f;
     }
@@ -95,8 +94,7 @@ private:
 
     std::vector<NodeData>   nodes;
     std::vector<Connection> connections;
-    int  nodeCounter             = 0;
-    int  connCounter             = 0;
+
     bool notificationsSuspended  = false;
 
 };

@@ -131,6 +131,17 @@ export interface FileState {
   hasFile:  boolean;
 }
 
+/** A self-contained graph fragment ready to be placed on the canvas.
+ *  Node positions are relative to the fragment's own bounding box origin.
+ *  All IDs have already been remapped to fresh UUIDs by C++. */
+export interface FragmentData {
+  nodes:       RawNode[];
+  connections: RawConnection[];
+  /** Bounding box size of the fragment (flow units) — used for ghost sizing */
+  width:  number;
+  height: number;
+}
+
 export interface AddonInfo {
   name:         string;
   vendor:       string;
@@ -148,12 +159,14 @@ export interface AddonInfo {
 const _graphUpdateSubscribers: GraphUpdateCallback[] = [];
 const _midiMonitorSubscribers: MidiMonitorCallback[] = [];
 const _addonListSubscribers: AddonListCallback[] = [];
-type FileStateCallback    = (s: FileState) => void;
-type AudioSettingsCallback = (s: AudioSettings) => void;
+type FileStateCallback      = (s: FileState) => void;
+type AudioSettingsCallback  = (s: AudioSettings) => void;
 type StandaloneModeCallback = (v: boolean) => void;
+type FragmentReadyCallback  = (fragment: FragmentData) => void;
 const _fileStateSubscribers: FileStateCallback[] = [];
 const _audioSettingsSubscribers: AudioSettingsCallback[] = [];
 const _standaloneModeSubscribers: StandaloneModeCallback[] = [];
+const _fragmentReadySubscribers: FragmentReadyCallback[] = [];
 
 // MIDI devices use a subscriber array so multiple DeviceSelector components
 // can all receive updates, and a cache so late-mounting components get the
@@ -277,6 +290,15 @@ function _dispatchClaimed() {
     } catch {}
   },
 
+  onFragmentReady: (json: string) => {
+    try {
+      const fragment = JSON.parse(json) as FragmentData;
+      _fragmentReadySubscribers.forEach(cb => cb(fragment));
+    } catch (e) {
+      console.error('Bridge fragment parse error', e);
+    }
+  },
+
   onAddonList: (json: string) => {
     try {
       const data = JSON.parse(json);
@@ -336,10 +358,31 @@ export const Bridge = {
     };
   },
 
+  onFragmentReady(cb: FragmentReadyCallback) {
+    _fragmentReadySubscribers.push(cb);
+    return () => {
+      const idx = _fragmentReadySubscribers.indexOf(cb);
+      if (idx >= 0) _fragmentReadySubscribers.splice(idx, 1);
+    };
+  },
+
   fileSave()    { sendToJuce({ type: 'fileSave' }); },
   fileSaveAs()  { sendToJuce({ type: 'fileSaveAs' }); },
   fileOpen()    { sendToJuce({ type: 'fileOpen' }); },
   fileNew()     { sendToJuce({ type: 'fileNew' }); },
+
+  /** Export selected nodes to a fragment file.
+   *  selectedNodeIds: ReactFlow node IDs currently selected.
+   *  suggestedName:   filename hint derived from node types (no extension). */
+  exportSelection(selectedNodeIds: string[], suggestedName: string) {
+    sendToJuce({ type: 'exportSelection', selectedNodeIds, suggestedName });
+  },
+
+  /** Ask C++ to open a file picker and load a fragment.
+   *  C++ will push onFragmentReady with remapped JSON when done. */
+  importFragment() {
+    sendToJuce({ type: 'importFragment' });
+  },
 
   onAddonList(cb: AddonListCallback) {
     _addonListSubscribers.push(cb);

@@ -148,6 +148,15 @@ private:
     void showOpenDialog ();
     juce::String buildFileStateJson ();
 
+    // ── Fragment export / import ──────────────────────────────────────────────
+    void showExportDialog (const juce::StringArray& selectedNodeIds,
+                           const juce::String& suggestedName);
+    void showImportDialog ();
+    /** Remap all node/connection/port IDs to fresh UUIDs and strip
+     *  connections that cross the fragment boundary. */
+    static juce::var remapFragmentIds (const juce::var& fragment,
+                                       const juce::StringArray& selectedNodeIds);
+
     juce::File currentFile;
     juce::File lastOpenDir;
 

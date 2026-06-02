@@ -299,6 +299,14 @@ function _dispatchClaimed() {
     }
   },
 
+  /** Forwarded key events from JUCE (e.g. Escape when WebView doesn't have focus) */
+  onKeyEvent: (json: string) => {
+    try {
+      const key = JSON.parse(json) as string;
+      window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    } catch {}
+  },
+
   onAddonList: (json: string) => {
     try {
       const data = JSON.parse(json);
@@ -382,6 +390,13 @@ export const Bridge = {
    *  C++ will push onFragmentReady with remapped JSON when done. */
   importFragment() {
     sendToJuce({ type: 'importFragment' });
+  },
+
+  /** Called after the user drops a fragment on the canvas.
+   *  Sends the remapped nodes + connections (with final positions) to C++
+   *  so the audio graph is rebuilt to match the React state. */
+  importFragmentNodes(nodes: RawNode[], connections: RawConnection[]) {
+    sendToJuce({ type: 'importFragmentNodes', nodes, connections });
   },
 
   onAddonList(cb: AddonListCallback) {

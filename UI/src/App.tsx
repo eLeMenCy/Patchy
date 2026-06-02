@@ -21,7 +21,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { Bridge, FileState, AudioSettings, GraphState, RawNode, RawConnection, PortActivityEntry, AddonParamInfo } from './Bridge';
+import { Bridge, FileState, AudioSettings, GraphState, RawNode, RawConnection, PortActivityEntry, AddonParamInfo, FragmentData } from './Bridge';
 import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
@@ -237,6 +237,9 @@ function FlowCanvas() {
   const [fileState, setFileState] = useState<FileState>({ fileName: 'Untitled', hasFile: false });
   const [audioSettings, setAudioSettings] = useState<AudioSettings | null>(null);
   const [showFileMenu, setShowFileMenu] = useState(false);
+  const [pendingFragment, setPendingFragment] = useState<FragmentData | null>(null);
+  const ghostPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const ghostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     return Bridge.onFileState(setFileState);
@@ -244,6 +247,13 @@ function FlowCanvas() {
 
   useEffect(() => {
     return Bridge.onAudioSettings(setAudioSettings);
+  }, []);
+
+  // Receive fragment from C++ after import file pick — enter ghost mode
+  useEffect(() => {
+    return Bridge.onFragmentReady((fragment) => {
+      setPendingFragment(fragment);
+    });
   }, []);
 
   useEffect(() => {
@@ -522,13 +532,72 @@ function FlowCanvas() {
     Bridge.addNode(cppNodeType, position.x, position.y, addonName);
   }, [screenToFlowPosition]);
 
+  // ── Ghost overlay: track mouse while fragment pending ──────────────────
+  useEffect(() => {
+    if (!pendingFragment) return;
+
+    const onMouseMove = (e: MouseEvent) => {
+      ghostPos.current = { x: e.clientX, y: e.clientY };
+      if (ghostRef.current) {
+        ghostRef.current.style.left = e.clientX + 'px';
+        ghostRef.current.style.top  = e.clientY + 'px';
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPendingFragment(null);
+    };
+    const onContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      setPendingFragment(null);
+    };
+
+    window.addEventListener('mousemove',   onMouseMove);
+    window.addEventListener('keydown',     onKeyDown);
+    window.addEventListener('contextmenu', onContextMenu);
+    return () => {
+      window.removeEventListener('mousemove',   onMouseMove);
+      window.removeEventListener('keydown',     onKeyDown);
+      window.removeEventListener('contextmenu', onContextMenu);
+    };
+  }, [pendingFragment]);
+
+  // Drop the fragment at the current cursor position
+  const dropFragment = useCallback(() => {
+    if (!pendingFragment || !wrapperRef.current) return;
+    const flowPos = screenToFlowPosition({ x: ghostPos.current.x, y: ghostPos.current.y });
+
+    flushSync(() => {
+      setNodes(prev => [
+        ...prev,
+        ...pendingFragment.nodes.map(raw => rawToFlowNode(
+          { ...raw, x: flowPos.x + raw.x, y: flowPos.y + raw.y },
+          _addonParamsMap
+        )),
+      ]);
+      setEdges(prev => [
+        ...prev,
+        ...pendingFragment.connections.map(rawToFlowEdge),
+      ]);
+    });
+
+    // Tell C++ to add the nodes + connections to the audio graph
+    Bridge.importFragmentNodes(
+      pendingFragment.nodes.map(n => ({ ...n, x: flowPos.x + n.x, y: flowPos.y + n.y })),
+      pendingFragment.connections
+    );
+
+    setPendingFragment(null);
+  }, [pendingFragment, screenToFlowPosition, setNodes, setEdges]);
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div
       ref={wrapperRef}
-      style={{ flex: 1, height: '100%', position: 'relative' }}
+      style={{ flex: 1, height: '100%', position: 'relative',
+               cursor: pendingFragment ? 'crosshair' : undefined }}
       onDragOver={onDragOver}
       onDrop={onDrop}
+      onClick={pendingFragment ? dropFragment : undefined}
     >
       <ReactFlow
         onPaneClick={() => { setShowFileMenu(false); setShowPrefs(false); }}
@@ -740,6 +809,41 @@ function FlowCanvas() {
           </div>
         )}
       </ReactFlow>
+      {/* ── Fragment ghost overlay ── */}
+      {pendingFragment && (
+        <div
+          ref={ghostRef}
+          style={{
+            position:       'fixed',
+            pointerEvents:  'none',
+            transform:      'translate(-50%, -50%)',
+            left: ghostPos.current.x,
+            top:  ghostPos.current.y,
+            width:  Math.max(pendingFragment.width  * 0.5, 120),
+            height: Math.max(pendingFragment.height * 0.5, 50),
+            border:         '2px dashed var(--accent)',
+            borderRadius:   'var(--radius)',
+            background:     'rgba(120,80,255, 0.08)',
+            display:        'flex',
+            flexDirection:  'column',
+            alignItems:     'center',
+            justifyContent: 'center',
+            gap:            4,
+            zIndex:         9999,
+            backdropFilter: 'blur(2px)',
+          }}
+        >
+          <span style={{ fontSize: 11, color: 'var(--accent)',
+                         fontFamily: "'JetBrains Mono', monospace",
+                         fontWeight: 700 }}>
+            {pendingFragment.nodes.length} node{pendingFragment.nodes.length !== 1 ? 's' : ''}
+          </span>
+          <span style={{ fontSize: 9, color: 'var(--text-muted)',
+                         fontFamily: "'JetBrains Mono', monospace" }}>
+            click to place · esc to cancel
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -761,7 +865,7 @@ export default function App() {
       <HintProvider>
         <div style={{ display: 'flex', width: '100%', height: '100%' }}>
           <ReactFlowProvider>
-            <Sidebar />
+      <Sidebar />
             <FlowCanvas />
           </ReactFlowProvider>
         </div>

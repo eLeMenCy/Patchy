@@ -424,6 +424,59 @@ void WebBridge::handleMessage (const juce::String& json)
     {
         showImportDialog();
     }
+    else if (type == "importFragmentNodes")
+    {
+        // React has placed the nodes on canvas — now commit them to C++ graph model.
+        // We reuse the existing loadGraph path: merge fragment into current graph JSON.
+        auto* nodesArr = obj->getProperty ("nodes").getArray();
+        auto* connsArr = obj->getProperty ("connections").getArray();
+        if (nodesArr == nullptr) return;
+
+        graph.suspendNotifications();
+
+        for (auto& n : *nodesArr)
+        {
+            auto* nObj = n.getDynamicObject();
+            if (! nObj) continue;
+
+            juce::String savedId  = nObj->getProperty ("id").toString();
+            int          nodeType = (int) nObj->getProperty ("nodeType");
+            float        x        = (float) (double) nObj->getProperty ("x");
+            float        y        = (float) (double) nObj->getProperty ("y");
+            juce::String addonName= nObj->getProperty ("addonName").toString();
+            int audioIn  = (int) nObj->getProperty ("audioInputs");
+            int audioOut = (int) nObj->getProperty ("audioOutputs");
+            int midiIn   = (int) nObj->getProperty ("midiInputs");
+            int midiOut  = (int) nObj->getProperty ("midiOutputs");
+
+            auto& nd = graph.restoreNode (savedId, nodeType, x, y, addonName,
+                                          audioIn, audioOut, midiIn, midiOut);
+            // Restore device selection if present
+            juce::String devId = nObj->getProperty ("selectedDeviceId").toString();
+            if (devId.isNotEmpty()) nd.selectedDeviceId = devId;
+            // Restore settings blob if present
+            juce::String settings = nObj->getProperty ("settingsJson").toString();
+            if (settings.isNotEmpty()) nd.settingsJson = settings;
+            // Restore custom label if present
+            juce::String label = nObj->getProperty ("label").toString();
+            if (label.isNotEmpty()) nd.label = label;
+        }
+
+        if (connsArr)
+            for (auto& c : *connsArr)
+            {
+                auto* cObj = c.getDynamicObject();
+                if (! cObj) continue;
+                graph.addConnection (
+                    cObj->getProperty ("sourceNodeId").toString(),
+                    cObj->getProperty ("sourcePortId").toString(),
+                    cObj->getProperty ("targetNodeId").toString(),
+                    cObj->getProperty ("targetPortId").toString()
+                );
+            }
+
+        graph.resumeNotifications();   // fires onChange → rebuild
+    }
     else if (type == "setAudioEngineSettings")
     {
         double sr   = (double) obj->getProperty ("sampleRate");

@@ -47,6 +47,14 @@ bool PatchyEditor::keyPressed (const juce::KeyPress& key, juce::Component*)
 {
     const bool cmd   = key.getModifiers().isCommandDown();
     const bool shift = key.getModifiers().isShiftDown();
+
+    // Escape: forward to WebView so React ghost mode can cancel
+    if (key.getKeyCode() == juce::KeyPress::escapeKey)
+    {
+        bridge.pushToUI ("onKeyEvent", "\"Escape\"");
+        return false;  // don't consume — let WebView handle it too
+    }
+
     if (! cmd) return false;
 
     if      (key.getKeyCode() == 'N')              { bridge.handleFileNew();    return true; }

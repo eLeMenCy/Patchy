@@ -608,6 +608,57 @@ function FlowCanvas() {
                     <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>{item.shortcut}</span>
                   </div>
                 ))}
+                {/* ── Fragment section ── */}
+                <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
+                {(() => {
+                  const selectedNodes = getNodes().filter(n => n.selected);
+                  const hasSelection  = selectedNodes.length > 0;
+                  const handleExport  = () => {
+                    if (!hasSelection) return;
+                    const ids = selectedNodes.map(n => n.id);
+                    const NODE_LABELS: Record<number, string> = {
+                      1: 'MidiIn', 2: 'MidiOut', 3: 'AudioIn', 4: 'AudioOut',
+                      5: 'MidiMonitor', 6: 'AudioMonitor', 7: 'Keyboard',
+                    };
+                    const names  = selectedNodes.map(n => {
+                      const d = n.data as { nodeType?: number; addonName?: string; label?: string };
+                      return d.addonName || NODE_LABELS[d.nodeType ?? 0] || d.label || 'Node';
+                    });
+                    const unique    = [...new Set(names)];
+                    const suggested = unique.slice(0, 3).join('_') + (unique.length > 3 ? '_etc' : '');
+                    Bridge.exportSelection(ids, suggested);
+                    setShowFileMenu(false);
+                  };
+                  return (
+                    <>
+                      <div onClick={handleExport}
+                        style={{ padding: '6px 14px', fontSize: 11,
+                                 color: hasSelection ? 'var(--text)' : 'var(--text-muted)',
+                                 cursor: hasSelection ? 'pointer' : 'default',
+                                 fontFamily: "'JetBrains Mono', monospace",
+                                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                 gap: 24, opacity: hasSelection ? 1 : 0.45 }}
+                        onMouseEnter={e => { if (hasSelection) e.currentTarget.style.background = 'var(--surface)'; }}
+                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                      >
+                        <span>Export…</span>
+                        <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>
+                          {hasSelection ? `${selectedNodes.length} node${selectedNodes.length !== 1 ? 's' : ''}` : 'select nodes'}
+                        </span>
+                      </div>
+                      <div onClick={() => { Bridge.importFragment(); setShowFileMenu(false); }}
+                        style={{ padding: '6px 14px', fontSize: 11, color: 'var(--text)',
+                                 cursor: 'pointer', fontFamily: "'JetBrains Mono', monospace",
+                                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                 gap: 24 }}
+                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface)')}
+                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                      >
+                        <span>Import…</span>
+                      </div>
+                    </>
+                  );
+                })()}
                 {fileState.hasFile && (
                   <div style={{ padding: '4px 14px 2px', fontSize: 9, color: 'var(--text-muted)',
                                 fontFamily: "'JetBrains Mono', monospace",

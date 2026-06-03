@@ -21,7 +21,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { Bridge, FileState, AudioSettings, GraphState, RawNode, RawConnection, PortActivityEntry, AddonParamInfo, FragmentData } from './Bridge';
+import { Bridge, FileState, AudioSettings, GraphState, RawNode, RawConnection, PortActivityEntry, AddonParamInfo, FragmentData, UndoState } from './Bridge';
 import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
@@ -235,6 +235,7 @@ function FlowCanvas() {
   const [showPrefs, setShowPrefs] = useState(false);
   const [allCollapsed, setAllCollapsed] = useState(false);
   const [fileState, setFileState] = useState<FileState>({ fileName: 'Untitled', hasFile: false });
+  const [undoState, setUndoState] = useState<UndoState>({ canUndo: false, canRedo: false });
   const [audioSettings, setAudioSettings] = useState<AudioSettings | null>(null);
   const [showFileMenu, setShowFileMenu] = useState(false);
   const [pendingFragment, setPendingFragment] = useState<FragmentData | null>(null);
@@ -243,6 +244,10 @@ function FlowCanvas() {
 
   useEffect(() => {
     return Bridge.onFileState(setFileState);
+  }, []);
+
+  useEffect(() => {
+    return Bridge.onUndoState(setUndoState);
   }, []);
 
   useEffect(() => {
@@ -313,6 +318,24 @@ function FlowCanvas() {
       document.removeEventListener('mouseout',  handleMouseOut);
     };
   }, [setHint]);
+
+  // Keyboard shortcuts: Cmd+Z = undo, Cmd+Shift+Z = redo
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const cmd = e.metaKey;  // Mac only — Cmd+Z, not Ctrl+Z
+      if (!cmd) return;
+      if (e.key === 'z' || e.key === 'Z') {
+        e.preventDefault();
+        if (e.shiftKey) Bridge.redo();
+        else            Bridge.undo();
+      }
+      // Also handle synthetic key events forwarded from C++ via onKeyEvent
+      if (e.key === 'undo') { e.preventDefault(); Bridge.undo(); }
+      if (e.key === 'redo') { e.preventDefault(); Bridge.redo(); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   // Keyboard shortcut: F to fold/unfold all
   useEffect(() => {
@@ -671,6 +694,26 @@ function FlowCanvas() {
                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                              gap: 24 }}
                     onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <span>{item.label}</span>
+                    <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>{item.shortcut}</span>
+                  </div>
+                ))}
+                {/* ── Undo / Redo section ── */}
+                <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
+                {[
+                  { label: 'Undo', shortcut: '⌘Z',   enabled: undoState.canUndo, action: () => { Bridge.undo(); setShowFileMenu(false); } },
+                  { label: 'Redo', shortcut: '⌘⇧Z', enabled: undoState.canRedo, action: () => { Bridge.redo(); setShowFileMenu(false); } },
+                ].map(item => (
+                  <div key={item.label} onClick={item.enabled ? item.action : undefined}
+                    style={{ padding: '6px 14px', fontSize: 11,
+                             color: item.enabled ? 'var(--text)' : 'var(--text-muted)',
+                             cursor: item.enabled ? 'pointer' : 'default',
+                             fontFamily: "'JetBrains Mono', monospace",
+                             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                             gap: 24, opacity: item.enabled ? 1 : 0.45 }}
+                    onMouseEnter={e => { if (item.enabled) e.currentTarget.style.background = 'var(--surface)'; }}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                   >
                     <span>{item.label}</span>

@@ -16,8 +16,18 @@ bool MidiDeviceManager::applyToGraph (const juce::String& nodeId,
                                        const juce::String& deviceIdentifier,
                                        ProcessingGraph&    graph)
 {
-    if (auto* n = graph.findMidiOutNode (nodeId)) { n->openDevice (deviceIdentifier); return true; }
-    if (auto* n = graph.findMidiInNode  (nodeId)) { n->openDevice (deviceIdentifier); return true; }
+    if (auto* n = graph.findMidiOutNode (nodeId))
+    {
+        if (deviceIdentifier.isEmpty()) n->closeDevice();
+        else                            n->openDevice (deviceIdentifier);
+        return true;
+    }
+    if (auto* n = graph.findMidiInNode (nodeId))
+    {
+        if (deviceIdentifier.isEmpty()) n->closeDevice();
+        else                            n->openDevice (deviceIdentifier);
+        return true;
+    }
     return false;
 }
 

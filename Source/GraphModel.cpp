@@ -168,6 +168,13 @@ bool GraphModel::removeConnection (const juce::String& id)
     return true;
 }
 
+bool GraphModel::hasConnection (const juce::String& id) const
+{
+    for (const auto& c : connections)
+        if (c.id == id) return true;
+    return false;
+}
+
 juce::var GraphModel::toVar() const
 {
     juce::Array<juce::var> nodesArr;
@@ -182,6 +189,22 @@ juce::var GraphModel::toVar() const
         obj->setProperty ("settingsJson",     n.settingsJson);
         obj->setProperty ("x",        n.x);
         obj->setProperty ("y",        n.y);
+
+        // Count ports by type/direction for restore
+        int audioIn = 0, audioOut = 0, midiIn = 0, midiOut = 0;
+        for (const auto& p : n.ports)
+        {
+            bool isAudio = (p.type == PortType::Audio);
+            bool isOut   = (p.direction == PortDirection::Output);
+            if  (isAudio &&  isOut) ++audioOut;
+            else if (isAudio && !isOut) ++audioIn;
+            else if (!isAudio &&  isOut) ++midiOut;
+            else ++midiIn;
+        }
+        obj->setProperty ("audioInputs",  audioIn);
+        obj->setProperty ("audioOutputs", audioOut);
+        obj->setProperty ("midiInputs",   midiIn);
+        obj->setProperty ("midiOutputs",  midiOut);
 
         juce::Array<juce::var> ports;
         for (const auto& p : n.ports)
@@ -296,4 +319,118 @@ void GraphModel::updateNodeAudioOutputCount (const juce::String& nodeId, int new
         if (! notificationsSuspended) notifyChange();
         return;
     }
+}
+
+// ── Undo / Redo ───────────────────────────────────────────────────────────────
+
+void GraphModel::pushSnapshot()
+{
+    for (const auto& n : nodes)
+
+    undoStack.push_back (toVar());
+
+    // Trim to max steps
+    while ((int) undoStack.size() > kMaxUndoSteps)
+        undoStack.pop_front();
+
+    // Any new action clears the redo stack
+    redoStack.clear();
+}
+
+bool GraphModel::undo()
+{
+    if (undoStack.empty()) return false;
+
+    // Push current state onto redo stack before restoring
+    redoStack.push_back (toVar());
+
+    auto snapshot = std::move (undoStack.back());
+    undoStack.pop_back();
+
+    restoreSnapshot (snapshot);
+    return true;
+}
+
+bool GraphModel::redo()
+{
+    if (redoStack.empty()) return false;
+
+    // Push current state onto undo stack before restoring
+    undoStack.push_back (toVar());
+
+    auto snapshot = std::move (redoStack.back());
+    redoStack.pop_back();
+
+    restoreSnapshot (snapshot);
+    return true;
+}
+
+void GraphModel::restoreSnapshot (const juce::var& snapshot)
+{
+    auto* obj = snapshot.getDynamicObject();
+    if (obj == nullptr) return;
+
+    suspendNotifications();
+
+    clear();
+
+    viewportX    = (float)(double) obj->getProperty ("viewportX");
+    viewportY    = (float)(double) obj->getProperty ("viewportY");
+    viewportZoom = (float)(double) obj->getProperty ("viewportZoom");
+    if (viewportZoom == 0.0f) viewportZoom = 1.0f;
+
+    // Restore nodes
+    auto* nodesArr = obj->getProperty ("nodes").getArray();
+    if (nodesArr)
+    {
+        for (auto& n : *nodesArr)
+        {
+            auto* nObj = n.getDynamicObject();
+            if (! nObj) continue;
+
+            int audioIn  = (int) nObj->getProperty ("audioInputs");
+            int audioOut = (int) nObj->getProperty ("audioOutputs");
+            int midiIn   = (int) nObj->getProperty ("midiInputs");
+            int midiOut  = (int) nObj->getProperty ("midiOutputs");
+
+            auto& nd = restoreNode (
+                nObj->getProperty ("id").toString(),
+                (int) nObj->getProperty ("nodeType"),
+                (float)(double) nObj->getProperty ("x"),
+                (float)(double) nObj->getProperty ("y"),
+                nObj->getProperty ("addonName").toString(),
+                audioIn, audioOut, midiIn, midiOut);
+
+            // Always restore selectedDeviceId — empty string means "no device"
+            nd.selectedDeviceId = nObj->getProperty ("selectedDeviceId").toString();
+
+            nd.settingsJson = nObj->getProperty ("settingsJson").toString();
+            nd.label        = nObj->getProperty ("label").toString();
+        }
+    }
+
+    // Restore connections
+    auto* connsArr = obj->getProperty ("connections").getArray();
+    if (connsArr)
+    {
+        for (auto& c : *connsArr)
+        {
+            auto* cObj = c.getDynamicObject();
+            if (! cObj) continue;
+            addConnection (
+                cObj->getProperty ("sourceNodeId").toString(),
+                cObj->getProperty ("sourcePortId").toString(),
+                cObj->getProperty ("targetNodeId").toString(),
+                cObj->getProperty ("targetPortId").toString());
+        }
+    }
+
+    // Notify processor to resync device managers from restored model
+    for (const auto& n : nodes)
+
+    // Update device manager selections BEFORE rebuild so applyDeviceSelections
+    // inside rebuildProcessingGraph picks up the correct restored values.
+    if (onAfterRestore) onAfterRestore();
+
+    resumeNotifications();  // fires onChange → rebuild + pushGraphToUI
 }

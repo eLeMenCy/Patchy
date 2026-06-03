@@ -61,6 +61,8 @@ bool PatchyEditor::keyPressed (const juce::KeyPress& key, juce::Component*)
     else if (key.getKeyCode() == 'O')              { bridge.handleFileOpen();   return true; }
     else if (key.getKeyCode() == 'S' && ! shift)   { bridge.handleFileSave();   return true; }
     else if (key.getKeyCode() == 'S' &&   shift)   { bridge.handleFileSaveAs(); return true; }
+    else if (key.getKeyCode() == 'Z' && ! shift)   { bridge.handleUndo(); return true; }
+    else if (key.getKeyCode() == 'Z' &&   shift)   { bridge.handleRedo(); return true; }
 
     return false;
 }

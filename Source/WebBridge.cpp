@@ -251,6 +251,8 @@ void WebBridge::handleMessage (const juce::String& json)
 
     if (type == "ready")
     {
+        // Guard against double-ready (WebView sometimes fires twice on load)
+        const bool wasConnected = connected;
         connected = true;
         juce::Logger::writeToLog ("WebBridge: UI ready.");
         pushAddonList();
@@ -258,11 +260,16 @@ void WebBridge::handleMessage (const juce::String& json)
         pushMidiDevices();
         pushAudioDevices();
         pushGraphToUI();
-        if (onUIReady) onUIReady();
-        startTimerHz (30);
+        pushUndoState();
+        if (!wasConnected)
+        {
+            if (onUIReady) onUIReady();
+            startTimerHz (30);
+        }
     }
     else if (type == "addNode")
     {
+        graph.pushSnapshot();
         juce::String addonName = obj->getProperty ("addonName").toString();
         int audioIn = 0, audioOut = 0, midiIn = 0, midiOut = 0;
 
@@ -325,7 +332,10 @@ void WebBridge::handleMessage (const juce::String& json)
         juce::String nodeId    = obj->getProperty ("nodeId").toString();
         juce::String settingsJson = obj->getProperty ("settings").toString();
         if (nodeId.isNotEmpty())
+        {
+            graph.pushSnapshot();
             graph.setNodeSettings (nodeId, settingsJson);
+        }
         // Note: no onChange call — settings are UI-only, no need to rebuild graph
     }
     else if (type == "setNodeLabel")
@@ -348,10 +358,12 @@ void WebBridge::handleMessage (const juce::String& json)
     }
     else if (type == "removeNode")
     {
+        graph.pushSnapshot();
         graph.removeNode (obj->getProperty ("nodeId").toString());
     }
     else if (type == "addConnection")
     {
+        graph.pushSnapshot();
         graph.addConnection (
             obj->getProperty ("sourceNodeId").toString(),
             obj->getProperty ("sourcePortId").toString(),
@@ -360,7 +372,13 @@ void WebBridge::handleMessage (const juce::String& json)
     }
     else if (type == "removeConnection")
     {
-        graph.removeConnection (obj->getProperty ("connectionId").toString());
+        juce::String connId = obj->getProperty ("connectionId").toString();
+        // Only snapshot if the connection exists — ReactFlow fires removeConnection
+        // for each edge when a node is deleted, but C++ already removed them
+        // as part of removeNode. Avoid phantom snapshots.
+        if (graph.hasConnection (connId))
+            graph.pushSnapshot();
+        graph.removeConnection (connId);
     }
     else if (type == "moveNode")
     {
@@ -383,6 +401,20 @@ void WebBridge::handleMessage (const juce::String& json)
         juce::String key    = obj->getProperty ("key").toString();
         juce::String value  = obj->getProperty ("value").toString();
 
+
+        // If the value matches what's already stored in the graph model, this
+        // is a React echo (device selector re-rendering after a graph update)
+        // — not a real user action. Skip the snapshot entirely.
+        if (auto* node = graph.findNode (nodeId))
+        {
+            if ((key == "audioDeviceId" || key == "midiDeviceId")
+                && node->selectedDeviceId == value)
+            {
+                return;
+            }
+        }
+
+        graph.pushSnapshot();
         if (key == "midiDeviceId" && onSetMidiDevice)
             onSetMidiDevice (nodeId, value);
         else if (key == "audioDeviceId" && onSetAudioDevice)
@@ -424,8 +456,17 @@ void WebBridge::handleMessage (const juce::String& json)
     {
         showImportDialog();
     }
+    else if (type == "undo")
+    {
+        handleUndo();
+    }
+    else if (type == "redo")
+    {
+        handleRedo();
+    }
     else if (type == "importFragmentNodes")
     {
+        graph.pushSnapshot();
         // React has placed the nodes on canvas — now commit them to C++ graph model.
         // We reuse the existing loadGraph path: merge fragment into current graph JSON.
         auto* nodesArr = obj->getProperty ("nodes").getArray();
@@ -485,6 +526,16 @@ void WebBridge::handleMessage (const juce::String& json)
         if (onSetAudioEngineSettings)
             onSetAudioEngineSettings (sr, buf, mute);
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+void WebBridge::pushUndoState()
+{
+    auto obj = std::make_unique<juce::DynamicObject>();
+    obj->setProperty ("canUndo", graph.canUndo());
+    obj->setProperty ("canRedo", graph.canRedo());
+    pushToUI ("onUndoState", juce::JSON::toString (juce::var (obj.release()), false));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -803,6 +854,7 @@ void WebBridge::showOpenDialog()
                     lastOpenDir  = result.getParentDirectory();
                     if (onLoadGraph) onLoadGraph (json);
                     pushToUI ("onFileState", buildFileStateJson());
+
                 }
             }
         });
@@ -874,6 +926,18 @@ void WebBridge::handleFileNew()
 void WebBridge::handleFileOpen()   { showOpenDialog(); }
 void WebBridge::handleFileSave()   { if (currentFile.existsAsFile()) saveToFile (currentFile); else showSaveDialog(); }
 void WebBridge::handleFileSaveAs() { showSaveDialog(); }
+
+void WebBridge::handleUndo()
+{
+    if (graph.undo())
+        pushUndoState();
+}
+
+void WebBridge::handleRedo()
+{
+    if (graph.redo())
+        pushUndoState();
+}
 
 // ── Fragment export ───────────────────────────────────────────────────────────
 void WebBridge::showExportDialog (const juce::StringArray& selectedNodeIds,

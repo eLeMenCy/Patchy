@@ -2,6 +2,7 @@
 #include <juce_core/juce_core.h>
 #include <functional>
 #include <vector>
+#include <deque>
 
 enum class PortType      { Midi, Audio };
 enum class PortDirection { Input, Output };
@@ -35,6 +36,9 @@ class GraphModel
 {
 public:
     std::function<void()> onChange;
+    /** Called after undo/redo restores a snapshot — allows the processor to
+     *  resync device managers from the restored GraphModel state. */
+    std::function<void()> onAfterRestore;
 
     // Viewport state (pan + zoom) — saved/restored with the graph
     float viewportX    = 0.0f;
@@ -73,11 +77,30 @@ public:
     Connection* addConnection (const juce::String& srcNode, const juce::String& srcPort,
                                 const juce::String& dstNode, const juce::String& dstPort);
     bool        removeConnection (const juce::String& connId);
+    bool        hasConnection   (const juce::String& connId) const;
     void        renameNode       (const juce::String& nodeId, const juce::String& newLabel);
     void        updateNodeAudioOutputCount (const juce::String& nodeId, int newAudioOut);
     void        setNodeSettings  (const juce::String& nodeId, const juce::String& json);
 
     juce::var   toVar() const;
+
+    // ── Undo / Redo ───────────────────────────────────────────────────────────
+    static constexpr int kMaxUndoSteps = 50;
+
+    /** Call this BEFORE any qualifying mutation to capture the current state. */
+    void pushSnapshot();
+
+    /** Undo the last action. Returns true if successful. */
+    bool undo();
+
+    /** Redo the last undone action. Returns true if successful. */
+    bool redo();
+
+    bool canUndo() const { return !undoStack.empty(); }
+    bool canRedo() const { return !redoStack.empty(); }
+
+    /** Clear both undo and redo stacks — called on file load. */
+    void clearHistory() { undoStack.clear(); redoStack.clear(); }
 
     // ── Test / read-only accessors ────────────────────────────────────────────
     const std::vector<NodeData>&   getNodes()       const { return nodes; }
@@ -96,5 +119,11 @@ private:
     std::vector<Connection> connections;
 
     bool notificationsSuspended  = false;
+
+    // ── History ───────────────────────────────────────────────────────────────
+    std::deque<juce::var> undoStack;
+    std::deque<juce::var> redoStack;
+
+    void restoreSnapshot (const juce::var& snapshot);
 
 };

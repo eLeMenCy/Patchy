@@ -75,12 +75,15 @@ public:
     void resized() override;
     void loadUI();
     void pushGraphToUI();
+    void pushUndoState();
 
     // Called directly from C++ (e.g. keyboard shortcuts in PatchyEditor)
     void handleFileNew();
     void handleFileOpen();
     void handleFileSave();
     void handleFileSaveAs();
+    void handleUndo();
+    void handleRedo();
     void setLastOpenDir (const juce::File& dir) { lastOpenDir = dir; }
     juce::File getLastOpenDir() const { return lastOpenDir; }
     void pushToUI (const juce::String& bridgeFn, juce::String json);

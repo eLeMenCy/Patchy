@@ -131,6 +131,11 @@ export interface FileState {
   hasFile:  boolean;
 }
 
+export interface UndoState {
+  canUndo: boolean;
+  canRedo: boolean;
+}
+
 /** A self-contained graph fragment ready to be placed on the canvas.
  *  Node positions are relative to the fragment's own bounding box origin.
  *  All IDs have already been remapped to fresh UUIDs by C++. */
@@ -163,10 +168,12 @@ type FileStateCallback      = (s: FileState) => void;
 type AudioSettingsCallback  = (s: AudioSettings) => void;
 type StandaloneModeCallback = (v: boolean) => void;
 type FragmentReadyCallback  = (fragment: FragmentData) => void;
+type UndoStateCallback      = (s: UndoState) => void;
 const _fileStateSubscribers: FileStateCallback[] = [];
 const _audioSettingsSubscribers: AudioSettingsCallback[] = [];
 const _standaloneModeSubscribers: StandaloneModeCallback[] = [];
 const _fragmentReadySubscribers: FragmentReadyCallback[] = [];
+const _undoStateSubscribers: UndoStateCallback[] = [];
 
 // MIDI devices use a subscriber array so multiple DeviceSelector components
 // can all receive updates, and a cache so late-mounting components get the
@@ -299,6 +306,13 @@ function _dispatchClaimed() {
     }
   },
 
+  onUndoState: (json: string) => {
+    try {
+      const s = JSON.parse(json) as UndoState;
+      _undoStateSubscribers.forEach(cb => cb(s));
+    } catch {}
+  },
+
   /** Forwarded key events from JUCE (e.g. Escape when WebView doesn't have focus) */
   onKeyEvent: (json: string) => {
     try {
@@ -373,6 +387,17 @@ export const Bridge = {
       if (idx >= 0) _fragmentReadySubscribers.splice(idx, 1);
     };
   },
+
+  onUndoState(cb: UndoStateCallback) {
+    _undoStateSubscribers.push(cb);
+    return () => {
+      const idx = _undoStateSubscribers.indexOf(cb);
+      if (idx >= 0) _undoStateSubscribers.splice(idx, 1);
+    };
+  },
+
+  undo() { sendToJuce({ type: 'undo' }); },
+  redo() { sendToJuce({ type: 'redo' }); },
 
   fileSave()    { sendToJuce({ type: 'fileSave' }); },
   fileSaveAs()  { sendToJuce({ type: 'fileSaveAs' }); },

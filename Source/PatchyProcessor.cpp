@@ -29,8 +29,17 @@ PatchyProcessor::PatchyProcessor()
         rebuildProcessingGraph();
         // Notify the editor to push updated graph to the WebView
         if (auto* ed = dynamic_cast<PatchyEditor*> (getActiveEditor()))
+        {
             ed->getBridge().pushGraphToUI();
+            ed->getBridge().pushUndoState();
+        }
     };
+
+    // After undo/redo restores a snapshot, resync device managers so
+    // applyDeviceSelections() uses the restored selectedDeviceId values
+    // rather than the stale pre-undo selections.
+    // onAfterRestore is not needed — rebuildProcessingGraph syncs device
+    // selections directly from graphModel before applying them.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -146,7 +155,23 @@ void PatchyProcessor::rebuildProcessingGraph()
     // Only nodes that exist in both graphs get their callback transferred.
     newGraph->transferAudioDevicesFrom (processingGraph);
 
-    // Apply any selections not yet transferred (new nodes, changed devices)
+    // Sync device manager selections from current graphModel state.
+    // This ensures undo/redo restores correctly — the model has already been
+    // updated before rebuildProcessingGraph runs, so we always apply the
+    // right selections including empty ones (which trigger closeDevice).
+    for (const auto& n : graphModel.getNodes())
+    {
+        if (n.nodeType == 1 || n.nodeType == 2)
+            midiDeviceManager.storeSelection (n.id, n.selectedDeviceId);
+        else if (n.nodeType == 3 || n.nodeType == 4)
+        {
+            juce::String devName = n.selectedDeviceId;
+            if (! isStandalone && devName.isNotEmpty()) devName = "DAW";
+            audioDeviceManager.storeSelection (n.id, devName);
+        }
+    }
+
+    // Apply selections to new graph (opens/closes devices as needed)
     midiDeviceManager.applyDeviceSelections  (*newGraph);
     audioDeviceManager.applyDeviceSelections (*newGraph);
 
@@ -185,6 +210,9 @@ void PatchyProcessor::setStateInformation (const void* data, int sizeInBytes)
         GraphModel& m;
         ~ResumeGuard() { m.resumeNotifications(); }
     } guard { graphModel };
+
+    // Clear history — a freshly loaded graph starts with a clean undo stack.
+    graphModel.clearHistory();
 
     // Restore nodes using their original saved IDs so connections match.
     const auto& nodesArr = *root->getProperty ("nodes").getArray();

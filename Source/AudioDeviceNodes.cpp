@@ -21,13 +21,17 @@ bool AudioDeviceManager::applyToGraph (const juce::String& nodeId,
 {
     if (auto* n = graph.findAudioOutNode (nodeId))
     {
-        if (! n->wasTransferred())
+        if (deviceName.isEmpty())
+            n->closeDevice();           // always close, even if transferred
+        else if (! n->wasTransferred())
             n->openDevice (deviceName, outputManager);
         return true;
     }
     if (auto* n = graph.findAudioInNode (nodeId))
     {
-        if (! n->wasTransferred())
+        if (deviceName.isEmpty())
+            n->closeDevice();           // always close, even if transferred
+        else if (! n->wasTransferred())
             n->openDevice (deviceName, inputManager);
         return true;
     }
@@ -154,6 +158,7 @@ void AudioOutDeviceNode::closeDevice()
         devManager = nullptr;
     }
     registeredDeviceName.clear();
+    transferred = false;  // allow openDevice() to work after close
 }
 
 void AudioOutDeviceNode::prepare (double sampleRate, int maxBlockSize)
@@ -230,6 +235,7 @@ void AudioInDeviceNode::closeDevice()
         devManager = nullptr;
     }
     registeredDeviceName.clear();
+    transferred = false;  // allow openDevice() to work after close
 }
 
 void AudioInDeviceNode::prepare (double sampleRate, int maxBlockSize)

@@ -70,6 +70,7 @@ public:
 
     // ── Monitor ───────────────────────────────────────────────────────────
     void closeAllAudioDevices();
+    void closeAllTransferredAudioDevices();
 
 
     /** Transfer open audio device callbacks from an existing graph to this one.

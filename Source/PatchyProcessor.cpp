@@ -159,6 +159,7 @@ void PatchyProcessor::rebuildProcessingGraph()
     // This ensures undo/redo restores correctly — the model has already been
     // updated before rebuildProcessingGraph runs, so we always apply the
     // right selections including empty ones (which trigger closeDevice).
+    bool selectionsChanged = false;
     for (const auto& n : graphModel.getNodes())
     {
         if (n.nodeType == 1 || n.nodeType == 2)
@@ -167,9 +168,19 @@ void PatchyProcessor::rebuildProcessingGraph()
         {
             juce::String devName = n.selectedDeviceId;
             if (! isStandalone && devName.isNotEmpty()) devName = "DAW";
-            audioDeviceManager.storeSelection (n.id, devName);
+            juce::String prev = audioDeviceManager.getSelection (n.id);
+            if (prev != devName)
+            {
+                audioDeviceManager.storeSelection (n.id, devName);
+                selectionsChanged = true;
+            }
         }
     }
+
+    // If selections changed (e.g. after undo), close all transferred devices
+    // so applyDeviceSelections can open the correct ones freely.
+    if (selectionsChanged)
+        newGraph->closeAllTransferredAudioDevices();
 
     // Apply selections to new graph (opens/closes devices as needed)
     midiDeviceManager.applyDeviceSelections  (*newGraph);

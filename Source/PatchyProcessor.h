@@ -148,6 +148,7 @@ public:
     {
         graphModel.suspendNotifications();
         graphModel.clear();
+        graphModel.clearHistory();
         graphModel.resumeNotifications();  // fires onChange → rebuildProcessingGraph
     }
 

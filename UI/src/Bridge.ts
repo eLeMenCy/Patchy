@@ -162,6 +162,7 @@ export interface AddonInfo {
 // ── Singleton bridge ─────────────────────────────────────────────────────────
 
 const _graphUpdateSubscribers: GraphUpdateCallback[] = [];
+
 const _midiMonitorSubscribers: MidiMonitorCallback[] = [];
 const _addonListSubscribers: AddonListCallback[] = [];
 type FileStateCallback      = (s: FileState) => void;

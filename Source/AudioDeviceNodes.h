@@ -266,6 +266,12 @@ public:
         selections[nodeId] = deviceName;
     }
 
+    juce::String getSelection (const juce::String& nodeId) const
+    {
+        auto it = selections.find (nodeId);
+        return it != selections.end() ? it->second : juce::String{};
+    }
+
     bool applyToGraph (const juce::String& nodeId,
                        const juce::String& deviceName,
                        ProcessingGraph& graph);

@@ -325,8 +325,6 @@ void GraphModel::updateNodeAudioOutputCount (const juce::String& nodeId, int new
 
 void GraphModel::pushSnapshot()
 {
-    for (const auto& n : nodes)
-
     undoStack.push_back (toVar());
 
     // Trim to max steps

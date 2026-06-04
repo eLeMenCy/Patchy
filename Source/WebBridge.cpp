@@ -401,19 +401,6 @@ void WebBridge::handleMessage (const juce::String& json)
         juce::String key    = obj->getProperty ("key").toString();
         juce::String value  = obj->getProperty ("value").toString();
 
-
-        // If the value matches what's already stored in the graph model, this
-        // is a React echo (device selector re-rendering after a graph update)
-        // — not a real user action. Skip the snapshot entirely.
-        if (auto* node = graph.findNode (nodeId))
-        {
-            if ((key == "audioDeviceId" || key == "midiDeviceId")
-                && node->selectedDeviceId == value)
-            {
-                return;
-            }
-        }
-
         graph.pushSnapshot();
         if (key == "midiDeviceId" && onSetMidiDevice)
             onSetMidiDevice (nodeId, value);

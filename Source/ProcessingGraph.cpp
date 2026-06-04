@@ -414,6 +414,20 @@ void ProcessingGraph::closeAllAudioDevices()
     }
 }
 
+void ProcessingGraph::closeAllTransferredAudioDevices()
+{
+    // Close only nodes that were marked as transferred — used before
+    // applyDeviceSelections when the desired device has changed (e.g. undo).
+    // closeDevice() also resets the transferred flag so openDevice() works.
+    for (auto& node : nodes)
+    {
+        if (auto* out = dynamic_cast<AudioOutDeviceNode*> (node.get()))
+            if (out->wasTransferred()) out->closeDevice();
+        if (auto* in  = dynamic_cast<AudioInDeviceNode*>  (node.get()))
+            if (in->wasTransferred()) in->closeDevice();
+    }
+}
+
 void ProcessingGraph::transferAudioDevicesFrom (ProcessingGraph& source)
 {
     for (auto& newNode : nodes)

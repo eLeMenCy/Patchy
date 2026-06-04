@@ -381,13 +381,7 @@ function FlowCanvas() {
         });
       }
 
-      // Repopulate claimed devices from restored graph state
-      state.nodes.forEach(n => {
-        if ((n.nodeType === 1 || n.nodeType === 2) && n.selectedDeviceId)
-          Bridge.setNodeParam(n.id, 'midiDeviceId', n.selectedDeviceId, n.nodeType);
-        if ((n.nodeType === 3 || n.nodeType === 4) && n.selectedDeviceId)
-          Bridge.setNodeParam(n.id, 'audioDeviceId', n.selectedDeviceId, n.nodeType);
-      });
+      // Claimed devices are rebuilt in Bridge.ts onGraphUpdate — no echo needed.
     });
 
 

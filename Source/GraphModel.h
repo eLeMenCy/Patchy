@@ -36,9 +36,6 @@ class GraphModel
 {
 public:
     std::function<void()> onChange;
-    /** Called after undo/redo restores a snapshot — allows the processor to
-     *  resync device managers from the restored GraphModel state. */
-    std::function<void()> onAfterRestore;
 
     // Viewport state (pan + zoom) — saved/restored with the graph
     float viewportX    = 0.0f;

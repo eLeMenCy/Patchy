@@ -250,6 +250,17 @@ function FlowCanvas() {
     return Bridge.onUndoState(setUndoState);
   }, []);
 
+  // Keep ReactFlow node data in sync when slider updates settingsJson
+  useEffect(() => {
+    return Bridge.onNodeSettings((nodeId, settingsJson) => {
+      setNodes(prev => prev.map(n =>
+        n.id === nodeId
+          ? { ...n, data: { ...n.data, settingsJson } }
+          : n
+      ));
+    });
+  }, [setNodes]);
+
   useEffect(() => {
     return Bridge.onAudioSettings(setAudioSettings);
   }, []);

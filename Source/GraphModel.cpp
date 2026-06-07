@@ -426,5 +426,9 @@ void GraphModel::restoreSnapshot (const juce::var& snapshot)
     // Notify processor to resync device managers from restored model
     for (const auto& n : nodes)
 
-    resumeNotifications();  // fires onChange → rebuildProcessingGraph → pushGraphToUI
+    // Update device manager selections BEFORE rebuild so applyDeviceSelections
+    // inside rebuildProcessingGraph picks up the correct restored values.
+    if (onAfterRestore) onAfterRestore();
+
+    resumeNotifications();  // fires onChange → rebuild + pushGraphToUI
 }

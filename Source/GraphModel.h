@@ -36,6 +36,9 @@ class GraphModel
 {
 public:
     std::function<void()> onChange;
+    /** Called after undo/redo restores a snapshot — allows the processor to
+     *  resync device managers from the restored GraphModel state. */
+    std::function<void()> onAfterRestore;
 
     // Viewport state (pan + zoom) — saved/restored with the graph
     float viewportX    = 0.0f;
@@ -86,6 +89,16 @@ public:
 
     /** Call this BEFORE any qualifying mutation to capture the current state. */
     void pushSnapshot();
+
+    /** Push a pre-captured snapshot onto the undo stack directly.
+     *  Used by commitNodeSettings to push the pre-drag state. */
+    void pushExistingSnapshot (juce::var snapshot)
+    {
+        undoStack.push_back (std::move (snapshot));
+        while ((int) undoStack.size() > kMaxUndoSteps)
+            undoStack.pop_front();
+        redoStack.clear();
+    }
 
     /** Undo the last action. Returns true if successful. */
     bool undo();

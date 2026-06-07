@@ -44,12 +44,8 @@ function DeviceSelector ({ nodeId, nodeType, selectedDeviceId }: {
   const accent = isMidi ? 'var(--midi)' : 'var(--audio)';
   const { isStandalone, dawLoopbackEnabled, dawHostEnabled } = useContext(DawContext);
   const { setHint } = useContext(HintContext);
-  const [devices,       setDevices]       = useState<Array<{ id: string; name: string }>>([]);
-  const [selectedValue, setSelectedValue] = useState<string>(selectedDeviceId ?? '');
-  const [claimed,       setClaimed]       = useState<Map<string, { deviceId: string; nodeType: number }>>(new Map());
-
-  // Sync prop → local state on graph restore
-  useEffect(() => { setSelectedValue(selectedDeviceId ?? ''); }, [selectedDeviceId]);
+  const [devices, setDevices] = useState<Array<{ id: string; name: string }>>([]);
+  const [claimed, setClaimed] = useState<Map<string, { deviceId: string; nodeType: number }>>(new Map());
 
   useEffect(() => {
     const unsubClaimed = Bridge.onClaimedDevices(map => setClaimed(new Map(map)));
@@ -82,8 +78,8 @@ function DeviceSelector ({ nodeId, nodeType, selectedDeviceId }: {
 
   return (
     <NodeSelect
-      value={selectedValue}
-      onChange={v => { setSelectedValue(v); Bridge.setNodeParam(nodeId, paramKey, v, nodeType); }}
+      value={selectedDeviceId ?? ''}
+      onChange={v => Bridge.setNodeParam(nodeId, paramKey, v, nodeType)}
       options={opts}
       disabled={devices.length === 0}
       accent={accent}
@@ -136,6 +132,20 @@ function GenericNode({ id, data, selected }: NodeProps) {
       vals.forEach((v, i) => Bridge.setAddonParameter(id, i, v));
     }
   }, [addonParams.length]);
+
+  // Sync paramValues when settingsJson changes externally (e.g. undo/redo).
+  useEffect(() => {
+    if (addonParams.length === 0) return;
+    const vals = nodeData.settingsJson
+      ? (() => { try { return JSON.parse(nodeData.settingsJson) as number[]; } catch { return null; } })()
+      : addonParams.map(p => p.defaultValue);
+    if (!vals || vals.length !== addonParams.length) return;
+    setParamValues(prev => {
+      if (prev.length === vals.length && prev.every((v, i) => v === vals[i])) return prev;
+      vals.forEach((v, i) => Bridge.setAddonParameter(id, i, v));
+      return vals;
+    });
+  }, [nodeData.settingsJson, addonParams.length]);
 
   const onParamChange = useCallback((index: number, value: number) => {
     setParamValues(prev => {
@@ -257,6 +267,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
                 setParamValues(defaults);
                 Bridge.setNodeSettings(id, defaults);
                 defaults.forEach((v, i) => Bridge.setAddonParameter(id, i, v));
+                Bridge.commitNodeSettings(id);
               }}
               onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.reset), onMouseLeave: () => setHint(null) }}><span style={{ fontSize: 11, fontWeight: 700 }}>R</span></NodeHeaderButton>
           </div>
@@ -270,7 +281,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
                   <div style={{ display: 'flex', gap: 4 }}>
                     {['Off', 'On'].map((label, val) => (
                       <div key={val}
-                        onClick={() => onParamChange(i, val)}
+                        onClick={() => { onParamChange(i, val); Bridge.commitNodeSettings(id); }}
                         style={{
                           fontSize:     9,
                           padding:      '2px 6px',
@@ -296,7 +307,9 @@ function GenericNode({ id, data, selected }: NodeProps) {
                     if (p.step >= 1) v = Math.round(v);
                     onParamChange(i, v);
                   }}
-                  onDoubleClick={() => onParamChange(i, p.defaultValue)}
+                  onMouseUp={() => Bridge.commitNodeSettings(id)}
+                  onKeyUp={() => Bridge.commitNodeSettings(id)}
+                  onDoubleClick={() => { onParamChange(i, p.defaultValue); Bridge.commitNodeSettings(id); }}
                   onMouseEnter={() => setHint({ title: p.name, body: `Range: ${p.min} to ${p.max}${p.step >= 1 ? ' (integer)' : ''}.
 Double-click to reset to default (${p.defaultValue}).` })}
                   onMouseLeave={() => setHint(null)}
@@ -373,4 +386,4 @@ Double-click to reset to default (${p.defaultValue}).` })}
   );
 }
 
-export default memo(GenericNode);
+export default GenericNode;

@@ -76,6 +76,11 @@ public:
     void loadUI();
     void pushGraphToUI();
     void pushUndoState();
+    void pushSettingsToUI (const juce::String& nodeId, const juce::String& settingsJson);
+
+    /** Snapshot captured at the start of a slider drag — pushed on commitNodeSettings. */
+    juce::var  pendingSettingsSnapshot;
+    juce::String pendingSettingsNodeId;
 
     // Called directly from C++ (e.g. keyboard shortcuts in PatchyEditor)
     void handleFileNew();

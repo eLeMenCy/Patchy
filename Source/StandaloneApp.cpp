@@ -9,7 +9,7 @@
 // StandaloneWindow
 // ─────────────────────────────────────────────────────────────────────────────
 StandaloneWindow::StandaloneWindow()
-    : DocumentWindow ("Patchy",
+    : DocumentWindow (juce::String ("Patchy  v") + juce::String (JucePlugin_VersionString),
                       juce::Desktop::getInstance().getDefaultLookAndFeel()
                           .findColour (juce::ResizableWindow::backgroundColourId),
                       DocumentWindow::allButtons)

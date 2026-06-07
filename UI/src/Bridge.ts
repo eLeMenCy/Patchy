@@ -170,11 +170,13 @@ type AudioSettingsCallback  = (s: AudioSettings) => void;
 type StandaloneModeCallback = (v: boolean) => void;
 type FragmentReadyCallback  = (fragment: FragmentData) => void;
 type UndoStateCallback      = (s: UndoState) => void;
+type NodeSettingsCallback   = (nodeId: string, settingsJson: string) => void;
 const _fileStateSubscribers: FileStateCallback[] = [];
 const _audioSettingsSubscribers: AudioSettingsCallback[] = [];
 const _standaloneModeSubscribers: StandaloneModeCallback[] = [];
 const _fragmentReadySubscribers: FragmentReadyCallback[] = [];
 const _undoStateSubscribers: UndoStateCallback[] = [];
+const _nodeSettingsSubscribers: NodeSettingsCallback[] = [];
 
 // MIDI devices use a subscriber array so multiple DeviceSelector components
 // can all receive updates, and a cache so late-mounting components get the
@@ -298,6 +300,13 @@ function _dispatchClaimed() {
     } catch {}
   },
 
+  onNodeSettings: (json: string) => {
+    try {
+      const { nodeId, settingsJson } = JSON.parse(json);
+      _nodeSettingsSubscribers.forEach(cb => cb(nodeId, settingsJson));
+    } catch {}
+  },
+
   onFragmentReady: (json: string) => {
     try {
       const fragment = JSON.parse(json) as FragmentData;
@@ -397,6 +406,14 @@ export const Bridge = {
     };
   },
 
+  onNodeSettings(cb: NodeSettingsCallback) {
+    _nodeSettingsSubscribers.push(cb);
+    return () => {
+      const idx = _nodeSettingsSubscribers.indexOf(cb);
+      if (idx >= 0) _nodeSettingsSubscribers.splice(idx, 1);
+    };
+  },
+
   undo() { sendToJuce({ type: 'undo' }); },
   redo() { sendToJuce({ type: 'redo' }); },
 
@@ -475,6 +492,12 @@ export const Bridge = {
   },
   setNodeSettings(nodeId: string, settings: object) {
     sendToJuce({ type: 'setNodeSettings', nodeId, settings: JSON.stringify(settings) });
+  },
+
+  /** Call when the user finishes adjusting a slider/stepper (mouse up, key up).
+   *  Pushes one clean undo snapshot for the completed interaction. */
+  commitNodeSettings(nodeId: string) {
+    sendToJuce({ type: 'commitNodeSettings', nodeId });
   },
   setNodeLabel(nodeId: string, label: string) {
     sendToJuce({ type: 'setNodeLabel', nodeId, label });

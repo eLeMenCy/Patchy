@@ -269,6 +269,7 @@ void WebBridge::handleMessage (const juce::String& json)
     }
     else if (type == "addNode")
     {
+        pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
         graph.pushSnapshot();
         juce::String addonName = obj->getProperty ("addonName").toString();
         int audioIn = 0, audioOut = 0, midiIn = 0, midiOut = 0;
@@ -329,14 +330,31 @@ void WebBridge::handleMessage (const juce::String& json)
     }
     else if (type == "setNodeSettings")
     {
-        juce::String nodeId    = obj->getProperty ("nodeId").toString();
+        juce::String nodeId       = obj->getProperty ("nodeId").toString();
         juce::String settingsJson = obj->getProperty ("settings").toString();
         if (nodeId.isNotEmpty())
         {
-            graph.pushSnapshot();
+            // Capture pre-drag snapshot on first setNodeSettings for this interaction
+            if (pendingSettingsNodeId != nodeId)
+            {
+                pendingSettingsNodeId       = nodeId;
+                pendingSettingsSnapshot     = graph.toVar();
+            }
             graph.setNodeSettings (nodeId, settingsJson);
+            pushSettingsToUI (nodeId, settingsJson);
         }
-        // Note: no onChange call — settings are UI-only, no need to rebuild graph
+    }
+    else if (type == "commitNodeSettings")
+    {
+        // User finished adjusting slider/stepper — push the pre-drag snapshot
+        // so undo restores the state BEFORE the slider was moved, not after.
+        if (pendingSettingsSnapshot.isObject())
+        {
+            graph.pushExistingSnapshot (std::move (pendingSettingsSnapshot));
+            pendingSettingsSnapshot = juce::var();
+            pendingSettingsNodeId.clear();
+            pushUndoState();
+        }
     }
     else if (type == "setNodeLabel")
     {
@@ -358,11 +376,13 @@ void WebBridge::handleMessage (const juce::String& json)
     }
     else if (type == "removeNode")
     {
+        pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
         graph.pushSnapshot();
         graph.removeNode (obj->getProperty ("nodeId").toString());
     }
     else if (type == "addConnection")
     {
+        pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
         graph.pushSnapshot();
         graph.addConnection (
             obj->getProperty ("sourceNodeId").toString(),
@@ -377,7 +397,9 @@ void WebBridge::handleMessage (const juce::String& json)
         // for each edge when a node is deleted, but C++ already removed them
         // as part of removeNode. Avoid phantom snapshots.
         if (graph.hasConnection (connId))
+        {
             graph.pushSnapshot();
+        }
         graph.removeConnection (connId);
     }
     else if (type == "moveNode")
@@ -400,12 +422,17 @@ void WebBridge::handleMessage (const juce::String& json)
         juce::String nodeId = obj->getProperty ("nodeId").toString();
         juce::String key    = obj->getProperty ("key").toString();
         juce::String value  = obj->getProperty ("value").toString();
-
+        // Clear any pending settings snapshot — device change is a new action
+        pendingSettingsSnapshot = juce::var();
+        pendingSettingsNodeId.clear();
         graph.pushSnapshot();
         if (key == "midiDeviceId" && onSetMidiDevice)
             onSetMidiDevice (nodeId, value);
         else if (key == "audioDeviceId" && onSetAudioDevice)
             onSetAudioDevice (nodeId, value);
+        // Push updated graph so React reflects the new selectedDeviceId
+        pushGraphToUI();
+        pushUndoState();
     }
     else if (type == "fileSave")
     {
@@ -580,7 +607,6 @@ void WebBridge::pushAddonList()
 
     pushToUI ("onAddonList", json);
 }
-
 
 void WebBridge::pushMidiDevices()
 {
@@ -767,6 +793,14 @@ void WebBridge::pushPortActivity()
 void WebBridge::pushGraphToUI()
 {
     pushToUI ("onGraphUpdate", juce::JSON::toString (graph.toVar(), true));
+}
+
+void WebBridge::pushSettingsToUI (const juce::String& nodeId, const juce::String& settingsJson)
+{
+    auto obj = std::make_unique<juce::DynamicObject>();
+    obj->setProperty ("nodeId",       nodeId);
+    obj->setProperty ("settingsJson", settingsJson);
+    pushToUI ("onNodeSettings", juce::JSON::toString (juce::var (obj.release()), false));
 }
 
 // ── File operations ───────────────────────────────────────────────────────────

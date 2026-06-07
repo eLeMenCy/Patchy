@@ -491,7 +491,7 @@ export const Bridge = {
     sendToJuce({ type: 'setAddonParameter', nodeId, index, value });
   },
   setNodeSettings(nodeId: string, settings: object) {
-    sendToJuce({ type: 'setNodeSettings', nodeId, settings: JSON.stringify(settings) });
+sendToJuce({ type: 'setNodeSettings', nodeId, settings: JSON.stringify(settings) });
   },
 
   /** Call when the user finishes adjusting a slider/stepper (mouse up, key up).

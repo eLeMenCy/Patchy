@@ -355,6 +355,9 @@ void WebBridge::handleMessage (const juce::String& json)
             pendingSettingsNodeId.clear();
             pushUndoState();
         }
+        else
+        {
+        }
     }
     else if (type == "setNodeLabel")
     {

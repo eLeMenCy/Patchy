@@ -8,6 +8,9 @@ import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow, node
 import { HintContext } from './HintPanel';
 import { Settings, X } from 'lucide-react';
 
+// Persist settings panel open state across graph updates (survives undo/redo)
+const _settingsOpen = new Map<string, boolean>();
+
 // Envelope is an AV node — use the AV colour
 const ACCENT   = 'var(--av)';
 const CANVAS_W = 250;
@@ -93,7 +96,7 @@ function EnvelopeDisplay({ ccValue, attack, release }: { ccValue: number; attack
 }
 
 // ── Slider row ────────────────────────────────────────────────────────────────
-function SliderRow({ label, value, min, max, step = 0, format, onChange, onDoubleClick, color }: {
+function SliderRow({ label, value, min, max, step = 0, format, onChange, onDoubleClick, onCommit, color }: {
   label:         string;
   value:         number;
   min:           number;
@@ -102,6 +105,7 @@ function SliderRow({ label, value, min, max, step = 0, format, onChange, onDoubl
   format:        (v: number) => string;
   onChange:      (v: number) => void;
   onDoubleClick: () => void;
+  onCommit?:     () => void;
   color?:        string;
 }) {
   return (
@@ -111,7 +115,8 @@ function SliderRow({ label, value, min, max, step = 0, format, onChange, onDoubl
       <input type="range" min={min} max={max} step={step === 0 ? 'any' : step}
         value={value} className="nodrag"
         onMouseDown={e => e.stopPropagation()}
-        onDoubleClick={e => { e.stopPropagation(); onDoubleClick(); }}
+        onMouseUp={onCommit} onKeyUp={onCommit}
+        onDoubleClick={e => { e.stopPropagation(); onDoubleClick(); onCommit?.(); }}
         onChange={e => onChange(parseFloat(e.target.value))}
         style={{ flex:1, ['--thumb-color' as any]: color ?? ACCENT }} />
       <span style={{ minWidth:38, color: color ?? ACCENT, fontSize:8, textAlign:'right' }}>
@@ -214,7 +219,7 @@ function Stepper({ label, value, min, max, onChange }: {
 export default function EnvelopeNode({ id, data, selected }: NodeProps) {
   const { setHint }  = useContext(HintContext);
   const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
-  const [showSettings, setShowSettings] = useState(false);
+  const [showSettings, setShowSettings] = useState(() => _settingsOpen.get(id) ?? false);
 
   // Parameters
   const [mode,       setMode]       = useState(0);    // 0=Amplitude, 1=Spectral
@@ -252,6 +257,19 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
     });
   }, []);
 
+  // Restore state from settingsJson on undo/redo
+  useEffect(() => {
+    const sj = (data as any)?.settingsJson;
+    try {
+      const v = sj ? JSON.parse(sj) as number[]
+                   : [0, 11, 1, 10, 200, 1.0, 200, 2000]; // defaults
+      if (v.length < 8) return;
+      setMode(Math.round(v[0]));  setCcNumber(Math.round(v[1]));  setMidiCh(Math.round(v[2]));
+      setAttack(v[3]);  setRelease(v[4]);  setSensitivity(v[5]);  setBandLow(v[6]);  setBandHigh(v[7]);
+      v.forEach((val, i) => Bridge.setAddonParameter(id, i, val));
+    } catch {}
+  }, [(data as any)?.settingsJson]);
+
   // Subscribe to port activity for live CC value (via MIDI out RMS)
   useEffect(() => {
     return Bridge.onPortActivity((entries: any[]) => {
@@ -260,19 +278,12 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
     });
   }, [id]);
 
-  const handleReset = useCallback(() => {
-    setParam(0, 0);     // Mode: Amplitude
-    setParam(1, 11);    // CC: 11
-    setParam(2, 1);     // MIDI Ch: 1
-    setParam(3, 10);    // Attack: 10ms
-    setParam(4, 200);   // Release: 200ms
-    setParam(5, 1.0);   // Sensitivity: ×1.0
-    setParam(6, 200);   // Band Low: 200Hz
-    setParam(7, 2000);  // Band High: 2000Hz
-  }, []);
-
   const setParam = useCallback((idx: number, val: number) => {
     Bridge.setAddonParameter(id, idx, val);
+    // Build updated settings — use current state + override idx
+    const cur = [mode, ccNumber, midiCh, attack, release, sensitivity, bandLow, bandHigh];
+    cur[idx] = val;
+    Bridge.setNodeSettings(id, cur);
     switch (idx) {
       case 0: setMode(Math.round(val));       break;
       case 1: setCcNumber(Math.round(val));   break;
@@ -283,7 +294,19 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
       case 6: setBandLow(val);                break;
       case 7: setBandHigh(val);               break;
     }
-  }, [id]);
+  }, [id, mode, ccNumber, midiCh, attack, release, sensitivity, bandLow, bandHigh]);
+
+  const handleReset = useCallback(() => {
+    setParam(0, 0);
+    setParam(1, 11);
+    setParam(2, 1);
+    setParam(3, 10);
+    setParam(4, 200);
+    setParam(5, 1.0);
+    setParam(6, 200);
+    setParam(7, 2000);
+    Bridge.commitNodeSettings(id);
+  }, [id, setParam]);
 
   const ports    = (data as any)?.ports ?? [];
   const inAudio  = ports.filter((p: any) => p.type === 'audio' && p.direction === 'input');
@@ -341,7 +364,7 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
         </div>
 
         {/* Mode badge */}
-        <div className="nodrag" onClick={e => { e.stopPropagation(); setParam(0, mode === 0 ? 1 : 0); }}
+        <div className="nodrag" onClick={e => { e.stopPropagation(); setParam(0, mode === 0 ? 1 : 0); Bridge.commitNodeSettings(id); }}
           style={{
             fontSize:8, padding:'2px 5px', borderRadius:2, cursor:'pointer',
             background: mode === 1 ? ACCENT : 'var(--surface)',
@@ -359,7 +382,7 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
         </div>
 
         <div onDoubleClick={e => e.stopPropagation()}>
-          <NodeHeaderButton onClick={() => setShowSettings(v => !v)}
+          <NodeHeaderButton onClick={() => setShowSettings(v => { const next = !v; _settingsOpen.set(id, next); return next; })}
             onHint={{ onMouseEnter: () => setHint({title:'Settings',body:'Configure envelope parameters.'}), onMouseLeave: () => setHint(null) }}>
             <span style={{
               display:'flex', alignItems:'center', justifyContent:'center',
@@ -392,19 +415,19 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
 
           <SliderRow label="Attack"      value={attack}      min={1}    max={500}  step={1}
             format={v => `${Math.round(v)}ms`} onChange={v => setParam(3,v)} color={ACCENT}
-            onDoubleClick={() => setParam(3, 10)} />
+            onDoubleClick={() => setParam(3, 10)} onCommit={() => Bridge.commitNodeSettings(id)} />
           <SliderRow label="Release"     value={release}     min={1}    max={2000} step={1}
             format={v => `${Math.round(v)}ms`} onChange={v => setParam(4,v)} color={ACCENT}
-            onDoubleClick={() => setParam(4, 200)} />
+            onDoubleClick={() => setParam(4, 200)} onCommit={() => Bridge.commitNodeSettings(id)} />
           <SliderRow label="Sensitivity" value={sensitivity} min={0.1}  max={4}    step={0}
             format={v => `×${v.toFixed(2)}`}  onChange={v => setParam(5,v)} color={ACCENT}
-            onDoubleClick={() => setParam(5, 1.0)} />
+            onDoubleClick={() => setParam(5, 1.0)} onCommit={() => Bridge.commitNodeSettings(id)} />
 
           <div style={sectionDividerStyle}>
             <Stepper label="CC Number" value={ccNumber} min={0} max={127}
-              onChange={v => setParam(1, v)} />
+              onChange={v => { setParam(1, v); Bridge.commitNodeSettings(id); }} />
             <Stepper label="MIDI Ch"   value={midiCh}   min={1} max={16}
-              onChange={v => setParam(2, v)} />
+              onChange={v => { setParam(2, v); Bridge.commitNodeSettings(id); }} />
           </div>
 
           {/* Band filters — only in Spectral mode */}
@@ -414,11 +437,11 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
               <SliderRow label="Low"  value={toSlider(bandLow)}  min={0} max={1000} step={1}
                 format={() => freqLabel(bandLow)}
                 onChange={v => setParam(6, fromSlider(v))} color="var(--audio)"
-                onDoubleClick={() => setParam(6, 200)} />
+                onDoubleClick={() => setParam(6, 200)} onCommit={() => Bridge.commitNodeSettings(id)} />
               <SliderRow label="High" value={toSlider(bandHigh)} min={0} max={1000} step={1}
                 format={() => freqLabel(bandHigh)}
                 onChange={v => setParam(7, fromSlider(v))} color="var(--audio)"
-                onDoubleClick={() => setParam(7, 2000)} />
+                onDoubleClick={() => setParam(7, 2000)}  onCommit={() => Bridge.commitNodeSettings(id)} />
             </div>
           )}
         </div>

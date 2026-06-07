@@ -8,6 +8,9 @@ import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow, node
 import { HintContext } from './HintPanel';
 import { Settings, X } from 'lucide-react';
 
+// Persist settings panel open state across graph updates (survives undo/redo)
+const _settingsOpen = new Map<string, boolean>();
+
 const ACCENT = 'var(--audio)';
 const UI_BINS = 64;
 const CANVAS_W = 250;
@@ -68,7 +71,7 @@ function SpectrumDisplay({ mags, bands }: { mags: number[]; bands: { lo: number;
 export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
   const { setHint } = useContext(HintContext);
   const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
-  const [showSettings, setShowSettings] = useState(false);
+  const [showSettings, setShowSettings] = useState(() => _settingsOpen.get(id) ?? false);
   const [mags,      setMags]      = useState<number[]>(new Array(UI_BINS).fill(0));
   const [bands,     setBands]     = useState(() =>
     DEFAULT_LOW.slice(0,3).map((lo,i) => ({ lo, hi: DEFAULT_HIGH[i] })));
@@ -94,6 +97,25 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
   const inPorts  = ports.filter((p: any) => p.type === 'audio' && p.direction === 'input');
   const outPorts = ports.filter((p: any) => p.type === 'audio' && p.direction === 'output');
 
+  // Restore state from settingsJson on undo/redo
+  useEffect(() => {
+    const sj = (data as any)?.settingsJson;
+    if (!sj) return;
+    try {
+      const vals = JSON.parse(sj) as number[];
+      if (vals.length < 1) return;
+      const n = Math.round(vals[0]);
+      setBandCount(n);
+      const lo: number[] = [], hi: number[] = [];
+      for (let b = 0; b < n; b++) { lo[b] = vals[1+b*2] ?? DEFAULT_LOW[b]; hi[b] = vals[2+b*2] ?? DEFAULT_HIGH[b]; }
+      setBandLow(p => { const a=[...p]; lo.forEach((v,i) => a[i]=v); return a; });
+      setBandHigh(p => { const a=[...p]; hi.forEach((v,i) => a[i]=v); return a; });
+      setBands(Array.from({length:n}, (_,b) => ({ lo: lo[b], hi: hi[b] })));
+      Bridge.setAddonParameter(id, 0, n);
+      lo.forEach((v,b) => { Bridge.setAddonParameter(id, 1+b*2, v); Bridge.setAddonParameter(id, 2+b*2, hi[b]); });
+    } catch {}
+  }, [(data as any)?.settingsJson]);
+
   useEffect(() => Bridge.onSpectrumSnapshots((snaps: SpectrumSnapshot[]) => {
     const s = snaps.find(s => s.id === id); if (!s) return;
     setMags(s.mags);
@@ -112,6 +134,9 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
         lo: bandLow[b] ?? DEFAULT_LOW[b],
         hi: bandHigh[b] ?? DEFAULT_HIGH[b],
       })));
+      // Band count is a discrete action — commit immediately
+      Bridge.setNodeSettings(id, [n, ...Array.from({length:n}, (_,b) => [bandLow[b]??DEFAULT_LOW[b], bandHigh[b]??DEFAULT_HIGH[b]]).flat()]);
+      Bridge.commitNodeSettings(id);
       return;
     }
 
@@ -123,32 +148,38 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
       Bridge.setAddonParameter(id, idx, val);
       setBandLow(p => { const a=[...p]; a[b]=val; return a; });
       setBands(p => p.map((bd,i) => i===b ? {...bd, lo:val} : bd));
+      const newLow = [...bandLow]; newLow[b] = val;
+      const newHigh = [...bandHigh];
       if (linked) {
-        // Delta in slider space (log scale) so both thumbs move at equal speed
         const prevSlider = toSlider(bandLow[b] ?? DEFAULT_LOW[b]);
         const newSlider  = toSlider(val);
         const delta      = newSlider - prevSlider;
         const newHiSlider = Math.min(1000, Math.max(0, toSlider(bandHigh[b] ?? DEFAULT_HIGH[b]) + delta));
         const newHi = fromSlider(newHiSlider);
         Bridge.setAddonParameter(id, idx+1, newHi);
+        newHigh[b] = newHi;
         setBandHigh(p => { const a=[...p]; a[b]=newHi; return a; });
         setBands(p => p.map((bd,i) => i===b ? {...bd, lo:val, hi:newHi} : bd));
       }
+      Bridge.setNodeSettings(id, [bandCount, ...Array.from({length:bandCount}, (_,i) => [newLow[i]??DEFAULT_LOW[i], newHigh[i]??DEFAULT_HIGH[i]]).flat()]);
     } else {
       Bridge.setAddonParameter(id, idx, val);
       setBandHigh(p => { const a=[...p]; a[b]=val; return a; });
       setBands(p => p.map((bd,i) => i===b ? {...bd, hi:val} : bd));
+      const newLow = [...bandLow];
+      const newHigh = [...bandHigh]; newHigh[b] = val;
       if (linked) {
-        // Delta in slider space (log scale) so both thumbs move at equal speed
         const prevSlider = toSlider(bandHigh[b] ?? DEFAULT_HIGH[b]);
         const newSlider  = toSlider(val);
         const delta      = newSlider - prevSlider;
         const newLoSlider = Math.min(1000, Math.max(0, toSlider(bandLow[b] ?? DEFAULT_LOW[b]) + delta));
         const newLo = fromSlider(newLoSlider);
         Bridge.setAddonParameter(id, idx-1, newLo);
+        newLow[b] = newLo;
         setBandLow(p => { const a=[...p]; a[b]=newLo; return a; });
         setBands(p => p.map((bd,i) => i===b ? {...bd, lo:newLo, hi:val} : bd));
       }
+      Bridge.setNodeSettings(id, [bandCount, ...Array.from({length:bandCount}, (_,i) => [newLow[i]??DEFAULT_LOW[i], newHigh[i]??DEFAULT_HIGH[i]]).flat()]);
     }
   }, [id, bandLow, bandHigh]);
 
@@ -158,9 +189,13 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
       Bridge.setAddonParameter(id, 1+b*2,   DEFAULT_LOW[b]);
       Bridge.setAddonParameter(id, 1+b*2+1, DEFAULT_HIGH[b]);
     }
-    setBandLow([...DEFAULT_LOW]);
-    setBandHigh([...DEFAULT_HIGH]);
+    const newLow  = [...DEFAULT_LOW];
+    const newHigh = [...DEFAULT_HIGH];
+    setBandLow(newLow);
+    setBandHigh(newHigh);
     setBands(Array.from({length: bandCount}, (_,b) => ({ lo: DEFAULT_LOW[b], hi: DEFAULT_HIGH[b] })));
+    Bridge.setNodeSettings(id, [bandCount, ...newLow.slice(0,bandCount).flatMap((lo,b) => [lo, newHigh[b]])]);
+    Bridge.commitNodeSettings(id);
   }, [id, bandCount]);
 
   const label = (data as any)?.label ?? 'Spectrumyser';
@@ -210,7 +245,7 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
 
         <div onDoubleClick={e => e.stopPropagation()}>
           <NodeHeaderButton
-            onClick={() => setShowSettings(v => !v)}
+            onClick={() => setShowSettings(v => { const next = !v; _settingsOpen.set(id, next); return next; })}
             onHint={{ onMouseEnter: () => setHint({title:'Band Settings',body:'Configure frequency bands.'}), onMouseLeave: () => setHint(null) }}>
             <span style={{
               display:'flex', alignItems:'center', justifyContent:'center',
@@ -272,6 +307,8 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
                 onMouseDown={e => e.stopPropagation()}
                 onDoubleClick={e => { e.stopPropagation(); handleParam(1+b*2, DEFAULT_LOW[b]); }}
                 onChange={e => handleParam(1+b*2, fromSlider(parseInt(e.target.value)))}
+                onMouseUp={() => Bridge.commitNodeSettings(id)}
+                onKeyUp={() => Bridge.commitNodeSettings(id)}
                 style={{ width:70, ['--thumb-color' as any]: BAND_COLORS[b] }} />
               <span style={{ minWidth:28, color:ACCENT }}>{freqLabel(bandLow[b] ?? DEFAULT_LOW[b])}</span>
               <span style={{ color: linked ? '#fbbf24' : 'var(--text-muted)', fontSize: linked ? 11 : 9, transition: 'all 0.1s' }}>{linked ? '⇔' : '→'}</span>
@@ -281,6 +318,8 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
                 onMouseDown={e => e.stopPropagation()}
                 onDoubleClick={e => { e.stopPropagation(); handleParam(1+b*2+1, DEFAULT_HIGH[b]); }}
                 onChange={e => handleParam(1+b*2+1, fromSlider(parseInt(e.target.value)))}
+                onMouseUp={() => Bridge.commitNodeSettings(id)}
+                onKeyUp={() => Bridge.commitNodeSettings(id)}
                 style={{ width:70, ['--thumb-color' as any]: BAND_COLORS[b] }} />
               <span style={{ minWidth:32, color:ACCENT }}>{freqLabel(bandHigh[b] ?? DEFAULT_HIGH[b])}</span>
             </div>

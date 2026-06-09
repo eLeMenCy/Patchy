@@ -195,11 +195,13 @@ function buildRow(ev: RawMidiMonitorEvent, s: MonitorSettings): DisplayRow {
 }
 
 // ── Settings panel ────────────────────────────────────────────────────────────
-function SettingsPanel({ s, onChange, onClose, onReset }: {
+function SettingsPanel({ s, onChange, onDiscreteChange, onClose, onReset, onCommit }: {
   s: MonitorSettings;
   onChange: (patch: Partial<MonitorSettings>) => void;
+  onDiscreteChange: (patch: Partial<MonitorSettings>) => void;
   onClose: () => void;
   onReset: () => void;
+  onCommit: () => void;
 }) {
   const row = (label: string, children: React.ReactNode) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -210,7 +212,7 @@ function SettingsPanel({ s, onChange, onClose, onReset }: {
 
   const toggle = (key: keyof MonitorSettings, label: string) => (
     <Checkbox checked={s[key] as boolean}
-      onChange={v => onChange({ [key]: v })}
+      onChange={v => onDiscreteChange({ [key]: v })}
       label={label} accent="var(--midi)" />
   );
 
@@ -219,7 +221,7 @@ function SettingsPanel({ s, onChange, onClose, onReset }: {
       value={String(s[key])}
       onChange={v => {
         const coerced = typeof s[key] === 'number' ? Number(v) : v;
-        onChange({ [key]: coerced });
+        onDiscreteChange({ [key]: coerced });
       }}
       options={options.map(o => ({ id: o.v, name: o.l }))}
       accent="var(--midi)"
@@ -234,7 +236,7 @@ function SettingsPanel({ s, onChange, onClose, onReset }: {
           const next = active
             ? s.channels.filter(c => c !== ch)
             : [...s.channels, ch].sort((a, b) => a - b);
-          onChange({ channels: next });
+          onDiscreteChange({ channels: next });
         }}
         style={{
           width: 22, height: 18, display: 'flex', alignItems: 'center',
@@ -279,6 +281,7 @@ function SettingsPanel({ s, onChange, onClose, onReset }: {
       {row('Name', (
         <input type="text" value={s.customName} placeholder="MIDI Monitor"
           onChange={e => onChange({ customName: e.target.value })}
+          onBlur={onCommit}
           style={{ flex:1, background:'transparent', border:'1px solid var(--border)',
                    color:'var(--text)', fontSize:10, borderRadius:3,
                    padding:'2px 6px', outline:'none', width:'100%' }} />
@@ -290,7 +293,7 @@ function SettingsPanel({ s, onChange, onClose, onReset }: {
       {row('Time',       select('timeFormat',     [{v:'wall',l:'Wall clock'},{v:'session',l:'Session'},{v:'delta',l:'Delta'},{v:'transport',l:'Transport'}]))}
 
       {section('Visible Columns')}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+      <div className="nodrag" onPointerDown={e => e.stopPropagation()} style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         {toggle('colTime',   'TIME')}
         {toggle('colNode',   'NODE')}
         {toggle('colDevice', 'NAME')}
@@ -405,6 +408,23 @@ function MidiMonitorNode({ id, data, selected }: NodeProps) {
       Bridge.setNodeLabel(id, patch.customName ?? '');
   }, [id]);
 
+  // For discrete controls — atomic set+commit in one step
+  const commitPatch = useCallback((p: Partial<MonitorSettings>) => {
+    setSettings(s => {
+      const next = { ...s, ...p };
+      Bridge.commitSettingsChange(id, next);
+      return next;
+    });
+    if ('customName' in p)
+      Bridge.setNodeLabel(id, p.customName ?? '');
+  }, [id]);
+
+  // Restore settings from settingsJson on undo/redo
+  useEffect(() => {
+    const sj = (data as any)?.settingsJson;
+    try { setSettings(s => ({ ...DEFAULT_SETTINGS, ...(sj ? JSON.parse(sj) : {}) })); } catch {}
+  }, [(data as any)?.settingsJson]);
+
 
 
   const cols = [
@@ -427,11 +447,14 @@ function MidiMonitorNode({ id, data, selected }: NodeProps) {
   });
 
   const totalW = Math.max(cols.reduce((s, c) => s + c.w, 0), 300);
+  const frozenW = useRef(totalW);
+  if (!showSettings) frozenW.current = totalW;
+  const displayW = showSettings ? frozenW.current : totalW;
 
   return (
     <div
       style={{
-        width: totalW + 2,
+        width: displayW + 2,
         background: 'var(--surface)',
         border: `1px solid ${selected ? 'var(--midi)' : 'var(--border)'}`,
         borderTop: '3px solid var(--midi)',
@@ -513,8 +536,10 @@ function MidiMonitorNode({ id, data, selected }: NodeProps) {
 
       {/* Settings overlay */}
       {showSettings && (
-        <SettingsPanel s={settings} onChange={patch}
-          onClose={closeSettings} onReset={() => patch(DEFAULT_SETTINGS)} />
+        <div onMouseDown={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
+        <SettingsPanel s={settings} onChange={patch} onDiscreteChange={commitPatch}
+          onClose={() => closeSettings()} onReset={() => { commitPatch(DEFAULT_SETTINGS); }} onCommit={() => Bridge.commitNodeSettings(id)} />
+        </div>
       )}
       </>}
     </div>

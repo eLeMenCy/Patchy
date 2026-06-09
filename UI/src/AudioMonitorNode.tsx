@@ -189,11 +189,13 @@ function drawWaveform (
 }
 
 // ── Settings panel ────────────────────────────────────────────────────────────
-function SettingsPanel ({ s, onChange, onClose, onReset }: {
+function SettingsPanel ({ s, onChange, onDiscreteChange, onClose, onReset, onCommit }: {
   s: AudioMonitorSettings;
   onChange: (p: Partial<AudioMonitorSettings>) => void;
+  onDiscreteChange: (p: Partial<AudioMonitorSettings>) => void;
   onClose: () => void;
   onReset: () => void;
+  onCommit: () => void;
 }) {
   const row = (label: string, child: React.ReactNode) => (
     <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
@@ -207,9 +209,8 @@ function SettingsPanel ({ s, onChange, onClose, onReset }: {
       <NodeSelect
         value={String(s[key])}
         onChange={v => {
-          // Coerce back to number if the current value is numeric
           const coerced = typeof s[key] === 'number' ? Number(v) : v;
-          onChange({ [key]: coerced });
+          onDiscreteChange({ [key]: coerced });
         }}
         options={opts.map(o => ({ id: o.v, name: o.l }))}
         accent="var(--audio)"
@@ -228,6 +229,7 @@ function SettingsPanel ({ s, onChange, onClose, onReset }: {
       <input type="range" min={min} max={max} step={step}
         value={s[key] as number}
         onChange={e => onChange({ [key]: parseFloat(e.target.value) })}
+        onMouseUp={onCommit} onKeyUp={onCommit}
         onMouseEnter={() => label && setSliderHint({ title: label, body: `Range: ${min} to ${max}. Double-click to reset.` })}
         onMouseLeave={() => setSliderHint(null)}
         style={{ flex:1, minWidth:0, maxWidth:120 }} />
@@ -238,7 +240,7 @@ function SettingsPanel ({ s, onChange, onClose, onReset }: {
     <label style={{ display:'flex', alignItems:'center', gap:4,
                     fontSize:10, color:'var(--text-dim)', cursor:'pointer' }}>
       <Checkbox checked={s[key] as boolean}
-             onChange={v => onChange({ [key]: v })} accent="var(--audio)" />
+             onChange={v => onDiscreteChange({ [key]: v })} accent="var(--audio)" />
       {label}
     </label>
   );
@@ -275,6 +277,7 @@ function SettingsPanel ({ s, onChange, onClose, onReset }: {
       {row('Name', (
         <input type="text" value={s.customName} placeholder="Audio Monitor"
           onChange={e => onChange({ customName: e.target.value })}
+          onBlur={onCommit}
           style={{ flex:1, background:'transparent', border:'1px solid var(--border)',
                    color:'var(--text)', fontSize:10, borderRadius:3,
                    padding:'2px 6px', outline:'none', width:'100%' }} />
@@ -297,6 +300,7 @@ function SettingsPanel ({ s, onChange, onClose, onReset }: {
           <input type="range" min={-18} max={0} step={0.5}
             value={s.clipThresholdDb}
             onChange={e => onChange({ clipThresholdDb: parseFloat(e.target.value) })}
+            onMouseUp={onCommit} onKeyUp={onCommit}
             style={{ width: '100%' }} />
           <div style={{ textAlign: 'right', fontSize: 9, color: 'var(--text-dim)', marginTop: 1 }}>
             {(s.clipThresholdDb >= 0 ? '+' : '') + s.clipThresholdDb.toFixed(1) + ' dBFS'}
@@ -350,6 +354,24 @@ function AudioMonitorNode ({ id, data, selected }: NodeProps) {
     if ('customName' in p)
       Bridge.setNodeLabel(id, p.customName ?? '');
   }, [id]);
+
+  const commitPatch = useCallback((p: Partial<AudioMonitorSettings>) => {
+    setSettings(s => {
+      const next = { ...s, ...p };
+      Bridge.commitSettingsChange(id, next);
+      return next;
+    });
+    if ('customName' in p)
+      Bridge.setNodeLabel(id, p.customName ?? '');
+  }, [id]);
+
+  // Restore settings from settingsJson on undo/redo
+  useEffect(() => {
+    const sj = (data as any)?.settingsJson;
+    try {
+      setSettings(s => ({ ...DEFAULT_SETTINGS, ...(sj ? JSON.parse(sj) : {}) }));
+    } catch {}
+  }, [(data as any)?.settingsJson]);
 
   // Subscribe to audio snapshots — unsubscribe on unmount
   useEffect(() => {
@@ -447,7 +469,7 @@ function AudioMonitorNode ({ id, data, selected }: NodeProps) {
                 onMouseLeave={() => setHint(null)}
             value={settings.amplitudeMode === 'auto' ? 1 : settings.amplitudeZoom}
             disabled={settings.amplitudeMode === 'auto'}
-            onChange={e => patch({ amplitudeZoom: parseFloat(e.target.value) })}
+            onChange={e => patch({ amplitudeZoom: parseFloat(e.target.value) })} onMouseUp={() => Bridge.commitNodeSettings(id)} onKeyUp={() => Bridge.commitNodeSettings(id)}
             style={{ writingMode:'vertical-lr' as const, direction:'rtl' as const,
                      height: canvasH - 20, cursor:'pointer', flex:1 }}
           />
@@ -473,6 +495,8 @@ function AudioMonitorNode ({ id, data, selected }: NodeProps) {
               Math.abs(b-raw) < Math.abs(a-raw) ? b : a);
             patch({ timeWindowMs: snapped });
           }}
+          onMouseUp={() => Bridge.commitNodeSettings(id)}
+          onKeyUp={() => Bridge.commitNodeSettings(id)}
           style={{ flex:1, cursor:'pointer' }}
         />
         <span style={{ fontSize:8, color:'var(--text-muted)', flexShrink:0 }}>200ms</span>
@@ -508,7 +532,7 @@ function AudioMonitorNode ({ id, data, selected }: NodeProps) {
       {/* Settings overlay */}
       {showSettings && (
         <SettingsPanel s={settings} onChange={patch}
-          onClose={closeSettings} onReset={() => patch(DEFAULT_SETTINGS)} />
+          onDiscreteChange={commitPatch} onClose={() => closeSettings()} onReset={() => commitPatch(DEFAULT_SETTINGS)} onCommit={() => Bridge.commitNodeSettings(id)} />
       )}
       </>}
     </div>

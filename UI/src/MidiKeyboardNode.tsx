@@ -45,9 +45,10 @@ const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 function isBlack (note: number) { return BLACK_NOTES.includes(note % 12); }
 
 // ── Settings panel ────────────────────────────────────────────────────────────
-function SettingsPanel ({ s, onChange, onClose, onReset }: {
+function SettingsPanel ({ s, onChange, onDiscreteChange, onClose, onReset }: {
   s: MidiKeyboardSettings;
   onChange: (p: Partial<MidiKeyboardSettings>) => void;
+  onDiscreteChange: (p: Partial<MidiKeyboardSettings>) => void;
   onClose: () => void;
   onReset: () => void;
 }) {
@@ -94,29 +95,29 @@ function SettingsPanel ({ s, onChange, onClose, onReset }: {
       ))}
       {row('Start note', (
         <NodeSelect value={String(s.startNote)} showEmpty={false} accent="var(--midi)"
-          onChange={v => onChange({ startNote: Number(v) })}
+          onChange={v => onDiscreteChange({ startNote: Number(v) })}
           options={startNoteOptions} />
       ))}
       {row('Octaves', (
         <NodeSelect value={String(s.octaves)} showEmpty={false} accent="var(--midi)"
-          onChange={v => onChange({ octaves: Number(v) as 1|2|3|4 })}
+          onChange={v => onDiscreteChange({ octaves: Number(v) as 1|2|3|4 })}
           options={[{id:'1',name:'1 octave'},{id:'2',name:'2 octaves'},
                     {id:'3',name:'3 octaves'},{id:'4',name:'4 octaves'}]} />
       ))}
       {row('Channel', (
         <NodeSelect value={String(s.channel)} showEmpty={false} accent="var(--midi)"
-          onChange={v => onChange({ channel: Number(v) })}
+          onChange={v => onDiscreteChange({ channel: Number(v) })}
           options={[{id:'0',name:'Omni'},...Array.from({length:16},(_,i)=>({id:String(i+1),name:`Ch ${i+1}`}))]} />
       ))}
       {row('Velocity', (
         <NodeSelect value={s.velocity} showEmpty={false} accent="var(--midi)"
-          onChange={v => onChange({ velocity: v as MidiKeyboardSettings['velocity'] })}
+          onChange={v => onDiscreteChange({ velocity: v as MidiKeyboardSettings['velocity'] })}
           options={[{id:'mouse',name:'Mouse pos'},{id:'64',name:'Fixed 64'},
                     {id:'100',name:'Fixed 100'},{id:'127',name:'Fixed 127'}]} />
       ))}
       {row('Note names', (
         <Checkbox checked={s.showNames}
-          onChange={v => onChange({ showNames: v })}
+          onChange={v => onDiscreteChange({ showNames: v })}
           label="Show" accent="var(--midi)" />
       ))}
     </div>
@@ -317,6 +318,16 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
       Bridge.setNodeLabel(id, p.customName ?? '');
   };
 
+  const commitPatch = (p: Partial<MidiKeyboardSettings>) => {
+    setSettings(s => {
+      const next = { ...s, ...p };
+      Bridge.commitSettingsChange(id, next);
+      return next;
+    });
+    if ('customName' in p)
+      Bridge.setNodeLabel(id, p.customName ?? '');
+  };
+
 
 
   const ch = settings.channel === 0 ? 1 : settings.channel;
@@ -345,6 +356,19 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
     });
     return unsub;
   }, [id]);
+
+  // Restore settings from settingsJson on undo/redo
+  useEffect(() => {
+    const sj = (data as any)?.settingsJson;
+    try {
+      const restored = sj ? JSON.parse(sj) : DEFAULT_SETTINGS;
+      setSettings(s => ({ ...DEFAULT_SETTINGS, ...restored }));
+      // Re-send mod wheel MIDI CC so audio reflects restored value
+      const modVal = restored.modWheel ?? DEFAULT_SETTINGS.modWheel;
+      const chVal  = (restored.channel ?? DEFAULT_SETTINGS.channel) || 1;
+      Bridge.sendMidiKeyEvent(id, 0xB0 | (chVal - 1), 1, modVal);
+    } catch {}
+  }, [(data as any)?.settingsJson]);
 
   const onNoteOn = useCallback((note: number, vel: number) => {
     setActiveNotes(s => new Set([...s, note]));
@@ -414,7 +438,7 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
         {/* Mod wheel */}
         <WheelSlider label="M" value={modWheel} min={0} max={127}
           wheelHint={wheelHint} wheelHintClear={wheelHintClear}
-          onChange={onModChange} color="var(--midi)" />
+          onChange={onModChange} onRelease={() => Bridge.commitNodeSettings(id)} color="var(--midi)" />
 
         {/* Keyboard */}
         <Keyboard
@@ -442,7 +466,7 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
 
       {/* Settings panel */}
       {showSettings && (
-        <SettingsPanel s={settings} onChange={patch} onClose={closeSettings} onReset={() => patch(DEFAULT_SETTINGS)} />
+        <SettingsPanel s={settings} onChange={patch} onDiscreteChange={commitPatch} onClose={() => closeSettings()} onReset={() => commitPatch(DEFAULT_SETTINGS)} />
       )}
       </>}
     </div>

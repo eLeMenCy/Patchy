@@ -491,7 +491,12 @@ export const Bridge = {
     sendToJuce({ type: 'setAddonParameter', nodeId, index, value });
   },
   setNodeSettings(nodeId: string, settings: object) {
-sendToJuce({ type: 'setNodeSettings', nodeId, settings: JSON.stringify(settings) });
+    sendToJuce({ type: 'setNodeSettings', nodeId, settings: JSON.stringify(settings) });
+  },
+
+  /** Atomic set+commit for discrete controls — one undo step per change */
+  commitSettingsChange(nodeId: string, settings: object) {
+    sendToJuce({ type: 'commitSettingsChange', nodeId, settings: JSON.stringify(settings) });
   },
 
   /** Call when the user finishes adjusting a slider/stepper (mouse up, key up).

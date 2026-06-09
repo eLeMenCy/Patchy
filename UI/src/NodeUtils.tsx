@@ -76,7 +76,9 @@ export function Checkbox ({ checked, onChange, label, accent = 'var(--text-dim)'
 }) {
   return (
     <label style={{ display: 'flex', alignItems: 'center', gap: 6,
-                    cursor: 'pointer', userSelect: 'none' }}>
+                    cursor: 'pointer', userSelect: 'none' }}
+           onPointerDown={e => e.stopPropagation()}
+           onClick={e => e.stopPropagation()}>
       <div
         onClick={() => onChange(!checked)}
         style={{
@@ -111,6 +113,9 @@ export function Checkbox ({ checked, onChange, label, accent = 'var(--text-dim)'
 }
 
 // ── useNodeSettings ───────────────────────────────────────────────────────────
+/** Persists settings panel open state across graph updates (survives undo/redo) */
+const _settingsOpen = new Map<string, boolean>();
+
 /**
  * Manages settings panel open/close state, including elevating the node's
  * z-index via ReactFlow's updateNode so the settings panel always appears
@@ -118,14 +123,16 @@ export function Checkbox ({ checked, onChange, label, accent = 'var(--text-dim)'
  */
 export function useNodeSettings (id: string) {
   const { updateNode } = useReactFlow();
-  const [showSettings, setShowSettings] = useState(false);
+  const [showSettings, setShowSettings] = useState(() => _settingsOpen.get(id) ?? false);
 
   const openSettings = useCallback(() => {
+    _settingsOpen.set(id, true);
     setShowSettings(true);
     updateNode(id, { style: { zIndex: 9999 } });
   }, [id, updateNode]);
 
   const closeSettings = useCallback(() => {
+    _settingsOpen.set(id, false);
     setShowSettings(false);
     updateNode(id, { style: { zIndex: undefined } });
   }, [id, updateNode]);

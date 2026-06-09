@@ -334,11 +334,14 @@ void WebBridge::handleMessage (const juce::String& json)
         juce::String settingsJson = obj->getProperty ("settings").toString();
         if (nodeId.isNotEmpty())
         {
-            // Capture pre-drag snapshot on first setNodeSettings for this interaction
+            // Capture snapshot before FIRST change for this node interaction.
+            // For discrete controls (checkbox, combo) each sends setNodeSettings+commitNodeSettings
+            // as a pair — pendingSettingsNodeId is cleared by commitNodeSettings between clicks.
+            // For sliders, only the first tick captures the pre-drag state.
             if (pendingSettingsNodeId != nodeId)
             {
-                pendingSettingsNodeId       = nodeId;
-                pendingSettingsSnapshot     = graph.toVar();
+                pendingSettingsNodeId   = nodeId;
+                pendingSettingsSnapshot = graph.toVar();
             }
             graph.setNodeSettings (nodeId, settingsJson);
             pushSettingsToUI (nodeId, settingsJson);
@@ -350,13 +353,55 @@ void WebBridge::handleMessage (const juce::String& json)
         // so undo restores the state BEFORE the slider was moved, not after.
         if (pendingSettingsSnapshot.isObject())
         {
-            graph.pushExistingSnapshot (std::move (pendingSettingsSnapshot));
+            auto* node = graph.findNode (pendingSettingsNodeId);
+            juce::String snapSettings;
+            if (auto* snapObj = pendingSettingsSnapshot.getDynamicObject())
+                if (auto* arr = snapObj->getProperty ("nodes").getArray())
+                    for (auto& nv : *arr)
+                        if (auto* nobj = nv.getDynamicObject())
+                            if (nobj->getProperty ("id").toString() == pendingSettingsNodeId)
+                                snapSettings = nobj->getProperty ("settingsJson").toString();
+
+            if (node && node->settingsJson != snapSettings)
+            {
+                pushSettingsToUI (pendingSettingsNodeId, node->settingsJson);
+                graph.pushExistingSnapshot (std::move (pendingSettingsSnapshot));
+                pushUndoState();
+            }
             pendingSettingsSnapshot = juce::var();
             pendingSettingsNodeId.clear();
-            pushUndoState();
         }
-        else
+    }
+    else if (type == "commitSettingsChange")
+    {
+        // Atomic set+commit for discrete controls (checkbox, combo, etc.)
+        // Captures pre-change snapshot, applies change, pushes snapshot — all in one message.
+        juce::String nodeId       = obj->getProperty ("nodeId").toString();
+        juce::String settingsJson = obj->getProperty ("settings").toString();
+        if (nodeId.isNotEmpty())
         {
+            // Clear any pending slider interaction first
+            pendingSettingsSnapshot = juce::var();
+            pendingSettingsNodeId.clear();
+
+            auto preSnapshot = graph.toVar();
+            graph.setNodeSettings (nodeId, settingsJson);
+
+            // Only push if actually changed
+            juce::String snapSettings;
+            if (auto* snapObj = preSnapshot.getDynamicObject())
+                if (auto* arr = snapObj->getProperty ("nodes").getArray())
+                    for (auto& nv : *arr)
+                        if (auto* nobj = nv.getDynamicObject())
+                            if (nobj->getProperty ("id").toString() == nodeId)
+                                snapSettings = nobj->getProperty ("settingsJson").toString();
+
+            if (snapSettings != settingsJson)
+            {
+                pushSettingsToUI (nodeId, settingsJson);
+                graph.pushExistingSnapshot (std::move (preSnapshot));
+                pushUndoState();
+            }
         }
     }
     else if (type == "setNodeLabel")

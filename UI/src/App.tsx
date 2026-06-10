@@ -167,6 +167,8 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
       const audioSources = new Set<string>(audioEdges.map(e => e.source));
       audioLevels.current.forEach((rms, id) => { if (rms > 0.01) audioSources.add(id); });
       const midiSources  = new Set<string>(midiEdges.map(e => e.source));
+      // Add unconnected MIDI sources that have recent activity
+      midiTimers.current.forEach((expiry, id) => { if (expiry > now) midiSources.add(id); });
       const allSources   = new Set([...audioSources, ...midiSources]);
 
       let css = '';
@@ -200,7 +202,7 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
         });
 
         // MIDI flash — written last so it wins over audio VU
-        if (isMidiFlash && nodeMidiEdges.length > 0) {
+        if (isMidiFlash) {
           const fc = '#B2EBF2';
           css += `[data-handleid="${id}_MIDI Out_out"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
           nodeMidiEdges.forEach(e => {

@@ -89,7 +89,7 @@ export interface MidiDeviceList  {
   midiOutDevices: MidiDeviceInfo[];
   midiInDevices:  MidiDeviceInfo[];
 }
-export interface AudioDeviceInfo { id: string; name: string; dawHost?: boolean; }
+export interface AudioDeviceInfo { id: string; name: string; dawHost?: boolean; channelCount?: number; }
 export interface AudioDeviceList {
   audioOutDevices: AudioDeviceInfo[];
   audioInDevices:  AudioDeviceInfo[];
@@ -177,6 +177,8 @@ const _standaloneModeSubscribers: StandaloneModeCallback[] = [];
 const _fragmentReadySubscribers: FragmentReadyCallback[] = [];
 const _undoStateSubscribers: UndoStateCallback[] = [];
 const _nodeSettingsSubscribers: NodeSettingsCallback[] = [];
+type AudioDeviceChangedCallback = (nodeId: string, settingsJson: string) => void;
+const _audioDeviceChangedSubscribers: AudioDeviceChangedCallback[] = [];
 
 // MIDI devices use a subscriber array so multiple DeviceSelector components
 // can all receive updates, and a cache so late-mounting components get the
@@ -341,6 +343,13 @@ function _dispatchClaimed() {
     }
   },
 
+  onAudioDeviceChanged: (json: string) => {
+    try {
+      const { nodeId, settingsJson } = JSON.parse(json) as { nodeId: string; settingsJson: string };
+      _audioDeviceChangedSubscribers.forEach(cb => cb(nodeId, settingsJson));
+    } catch {}
+  },
+
 };
 
 function sendToJuce(msg: object) {
@@ -485,6 +494,13 @@ export const Bridge = {
     return () => {
       const idx = _audioDeviceSubscribers.indexOf(cb);
       if (idx !== -1) _audioDeviceSubscribers.splice(idx, 1);
+    };
+  },
+  onAudioDeviceChanged(cb: AudioDeviceChangedCallback) {
+    _audioDeviceChangedSubscribers.push(cb);
+    return () => {
+      const idx = _audioDeviceChangedSubscribers.indexOf(cb);
+      if (idx !== -1) _audioDeviceChangedSubscribers.splice(idx, 1);
     };
   },
   setAddonParameter(nodeId: string, index: number, value: number) {

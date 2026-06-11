@@ -4,7 +4,7 @@ import { DawContext } from './DawContext';
 import { X } from 'lucide-react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, AddonParamInfo } from './Bridge';
-import { useNodeDelete, NodeHeaderButton, useNodeCollapsed, NodeHandle, nodeContainerStyle } from './NodeUtils';
+import { useNodeDelete, NodeHeaderButton, useNodeCollapsed, useNodeSettings, NodeHandle, nodeContainerStyle, SettingsPanelHeader, Checkbox } from './NodeUtils';
 
 import { NodeSelect } from './NodeSelect';
 
@@ -88,6 +88,119 @@ function DeviceSelector ({ nodeId, nodeType, selectedDeviceId }: {
   );
 }
 
+// ── Audio device channel settings panel ──────────────────────────────────────
+function AudioDeviceSettingsPanel ({ nodeId, nodeType, selectedChannels, deviceChannelCount, selectedDeviceId, warning, onClose }: {
+  nodeId:             string;
+  nodeType:           3 | 4;
+  selectedChannels:   number[];
+  deviceChannelCount: number;
+  selectedDeviceId:   string | undefined;
+  warning:            boolean;
+  onClose:            () => void;
+}) {
+  const accent = 'var(--audio)';
+
+  const toggle = (ch: number) => {
+    const next = selectedChannels.includes(ch)
+      ? selectedChannels.filter(c => c !== ch)
+      : [...selectedChannels, ch].sort((a, b) => a - b);
+    // Always keep at least one channel selected
+    if (next.length === 0) return;
+    Bridge.setNodeParam(nodeId, 'audioDeviceChannels', JSON.stringify(next), nodeType);
+  };
+
+  const isOut = nodeType === 4;
+  const title = isOut ? 'Audio OUT Channels' : 'Audio IN Channels';
+
+  return (
+    <div
+      className="nodrag"
+      onMouseDown={e => e.stopPropagation()}
+      onMouseUp={e => e.stopPropagation()}
+      onPointerDown={e => e.stopPropagation()}
+      onPointerUp={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+      style={{
+        position: 'absolute', top: 0, left: '100%', marginLeft: 6,
+        width: deviceChannelCount > 32 ? 320 : deviceChannelCount > 16 ? 260 : 200, background: 'var(--surface2)',
+        border: '1px solid var(--border-hi)', borderRadius: 'var(--radius)',
+        padding: '10px 12px', zIndex: 1000,
+        boxShadow: '0 8px 32px rgba(0,0,0,.6)',
+        fontFamily: "'JetBrains Mono', monospace",
+        userSelect: 'none',
+      }}>
+      <SettingsPanelHeader
+        title={title}
+        onReset={() => Bridge.setNodeParam(nodeId, 'audioDeviceChannels', JSON.stringify([0, 1]), nodeType)}
+        onClose={onClose}
+      />
+      {warning && (
+        <div style={{
+          fontSize: 9, color: '#ef5350', background: 'rgba(239,83,80,0.1)',
+          border: '1px solid rgba(239,83,80,0.3)', borderRadius: 3,
+          padding: '4px 6px', marginBottom: 6,
+        }}>
+          Channel selection reset — previous channels not available on this device.
+        </div>
+      )}
+      {deviceChannelCount <= 0 || !selectedDeviceId ? (
+        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8 }}>
+          No device selected
+        </div>
+      ) : (
+        <>
+          <div style={{
+            fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em',
+            textTransform: 'uppercase', marginTop: 8, marginBottom: 6,
+          }}>
+            Select channels
+          </div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: deviceChannelCount > 32 ? '1fr 1fr 1fr 1fr'
+                                : deviceChannelCount > 16 ? '1fr 1fr 1fr'
+                                : '1fr 1fr',
+            gap: 4,
+          }}>
+            {Array.from({ length: deviceChannelCount }, (_, i) => (
+              <label key={i} style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                fontSize: 10, color: 'var(--text-dim)', cursor: 'pointer',
+              }}>
+                <Checkbox
+                  checked={selectedChannels.includes(i)}
+                  onChange={() => toggle(i)}
+                  accent={accent}
+                />
+                Ch {i + 1}
+              </label>
+            ))}
+          </div>
+          {selectedChannels.length === 0 && (
+            <div style={{ fontSize: 9, color: '#ef5350', marginTop: 6 }}>
+              At least one channel required
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Channel summary label ─────────────────────────────────────────────────────
+function ChannelSummary ({ channels }: { channels: number[] }) {
+  if (channels.length === 0) return null;
+  const label = channels.map(c => `Ch ${c + 1}`).join(', ');
+  return (
+    <div style={{
+      fontSize: 9, color: 'var(--text-muted)', textAlign: 'center',
+      marginBottom: 3, letterSpacing: '0.05em',
+    }}>
+      {label}
+    </div>
+  );
+}
+
 // ── Main node ─────────────────────────────────────────────────────────────────
 function GenericNode({ id, data, selected }: NodeProps) {
   const nodeData = data as NodeData;
@@ -114,8 +227,70 @@ function GenericNode({ id, data, selected }: NodeProps) {
   const { handleDelete } = useNodeDelete(id);
   const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
   const isAddon = ngaType !== null;
+  const isAudioDevice = nodeData.nodeType === 3 || nodeData.nodeType === 4;
   const { setHint } = useContext(HintContext);
   const portBodyRef = useRef<HTMLDivElement>(null);
+
+  // ── Audio device channel state ──────────────────────────────────────────────
+  const { showSettings, toggleSettings, closeSettings } = useNodeSettings(id);
+  const [selectedChannels, setSelectedChannels] = useState<number[]>(() => {
+    if (!isAudioDevice) return [0, 1];
+    try {
+      const parsed = nodeData.settingsJson ? JSON.parse(nodeData.settingsJson) : null;
+      return Array.isArray(parsed?.selectedChannels) ? parsed.selectedChannels : [0, 1];
+    } catch { return [0, 1]; }
+  });
+  const [deviceChannelCount, setDeviceChannelCount] = useState<number>(() => {
+    if (!isAudioDevice) return 2;
+    try {
+      const parsed = nodeData.settingsJson ? JSON.parse(nodeData.settingsJson) : null;
+      return parsed?.deviceChannelCount ?? 2;
+    } catch { return 2; }
+  });
+
+  // Sync selectedChannels and deviceChannelCount when settingsJson changes (device open / undo / redo)
+  useEffect(() => {
+    if (!isAudioDevice) return;
+    try {
+      const parsed = nodeData.settingsJson ? JSON.parse(nodeData.settingsJson as string) : null;
+      if (Array.isArray(parsed?.selectedChannels))
+        setSelectedChannels(parsed.selectedChannels);
+      if (parsed?.deviceChannelCount != null)
+        setDeviceChannelCount(parsed.deviceChannelCount);
+    } catch {}
+  }, [nodeData.settingsJson, isAudioDevice]);
+
+  // Track device channel count from the device list (fallback)
+  const selectedDeviceIdRef = useRef(nodeData.selectedDeviceId);
+  selectedDeviceIdRef.current = nodeData.selectedDeviceId;
+  const nodeTypeRef = useRef(nodeData.nodeType);
+  nodeTypeRef.current = nodeData.nodeType;
+
+  // Warn + reset when device changes and current channel selection is out of range
+  const [channelWarning, setChannelWarning] = useState(false);
+  const selectedChannelsRef = useRef(selectedChannels);
+  selectedChannelsRef.current = selectedChannels;
+
+  useEffect(() => {
+    if (!isAudioDevice) return;
+    const unsub = Bridge.onAudioDeviceChanged((changedNodeId) => {
+      if (changedNodeId !== id) return;
+      const unsubOnce = Bridge.onAudioDevices(list => {
+        const devs = nodeTypeRef.current === 4 ? list.audioOutDevices : list.audioInDevices;
+        const dev = devs.find(d => d.id === selectedDeviceIdRef.current);
+        if (dev?.channelCount == null) { unsubOnce(); return; }
+        const maxCh = dev.channelCount;
+        const invalid = selectedChannelsRef.current.some(c => c >= maxCh);
+        if (invalid) {
+          setChannelWarning(true);
+          const reset = [...new Set([0, Math.min(1, maxCh - 1)])];
+          Bridge.setNodeParam(id, 'audioDeviceChannels', JSON.stringify(reset), nodeTypeRef.current as 3 | 4);
+        }
+        unsubOnce();
+      });
+    });
+    return unsub;
+  }, [isAudioDevice, id]);
   const addonParams = (data.addonParams ?? []) as AddonParamInfo[];
   const [paramValues, setParamValues] = useState<number[]>([]);
 
@@ -231,6 +406,28 @@ function GenericNode({ id, data, selected }: NodeProps) {
                      width:100, minWidth:0 }} />
         )}
 
+        {/* Audio device settings button */}
+        {isAudioDevice && (
+          <div style={{ position: 'relative', display: 'inline-flex' }}>
+            <NodeHeaderButton
+              onClick={() => { toggleSettings(); setChannelWarning(false); }}
+              active={showSettings}
+              activeAccent="var(--audio)"
+              onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.settings), onMouseLeave: () => setHint(null) }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </NodeHeaderButton>
+            {channelWarning && !showSettings && (
+              <div style={{
+                position: 'absolute', top: -3, right: -3,
+                width: 7, height: 7, borderRadius: '50%',
+                background: '#ef5350', pointerEvents: 'none',
+              }} />
+            )}
+          </div>
+        )}
+
         {/* Delete button */}
         <NodeHeaderButton onClick={handleDelete} danger
           onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.deleteNode), onMouseLeave: () => setHint(null) }}><X size={14} /></NodeHeaderButton>
@@ -239,7 +436,8 @@ function GenericNode({ id, data, selected }: NodeProps) {
       {!collapsed && <>
       {/* Device selector — only renders for device nodes, provides portBodyRef anchor */}
       <div ref={portBodyRef} style={{ padding: !isAddon ? '8px 10px' : '0',
-                                         minHeight: isAddon && addonParams.length === 0 ? 32 : undefined }}>
+                                         minHeight: isAddon && addonParams.length === 0 ? 32 : undefined,
+                                         position: 'relative' }}>
         {(nodeData.nodeType === 1 || nodeData.nodeType === 2) && (
           <DeviceSelector
             nodeId={id}
@@ -247,13 +445,25 @@ function GenericNode({ id, data, selected }: NodeProps) {
             selectedDeviceId={nodeData.selectedDeviceId}
           />
         )}
-        {(nodeData.nodeType === 3 || nodeData.nodeType === 4) && (
+        {(nodeData.nodeType === 3 || nodeData.nodeType === 4) && (<>
+          {nodeData.selectedDeviceId && <ChannelSummary channels={selectedChannels} />}
           <DeviceSelector
             nodeId={id}
             nodeType={nodeData.nodeType as 3 | 4}
             selectedDeviceId={nodeData.selectedDeviceId}
           />
-        )}
+          {showSettings && (
+            <AudioDeviceSettingsPanel
+              nodeId={id}
+              nodeType={nodeData.nodeType as 3 | 4}
+              selectedChannels={selectedChannels}
+              deviceChannelCount={deviceChannelCount}
+              selectedDeviceId={nodeData.selectedDeviceId}
+              warning={channelWarning}
+              onClose={closeSettings}
+            />
+          )}
+        </>)}
       </div>
 
       {/* Addon parameter sliders — outside port body so padding works correctly */}

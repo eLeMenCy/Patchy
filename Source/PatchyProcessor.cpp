@@ -174,6 +174,25 @@ void PatchyProcessor::rebuildProcessingGraph()
                 audioDeviceManager.storeSelection (n.id, devName);
                 selectionsChanged = true;
             }
+
+            // Restore selectedChannels from settingsJson (undo/redo safe)
+            if (n.settingsJson.isNotEmpty())
+            {
+                try
+                {
+                    auto parsed = juce::JSON::parse (n.settingsJson);
+                    if (auto* arr = parsed["selectedChannels"].getArray())
+                    {
+                        std::vector<int> channels;
+                        channels.reserve (static_cast<size_t>(arr->size()));
+                        for (auto& v : *arr)
+                            channels.push_back ((int) v);
+                        if (! channels.empty())
+                            audioDeviceManager.storeChannelSelection (n.id, channels);
+                    }
+                }
+                catch (...) {}
+            }
         }
     }
 
@@ -185,6 +204,7 @@ void PatchyProcessor::rebuildProcessingGraph()
     // Apply selections to new graph (opens/closes devices as needed)
     midiDeviceManager.applyDeviceSelections  (*newGraph);
     audioDeviceManager.applyDeviceSelections (*newGraph);
+    audioDeviceManager.applyAllChannelSelections (*newGraph);
 
     pendingGraph = std::move (newGraph);
     graphPending.store (true);

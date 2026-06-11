@@ -44,6 +44,22 @@ void AudioDeviceManager::applyDeviceSelections (ProcessingGraph& graph)
         applyToGraph (nodeId, deviceName, graph);
 }
 
+void AudioDeviceManager::applyChannelsToGraph (const juce::String& nodeId,
+                                                const std::vector<int>& channels,
+                                                ProcessingGraph& graph)
+{
+    if (auto* n = graph.findAudioOutNode (nodeId))
+        n->setSelectedChannels (channels);
+    else if (auto* n = graph.findAudioInNode (nodeId))
+        n->setSelectedChannels (channels);
+}
+
+void AudioDeviceManager::applyAllChannelSelections (ProcessingGraph& graph)
+{
+    for (const auto& [nodeId, channels] : channelSelections)
+        applyChannelsToGraph (nodeId, channels, graph);
+}
+
 juce::var AudioDeviceManager::getAvailableDevicesVar (bool isStandalone)
 {
     // Enumerate all available audio device types and their devices
@@ -80,22 +96,37 @@ juce::var AudioDeviceManager::getAvailableDevicesVar (bool isStandalone)
 
     for (auto* type : tempManager.getAvailableDeviceTypes())
     {
+        type->scanForDevices();
         // Output devices
         for (const auto& name : type->getDeviceNames (false))
         {
+            int chCount = 2;
+            if (auto* dev = type->createDevice ({}, name))
+            {
+                chCount = dev->getOutputChannelNames().size();
+                delete dev;
+            }
             auto* obj = new juce::DynamicObject();
-            obj->setProperty ("id",      name);
-            obj->setProperty ("name",    name);
-            obj->setProperty ("dawHost", isDawVirtualDevice (name));
+            obj->setProperty ("id",           name);
+            obj->setProperty ("name",         name);
+            obj->setProperty ("dawHost",      isDawVirtualDevice (name));
+            obj->setProperty ("channelCount", chCount > 0 ? chCount : 2);
             outArr.add (obj);
         }
         // Input devices
         for (const auto& name : type->getDeviceNames (true))
         {
+            int chCount = 2;
+            if (auto* dev = type->createDevice (name, {}))
+            {
+                chCount = dev->getInputChannelNames().size();
+                delete dev;
+            }
             auto* obj = new juce::DynamicObject();
-            obj->setProperty ("id",      name);
-            obj->setProperty ("name",    name);
-            obj->setProperty ("dawHost", isDawVirtualDevice (name));
+            obj->setProperty ("id",           name);
+            obj->setProperty ("name",         name);
+            obj->setProperty ("dawHost",      isDawVirtualDevice (name));
+            obj->setProperty ("channelCount", chCount > 0 ? chCount : 2);
             inArr.add (obj);
         }
     }
@@ -134,15 +165,20 @@ void AudioOutDeviceNode::openDevice (const juce::String& deviceName,
             setup.sampleRate        = currentSampleRate > 0 ? currentSampleRate : 44100.0;
             setup.bufferSize        = currentBlockSize  > 0 ? currentBlockSize  : 512;
             setup.useDefaultInputChannels  = false;
-            setup.useDefaultOutputChannels = true;
+            setup.useDefaultOutputChannels = false;
+            // Activate all possible channels upfront — real count read back after open
+            setup.outputChannels.setRange (0, kMaxFifoChans, true);
 
             auto err = manager.setAudioDeviceSetup (setup, true);
             if (err.isNotEmpty())
                 juce::Logger::writeToLog ("AudioOutDeviceNode: " + err);
             else
             {
+                if (auto* dev = manager.getCurrentAudioDevice())
+                    deviceChannelCount = dev->getOutputChannelNames().size();
                 manager.addAudioCallback (this);
-                juce::Logger::writeToLog ("AudioOutDeviceNode: opened " + deviceName);
+                juce::Logger::writeToLog ("AudioOutDeviceNode: opened " + deviceName
+                                          + " (" + juce::String (deviceChannelCount) + " ch)");
             }
             return;
         }
@@ -164,17 +200,17 @@ void AudioOutDeviceNode::closeDevice()
 void AudioOutDeviceNode::prepare (double sampleRate, int maxBlockSize)
 {
     NodeProcessor::prepare (sampleRate, maxBlockSize);
-    audioFifo.reset (2, (int) sampleRate);
+    audioFifo.reset (deviceChannelCount, (int) sampleRate);
 }
 
 void AudioOutDeviceNode::process (int numSamples)
 {
-    // Pass audio through (so downstream nodes can still use it)
     for (int ch = 0; ch < outputAudio.getNumChannels(); ++ch)
         outputAudio.copyFrom (ch, 0, inputAudio, ch, 0, numSamples);
 
-    // Push to FIFO for the device callback to consume
-    audioFifo.write (inputAudio, numSamples);
+    std::vector<int> chans;
+    { juce::SpinLock::ScopedLockType sl (channelLock); chans = selectedChannels; }
+    audioFifo.write (inputAudio, numSamples, chans);
 }
 
 void AudioOutDeviceNode::audioDeviceIOCallbackWithContext (
@@ -182,7 +218,9 @@ void AudioOutDeviceNode::audioDeviceIOCallbackWithContext (
     float* const* outputChannelData, int numOutputChannels,
     int numSamples, const juce::AudioIODeviceCallbackContext&)
 {
-    audioFifo.read (outputChannelData, numOutputChannels, numSamples);
+    std::vector<int> chans;
+    { juce::SpinLock::ScopedLockType sl (channelLock); chans = selectedChannels; }
+    audioFifo.read (outputChannelData, numOutputChannels, numSamples, chans);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -210,16 +248,21 @@ void AudioInDeviceNode::openDevice (const juce::String& deviceName,
             setup.outputDeviceName  = {};
             setup.sampleRate        = currentSampleRate > 0 ? currentSampleRate : 44100.0;
             setup.bufferSize        = currentBlockSize  > 0 ? currentBlockSize  : 512;
-            setup.useDefaultInputChannels  = true;
+            setup.useDefaultInputChannels  = false;
             setup.useDefaultOutputChannels = false;
+            // Activate all possible channels upfront — real count read back after open
+            setup.inputChannels.setRange (0, kMaxFifoChans, true);
 
             auto err = manager.setAudioDeviceSetup (setup, true);
             if (err.isNotEmpty())
                 juce::Logger::writeToLog ("AudioInDeviceNode: " + err);
             else
             {
+                if (auto* dev = manager.getCurrentAudioDevice())
+                    deviceChannelCount = dev->getInputChannelNames().size();
                 manager.addAudioCallback (this);
-                juce::Logger::writeToLog ("AudioInDeviceNode: opened " + deviceName);
+                juce::Logger::writeToLog ("AudioInDeviceNode: opened " + deviceName
+                                          + " (" + juce::String (deviceChannelCount) + " ch)");
             }
             return;
         }
@@ -241,7 +284,7 @@ void AudioInDeviceNode::closeDevice()
 void AudioInDeviceNode::prepare (double sampleRate, int maxBlockSize)
 {
     NodeProcessor::prepare (sampleRate, maxBlockSize);
-    audioFifo.reset (2, (int) sampleRate);
+    audioFifo.reset (deviceChannelCount, (int) sampleRate);
 }
 
 void AudioInDeviceNode::process (int numSamples)
@@ -255,5 +298,7 @@ void AudioInDeviceNode::audioDeviceIOCallbackWithContext (
     float* const*, int, int numSamples,
     const juce::AudioIODeviceCallbackContext&)
 {
-    audioFifo.write (inputChannelData, numInputChannels, numSamples);
+    std::vector<int> chans;
+    { juce::SpinLock::ScopedLockType sl (channelLock); chans = selectedChannels; }
+    audioFifo.write (inputChannelData, numInputChannels, numSamples, chans);
 }

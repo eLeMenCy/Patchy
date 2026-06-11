@@ -27,6 +27,8 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
     bridge.getSpectrumSnapshots      = [&p]() { return p.getSpectrumSnapshots(); };
     bridge.onGetAddonAudioOutCount   = [&p](const juce::String& nid) { return p.getAddonAudioOutCount (nid); };
     bridge.onPruneAddonEdges         = [&p](const juce::String& nid) { p.pruneProcessingGraphEdges (nid); };
+    bridge.onSetAudioDeviceChannels  = [&p](const juce::String& nid, const std::vector<int>& ch)
+                                       { p.setAudioDeviceChannels (nid, ch); };
     addAndMakeVisible (bridge);
     setSize (640, 400);
     setResizable (true, false);

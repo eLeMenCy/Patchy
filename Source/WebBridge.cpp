@@ -477,8 +477,52 @@ void WebBridge::handleMessage (const juce::String& json)
         if (key == "midiDeviceId" && onSetMidiDevice)
             onSetMidiDevice (nodeId, value);
         else if (key == "audioDeviceId" && onSetAudioDevice)
+        {
             onSetAudioDevice (nodeId, value);
-        // Push updated graph so React reflects the new selectedDeviceId
+
+            // After a device change, validate stored selectedChannels.
+            // We can't know the new channel count synchronously here (the device
+            // opens on the audio thread), so we push a special message to React
+            // that tells it to re-check once the new device info arrives via
+            // onAudioDevices. The UI will warn and reset if channels are invalid.
+            auto* nd = graph.findNode (nodeId);
+            if (nd != nullptr && nd->settingsJson.isNotEmpty())
+            {
+                auto* msgObj = new juce::DynamicObject();
+                msgObj->setProperty ("nodeId",      nodeId);
+                msgObj->setProperty ("settingsJson", nd->settingsJson);
+                pushToUI ("onAudioDeviceChanged",
+                          juce::JSON::toString (juce::var (msgObj), true));
+            }
+        }
+        else if (key == "audioDeviceChannels" && onSetAudioDeviceChannels)
+        {
+            // Parse the JSON array of channel indices sent from React
+            std::vector<int> channels;
+            auto parsed = juce::JSON::parse (value);
+            if (auto* arr = parsed.getArray())
+                for (auto& v : *arr) channels.push_back ((int) v);
+
+            onSetAudioDeviceChannels (nodeId, channels);
+
+            // Persist into settingsJson — merge with existing settings
+            juce::var existing;
+            if (auto* nd = graph.findNode (nodeId))
+            {
+                try { existing = juce::JSON::parse (nd->settingsJson); } catch (...) {}
+                if (existing.getDynamicObject() == nullptr)
+                    existing = new juce::DynamicObject();
+
+                juce::Array<juce::var> arr;
+                for (int ch : channels) arr.add (ch);
+                existing.getDynamicObject()->setProperty ("selectedChannels", arr);
+
+                juce::String newJson = juce::JSON::toString (existing, true);
+                graph.setNodeSettings (nodeId, newJson);
+                pushSettingsToUI (nodeId, newJson);
+            }
+        }
+        // Push updated graph so React reflects the new selectedDeviceId / settings
         pushGraphToUI();
         pushUndoState();
     }

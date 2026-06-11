@@ -131,7 +131,38 @@ public:
         if (! found && pendingGraph != nullptr)
             audioDeviceManager.applyToGraph (nodeId, deviceName, *pendingGraph);
         if (auto* node = graphModel.findNode (nodeId))
+        {
             node->selectedDeviceId = deviceName;
+            // Store the real channel count in settingsJson so React always has it
+            int chCount = 0;
+            for (auto& n : processingGraph.getNodes())
+            {
+                if (n->id != nodeId) continue;
+                if (auto* out = dynamic_cast<AudioOutDeviceNode*> (n.get()))
+                    chCount = out->getDeviceChannelCount();
+                else if (auto* in = dynamic_cast<AudioInDeviceNode*> (n.get()))
+                    chCount = in->getDeviceChannelCount();
+                break;
+            }
+            if (chCount > 0)
+            {
+                juce::var existing;
+                try { existing = juce::JSON::parse (node->settingsJson); } catch (...) {}
+                if (existing.getDynamicObject() == nullptr)
+                    existing = new juce::DynamicObject();
+                existing.getDynamicObject()->setProperty ("deviceChannelCount", chCount);
+                node->settingsJson = juce::JSON::toString (existing, true);
+            }
+        }
+    }
+
+    /** Apply a channel selection to a live audio node and persist it. */
+    void setAudioDeviceChannels (const juce::String& nodeId,
+                                  const std::vector<int>& channels)
+    {
+        audioDeviceManager.setAudioDeviceChannels (nodeId, channels, processingGraph);
+        if (pendingGraph != nullptr)
+            audioDeviceManager.applyChannelsToGraph (nodeId, channels, *pendingGraph);
     }
 
     AudioDeviceManager& getAudioDeviceManager() { return audioDeviceManager; }

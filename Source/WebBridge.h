@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <functional>
+#include <vector>
 #include "GraphModel.h"
 #include "../Addons/AddonRegistry.h"
 
@@ -98,6 +99,7 @@ public:
     std::function<void(const juce::String&)>       onPruneAddonEdges;
     std::function<void(double, int, bool)> onSetAudioEngineSettings;
     std::function<void()>                  onUIReady;
+    std::function<void(const juce::String&, const std::vector<int>&)> onSetAudioDeviceChannels;
 
 private:
     // ── Resource provider (release) ───────────────────────────────────────

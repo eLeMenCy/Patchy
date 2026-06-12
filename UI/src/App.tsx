@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useContext, DragEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, useContext, DragEvent, ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { DawContext } from './DawContext';
 import {
@@ -28,7 +28,7 @@ import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
 import MidiKeyboardNode,  { MidiKeyboardNodeData }  from './MidiKeyboardNode';
 import PreferencesPanel, { GraphPreferences, loadPrefs, savePrefs } from './PreferencesPanel';
 import { HintProvider, HintContext, BUTTON_HINTS, PORT_HINTS, EDGE_HINTS } from './HintPanel';
-import { Menu, ChevronsDownUp, ChevronsUpDown, Settings } from 'lucide-react';
+import { Menu, ChevronsDownUp, ChevronsUpDown, Settings, ChevronLeft } from 'lucide-react';
 import Sidebar from './Sidebar';
 import SpectrumyserNode from './SpectrumyserNode';
 import EnvelopeNode     from './EnvelopeNode';
@@ -221,13 +221,47 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
 }
 
 // ── Inner component (needs useReactFlow hook) ─────────────────────────────────
+// ── Burger menu row helpers ─────────────────────────────────────────────────
+function MenuRow ({ label, shortcut, enabled = true, onClick, onMouseEnter, trailing }: {
+  label: string;
+  shortcut?: string;
+  enabled?: boolean;
+  onClick?: () => void;
+  onMouseEnter?: () => void;
+  trailing?: ReactNode;
+}) {
+  return (
+    <div
+      onClick={enabled ? onClick : undefined}
+      onMouseEnter={e => { onMouseEnter?.(); if (enabled) e.currentTarget.style.background = 'var(--surface)'; }}
+      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+      style={{
+        padding: '6px 14px', fontSize: 11,
+        color: enabled ? 'var(--text)' : 'var(--text-muted)',
+        cursor: enabled ? 'pointer' : 'default',
+        fontFamily: "'JetBrains Mono', monospace",
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        gap: 24, opacity: enabled ? 1 : 0.45,
+      }}
+    >
+      <span>{label}</span>
+      {trailing ?? (shortcut && <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>{shortcut}</span>)}
+    </div>
+  );
+}
+
+function MenuDivider() {
+  return <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />;
+}
+
+// ── Main canvas ────────────────────────────────────────────────────────────
 function FlowCanvas() {
   const { isStandalone } = useContext(DawContext);
   const [nodes, setNodes] = useState<Node<any>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { setHint } = useContext(HintContext);
-  const { screenToFlowPosition, setViewport, updateNode, getNodes } = useReactFlow();
+  const { screenToFlowPosition, setViewport, updateNode, getNodes, deleteElements } = useReactFlow();
   const pendingDrop     = useRef<{ dropX: number; dropY: number } | null>(null);
   const knownNodeIds    = useRef<Set<string>>(new Set());
   const burgerBtnRef    = useRef<HTMLButtonElement>(null);
@@ -240,6 +274,7 @@ function FlowCanvas() {
   const [undoState, setUndoState] = useState<UndoState>({ canUndo: false, canRedo: false });
   const [audioSettings, setAudioSettings] = useState<AudioSettings | null>(null);
   const [showFileMenu, setShowFileMenu] = useState(false);
+  const [burgerSubmenu, setBurgerSubmenu] = useState<'file' | 'edit' | null>(null);
   const [pendingFragment, setPendingFragment] = useState<FragmentData | null>(null);
   const ghostPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const ghostRef = useRef<HTMLDivElement>(null);
@@ -275,10 +310,11 @@ function FlowCanvas() {
   }, []);
 
   useEffect(() => {
-    if (!showFileMenu) return;
+    if (!showFileMenu) { setBurgerSubmenu(null); return; }
     const close = (e: MouseEvent) => {
       if (burgerBtnRef.current?.contains(e.target as Element)) return;
       setShowFileMenu(false);
+      setBurgerSubmenu(null);
     };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
@@ -666,7 +702,7 @@ function FlowCanvas() {
               ref={burgerBtnRef}
               onMouseDown={e => { e.stopPropagation(); setShowPrefs(false); setShowFileMenu(v => !v); }}
               onClick={e => e.stopPropagation()}
-              onMouseEnter={() => setHint({ title: 'File Menu', body: 'New, Open, Save or Save As a patch file (.patchy).' })}
+              onMouseEnter={() => setHint({ title: 'Menu', body: 'File and Edit operations.' })}
               onMouseLeave={() => setHint(null)}
               style={{
                 background:   showFileMenu ? 'var(--surface2)' : 'transparent',
@@ -687,102 +723,117 @@ function FlowCanvas() {
                   background: 'var(--surface2)', border: '1px solid var(--border)',
                   borderRadius: 'var(--radius)', padding: '4px 0',
                   boxShadow: '0 8px 32px rgba(0,0,0,.6)',
-                  minWidth: 160, zIndex: 100,
+                  minWidth: 120, zIndex: 100,
                 }}>
-                {([
-                  { label: 'New',      shortcut: '⌘N',  action: () => { Bridge.fileNew();    setShowFileMenu(false); } },
-                  { label: 'Open…',    shortcut: '⌘O',  action: () => { Bridge.fileOpen();   setShowFileMenu(false); } },
-                  { label: fileState.hasFile ? 'Save' : 'Save…', shortcut: '⌘S',  action: () => { Bridge.fileSave(); setShowFileMenu(false); } },
-                  { label: 'Save As…', shortcut: '⌘⇧S', action: () => { Bridge.fileSaveAs(); setShowFileMenu(false); } },
-                ] as {label:string; shortcut:string; action:()=>void}[]).map(item => (
-                  <div key={item.label} onClick={item.action}
-                    style={{ padding: '6px 14px', fontSize: 11, color: 'var(--text)',
-                             cursor: 'pointer', fontFamily: "'JetBrains Mono', monospace",
-                             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                             gap: 24 }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    <span>{item.label}</span>
-                    <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>{item.shortcut}</span>
-                  </div>
-                ))}
-                {/* ── Undo / Redo section ── */}
-                <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
-                {[
-                  { label: 'Undo', shortcut: '⌘Z',   enabled: undoState.canUndo, action: () => { Bridge.undo(); setShowFileMenu(false); } },
-                  { label: 'Redo', shortcut: '⌘⇧Z', enabled: undoState.canRedo, action: () => { Bridge.redo(); setShowFileMenu(false); } },
-                ].map(item => (
-                  <div key={item.label} onClick={item.enabled ? item.action : undefined}
-                    style={{ padding: '6px 14px', fontSize: 11,
-                             color: item.enabled ? 'var(--text)' : 'var(--text-muted)',
-                             cursor: item.enabled ? 'pointer' : 'default',
-                             fontFamily: "'JetBrains Mono', monospace",
-                             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                             gap: 24, opacity: item.enabled ? 1 : 0.45 }}
-                    onMouseEnter={e => { if (item.enabled) e.currentTarget.style.background = 'var(--surface)'; }}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    <span>{item.label}</span>
-                    <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>{item.shortcut}</span>
-                  </div>
-                ))}
-                {/* ── Fragment section ── */}
-                <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
-                {(() => {
-                  const selectedNodes = getNodes().filter(n => n.selected);
-                  const hasSelection  = selectedNodes.length > 0;
-                  const handleExport  = () => {
-                    if (!hasSelection) return;
-                    const ids = selectedNodes.map(n => n.id);
-                    const NODE_LABELS: Record<number, string> = {
-                      1: 'MidiIn', 2: 'MidiOut', 3: 'AudioIn', 4: 'AudioOut',
-                      5: 'MidiMonitor', 6: 'AudioMonitor', 7: 'Keyboard',
-                    };
-                    const names  = selectedNodes.map(n => {
-                      const d = n.data as { nodeType?: number; addonName?: string; label?: string };
-                      return d.addonName || NODE_LABELS[d.nodeType ?? 0] || d.label || 'Node';
-                    });
-                    const unique    = [...new Set(names)];
-                    const suggested = unique.slice(0, 3).join('_') + (unique.length > 3 ? '_etc' : '');
-                    Bridge.exportSelection(ids, suggested);
-                    setShowFileMenu(false);
-                  };
-                  return (
-                    <>
-                      <div onClick={handleExport}
-                        style={{ padding: '6px 14px', fontSize: 11,
-                                 color: hasSelection ? 'var(--text)' : 'var(--text-muted)',
-                                 cursor: hasSelection ? 'pointer' : 'default',
-                                 fontFamily: "'JetBrains Mono', monospace",
-                                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                 gap: 24, opacity: hasSelection ? 1 : 0.45 }}
-                        onMouseEnter={e => { if (hasSelection) e.currentTarget.style.background = 'var(--surface)'; }}
-                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                      >
-                        <span>Export…</span>
-                        <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>
-                          {hasSelection ? `${selectedNodes.length} node${selectedNodes.length !== 1 ? 's' : ''}` : 'select nodes'}
-                        </span>
-                      </div>
-                      <div onClick={() => { Bridge.importFragment(); setShowFileMenu(false); }}
-                        style={{ padding: '6px 14px', fontSize: 11, color: 'var(--text)',
-                                 cursor: 'pointer', fontFamily: "'JetBrains Mono', monospace",
-                                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                 gap: 24 }}
-                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface)')}
-                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                      >
-                        <span>Import…</span>
-                      </div>
-                    </>
-                  );
-                })()}
+                {/* ── Top-level: File / Edit ── */}
+                <MenuRow
+                  label="File"
+                  enabled
+                  onMouseEnter={() => setBurgerSubmenu('file')}
+                  trailing={<ChevronLeft size={12} style={{ color: 'var(--text-muted)' }} />}
+                />
+                <MenuRow
+                  label="Edit"
+                  enabled
+                  onMouseEnter={() => setBurgerSubmenu('edit')}
+                  trailing={<ChevronLeft size={12} style={{ color: 'var(--text-muted)' }} />}
+                />
                 {fileState.hasFile && (
                   <div style={{ padding: '4px 14px 2px', fontSize: 9, color: 'var(--text-muted)',
                                 fontFamily: "'JetBrains Mono', monospace",
                                 borderTop: '1px solid var(--border)', marginTop: 2 }}>
                     {fileState.fileName}.patchy
+                  </div>
+                )}
+
+                {/* ── File submenu (opens to the left) ── */}
+                {burgerSubmenu === 'file' && (
+                  <div
+                    onMouseDown={e => e.stopPropagation()}
+                    style={{
+                      position: 'absolute', top: 0, right: '100%', marginRight: 4,
+                      background: 'var(--surface2)', border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius)', padding: '4px 0',
+                      boxShadow: '0 8px 32px rgba(0,0,0,.6)',
+                      minWidth: 170, zIndex: 100,
+                    }}>
+                    <MenuRow label="New"      shortcut="⌘N"  onClick={() => { Bridge.fileNew();    setShowFileMenu(false); }} />
+                    <MenuRow label="Open…"    shortcut="⌘O"  onClick={() => { Bridge.fileOpen();   setShowFileMenu(false); }} />
+                    <MenuRow label={fileState.hasFile ? 'Save' : 'Save…'} shortcut="⌘S" onClick={() => { Bridge.fileSave(); setShowFileMenu(false); }} />
+                    <MenuRow label="Save As…" shortcut="⌘⇧S" onClick={() => { Bridge.fileSaveAs(); setShowFileMenu(false); }} />
+                    <MenuDivider />
+                    {(() => {
+                      const selectedNodes = getNodes().filter(n => n.selected);
+                      const hasSelection  = selectedNodes.length > 0;
+                      const handleExport  = () => {
+                        if (!hasSelection) return;
+                        const ids = selectedNodes.map(n => n.id);
+                        const NODE_LABELS: Record<number, string> = {
+                          1: 'MidiIn', 2: 'MidiOut', 3: 'AudioIn', 4: 'AudioOut',
+                          5: 'MidiMonitor', 6: 'AudioMonitor', 7: 'Keyboard',
+                        };
+                        const names  = selectedNodes.map(n => {
+                          const d = n.data as { nodeType?: number; addonName?: string; label?: string };
+                          return d.addonName || NODE_LABELS[d.nodeType ?? 0] || d.label || 'Node';
+                        });
+                        const unique    = [...new Set(names)];
+                        const suggested = unique.slice(0, 3).join('_') + (unique.length > 3 ? '_etc' : '');
+                        Bridge.exportSelection(ids, suggested);
+                        setShowFileMenu(false);
+                      };
+                      return (
+                        <>
+                          <MenuRow
+                            label="Export…"
+                            enabled={hasSelection}
+                            onClick={handleExport}
+                            trailing={
+                              <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>
+                                {hasSelection ? `${selectedNodes.length} node${selectedNodes.length !== 1 ? 's' : ''}` : 'select nodes'}
+                              </span>
+                            }
+                          />
+                          <MenuRow label="Import…" onClick={() => { Bridge.importFragment(); setShowFileMenu(false); }} />
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* ── Edit submenu (opens to the left) ── */}
+                {burgerSubmenu === 'edit' && (
+                  <div
+                    onMouseDown={e => e.stopPropagation()}
+                    style={{
+                      position: 'absolute', top: 26, right: '100%', marginRight: 4,
+                      background: 'var(--surface2)', border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius)', padding: '4px 0',
+                      boxShadow: '0 8px 32px rgba(0,0,0,.6)',
+                      minWidth: 150, zIndex: 100,
+                    }}>
+                    <MenuRow label="Undo" shortcut="⌘Z"   enabled={undoState.canUndo} onClick={() => { Bridge.undo(); setShowFileMenu(false); }} />
+                    <MenuRow label="Redo" shortcut="⌘⇧Z" enabled={undoState.canRedo} onClick={() => { Bridge.redo(); setShowFileMenu(false); }} />
+                    <MenuDivider />
+                    <MenuRow label="Cut"    shortcut="⌘X" enabled={false} />
+                    <MenuRow label="Copy"   shortcut="⌘C" enabled={false} />
+                    <MenuRow label="Paste"  shortcut="⌘V" enabled={false} />
+                    <MenuDivider />
+                    {(() => {
+                      const selectedNodes = getNodes().filter(n => n.selected);
+                      const hasSelection  = selectedNodes.length > 0;
+                      return (
+                        <MenuRow
+                          label="Delete"
+                          shortcut="⌫"
+                          enabled={hasSelection}
+                          onClick={() => {
+                            selectedNodes.forEach(n => Bridge.removeNode(n.id));
+                            deleteElements({ nodes: selectedNodes.map(n => ({ id: n.id })) });
+                            setShowFileMenu(false);
+                          }}
+                        />
+                      );
+                    })()}
                   </div>
                 )}
               </div>

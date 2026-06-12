@@ -253,11 +253,12 @@ function GenericNode({ id, data, selected }: NodeProps) {
     if (!isAudioDevice) return;
     try {
       const parsed = nodeData.settingsJson ? JSON.parse(nodeData.settingsJson as string) : null;
-      if (Array.isArray(parsed?.selectedChannels))
-        setSelectedChannels(parsed.selectedChannels);
-      if (parsed?.deviceChannelCount != null)
-        setDeviceChannelCount(parsed.deviceChannelCount);
-    } catch {}
+      setSelectedChannels(Array.isArray(parsed?.selectedChannels) ? parsed.selectedChannels : [0, 1]);
+      setDeviceChannelCount(parsed?.deviceChannelCount ?? 2);
+    } catch {
+      setSelectedChannels([0, 1]);
+      setDeviceChannelCount(2);
+    }
   }, [nodeData.settingsJson, isAudioDevice]);
 
   // Track device channel count from the device list (fallback)

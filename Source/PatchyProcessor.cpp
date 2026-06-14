@@ -251,7 +251,7 @@ void PatchyProcessor::setStateInformation (const void* data, int sizeInBytes)
     {
         auto* nd = nv.getDynamicObject();
         if (nd == nullptr) continue;
-        juce::String paxName = nd->getProperty ("addonName").toString();
+        juce::String paxName = nd->getProperty ("paxName").toString();
         int audioIn = 0, audioOut = 0, midiIn = 0, midiOut = 0;
         if (paxName.isNotEmpty())
         {

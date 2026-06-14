@@ -36,7 +36,7 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
         juce::String id  = nd->getProperty ("id").toString();
         int          type = (int) nd->getProperty ("nodeType");
 
-        juce::String paxName = nd->getProperty ("addonName").toString();
+        juce::String paxName = nd->getProperty ("paxName").toString();
 
         std::unique_ptr<NodeProcessor> proc;
 

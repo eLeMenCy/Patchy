@@ -220,11 +220,6 @@ function _dispatchClaimed() {
   onGraphUpdate: (json: string) => {
     try {
       const state: GraphState = JSON.parse(json);
-      // Map legacy "addonName" key → paxName (JSON key migrated in commit 2)
-      for (const node of state.nodes) {
-        if (!node.paxName && (node as any).addonName)
-          node.paxName = (node as any).addonName;
-      }
       // Rebuild claimed devices from graph state — keeps claims in sync with C++
       _claimedDevices.clear();
       for (const node of state.nodes) {
@@ -316,11 +311,6 @@ function _dispatchClaimed() {
   onFragmentReady: (json: string) => {
     try {
       const fragment = JSON.parse(json) as FragmentData;
-      // Map legacy "addonName" key → paxName (JSON key migrated in commit 2)
-      for (const node of fragment.nodes ?? []) {
-        if (!node.paxName && (node as any).addonName)
-          node.paxName = (node as any).addonName;
-      }
       _fragmentReadySubscribers.forEach(cb => cb(fragment));
     } catch (e) {
       console.error('Bridge fragment parse error', e);

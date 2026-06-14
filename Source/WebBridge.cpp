@@ -590,7 +590,7 @@ void WebBridge::handleMessage (const juce::String& json)
             int          nodeType = (int) nObj->getProperty ("nodeType");
             float        x        = (float) (double) nObj->getProperty ("x");
             float        y        = (float) (double) nObj->getProperty ("y");
-            juce::String paxName= nObj->getProperty ("addonName").toString();
+            juce::String paxName= nObj->getProperty ("paxName").toString();
             int audioIn  = (int) nObj->getProperty ("audioInputs");
             int audioOut = (int) nObj->getProperty ("audioOutputs");
             int midiIn   = (int) nObj->getProperty ("midiInputs");

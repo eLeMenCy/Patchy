@@ -184,7 +184,7 @@ juce::var GraphModel::toVar() const
         obj->setProperty ("id",       n.id);
         obj->setProperty ("label",    n.label);
         obj->setProperty ("nodeType",   n.nodeType);
-        obj->setProperty ("addonName",        n.paxName);
+        obj->setProperty ("paxName",        n.paxName);
         obj->setProperty ("selectedDeviceId", n.selectedDeviceId);
         obj->setProperty ("settingsJson",     n.settingsJson);
         obj->setProperty ("x",        n.x);
@@ -396,7 +396,7 @@ void GraphModel::restoreSnapshot (const juce::var& snapshot)
                 (int) nObj->getProperty ("nodeType"),
                 (float)(double) nObj->getProperty ("x"),
                 (float)(double) nObj->getProperty ("y"),
-                nObj->getProperty ("addonName").toString(),
+                nObj->getProperty ("paxName").toString(),
                 audioIn, audioOut, midiIn, midiOut);
 
             // Always restore selectedDeviceId — empty string means "no device"

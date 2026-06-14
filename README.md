@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.881
+> Version 0.0.882
 
 ---
 
@@ -106,6 +106,9 @@ Patchy/
 │
 ├── FYI/                             Developer notes (gitignored)
 │   └── Architecture.md             Detailed technical architecture + design decisions
+│
+├── Tools/                           Developer utilities
+│   └── migrate_patchy_v1_to_v2.py  Migrate .patchy files: addonName→paxName
 │
 ├── CMakeLists.txt                   Main build — host + UI bundle
 ├── CMakePresets.json                Build presets
@@ -529,4 +532,4 @@ Xtension developers are free to license their Xtensions under any terms — prop
 
 ---
 
-*Patchy v0.0.881 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.882 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

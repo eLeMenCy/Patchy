@@ -49,18 +49,16 @@ public:
         std::shared_ptr<juce::DynamicLibrary> lib;
 
         // Resolved function pointers
-        using CreateFn  = NGA_Instance*  (*)();
-        using DestroyFn = void (*)(NGA_Instance*);
-        using PrepareFn = void (*)(NGA_Instance*, double, int);
-        using ProcessFn = void (*)(NGA_Instance*, float**, float**, int, int,
-                                   const NGA_MidiEvent*, int,
-                                   NGA_MidiEvent*, int*, int);
+        using CreateFn  = PAX_Instance*  (*)();
+        using DestroyFn = void (*)(PAX_Instance*);
+        using PrepareFn = void (*)(PAX_Instance*, double, int);
+        using ProcessFn = void (*)(PAX_Instance*, const PAX_ProcessContext*);
 
-        using GetParamCountFn = int   (*)(NGA_Instance*);
-        using GetParamInfoFn  = void  (*)(NGA_Instance*, int, NGA_ParameterInfo*);
-        using GetParamFn      = float (*)(NGA_Instance*, int);
-        using SetParamFn          = void  (*)(NGA_Instance*, int, float);
-        using GetAudioOutCountFn  = int   (*)(NGA_Instance*);
+        using GetParamCountFn = int   (*)(PAX_Instance*);
+        using GetParamInfoFn  = void  (*)(PAX_Instance*, int, PAX_ParameterInfo*);
+        using GetParamFn      = float (*)(PAX_Instance*, int);
+        using SetParamFn          = void  (*)(PAX_Instance*, int, float);
+        using GetAudioOutCountFn  = int   (*)(PAX_Instance*);
 
         CreateFn           create           = nullptr;
         DestroyFn          destroy          = nullptr;
@@ -106,7 +104,7 @@ public:
 
     // Parameter access (called from message thread via WebBridge)
     int   getParameterCount() const;
-    void  getParameterInfo  (int index, NGA_ParameterInfo& info) const;
+    void  getParameterInfo  (int index, PAX_ParameterInfo& info) const;
     float getParameter      (int index) const;
     void  setParameter      (int index, float value);
 
@@ -120,10 +118,10 @@ public:
     SpectrumData getSpectrumData() const
     {
         if (! lib) return {};
-        using GetFFTSize = int         (*)(NGA_Instance*);
-        using GetFFTMags = const float* (*)(NGA_Instance*);
-        auto getSize = (GetFFTSize) lib->getFunction ("NGA_getFFTSize");
-        auto getMags = (GetFFTMags) lib->getFunction ("NGA_getFFTMagnitudes");
+        using GetFFTSize = int         (*)(PAX_Instance*);
+        using GetFFTMags = const float* (*)(PAX_Instance*);
+        auto getSize = (GetFFTSize) lib->getFunction ("PAX_getFFTSize");
+        auto getMags = (GetFFTMags) lib->getFunction ("PAX_getFFTMagnitudes");
         if (! getSize || ! getMags) return {};
         return { getSize (instance), getMags (instance), true };
     }
@@ -141,10 +139,10 @@ private:
     AddonRegistry::Entry::SetParamFn          fnSetParam          = nullptr;
     AddonRegistry::Entry::GetAudioOutCountFn  fnGetAudioOutCount  = nullptr;
 
-    NGA_Instance* instance   = nullptr;
+    PAX_Instance* instance   = nullptr;
     juce::String  addonName;
 
     static constexpr int kMaxMidiEvents = 256;
-    NGA_MidiEvent midiInBuf  [kMaxMidiEvents];
-    NGA_MidiEvent midiOutBuf [kMaxMidiEvents];
+    PAX_MidiEvent midiInBuf  [kMaxMidiEvents];
+    PAX_MidiEvent midiOutBuf [kMaxMidiEvents];
 };

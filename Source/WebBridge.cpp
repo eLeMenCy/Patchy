@@ -674,7 +674,7 @@ void WebBridge::pushAddonList()
             int count = e.getParamCount (tmp);
             for (int p = 0; p < count; ++p)
             {
-                NGA_ParameterInfo info {};
+                PAX_ParameterInfo info {};
                 e.getParamInfo (tmp, p, &info);
                 auto* po = new juce::DynamicObject();
                 po->setProperty ("index",        p);

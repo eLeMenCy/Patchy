@@ -31,7 +31,7 @@ void AddonRegistry::load (const std::vector<AddonScanner::ScanResult>& results)
         e.lib      = lib;
 
         // Read optional port counts from descriptor
-        if (auto* getDesc = (const NGA_Descriptor*(*)()) lib->getFunction ("NGA_getDescriptor"))
+        if (auto* getDesc = (const PAX_Descriptor*(*)()) lib->getFunction ("PAX_getDescriptor"))
         {
             if (auto* desc = getDesc())
             {
@@ -42,15 +42,15 @@ void AddonRegistry::load (const std::vector<AddonScanner::ScanResult>& results)
             }
         }
 
-        e.create  = (Entry::CreateFn)  lib->getFunction ("NGA_create");
-        e.destroy = (Entry::DestroyFn) lib->getFunction ("NGA_destroy");
-        e.prepare       = (Entry::PrepareFn)       lib->getFunction ("NGA_prepare");
-        e.process       = (Entry::ProcessFn)       lib->getFunction ("NGA_process");
-        e.getParamCount = (Entry::GetParamCountFn) lib->getFunction ("NGA_getParameterCount");
-        e.getParamInfo  = (Entry::GetParamInfoFn)  lib->getFunction ("NGA_getParameterInfo");
-        e.getParam      = (Entry::GetParamFn)      lib->getFunction ("NGA_getParameter");
-        e.setParam          = (Entry::SetParamFn)          lib->getFunction ("NGA_setParameter");
-        e.getAudioOutCount  = (Entry::GetAudioOutCountFn) lib->getFunction ("NGA_getAudioOutputCount");
+        e.create  = (Entry::CreateFn)  lib->getFunction ("PAX_create");
+        e.destroy = (Entry::DestroyFn) lib->getFunction ("PAX_destroy");
+        e.prepare       = (Entry::PrepareFn)       lib->getFunction ("PAX_prepare");
+        e.process       = (Entry::ProcessFn)       lib->getFunction ("PAX_process");
+        e.getParamCount = (Entry::GetParamCountFn) lib->getFunction ("PAX_getParameterCount");
+        e.getParamInfo  = (Entry::GetParamInfoFn)  lib->getFunction ("PAX_getParameterInfo");
+        e.getParam      = (Entry::GetParamFn)      lib->getFunction ("PAX_getParameter");
+        e.setParam          = (Entry::SetParamFn)          lib->getFunction ("PAX_setParameter");
+        e.getAudioOutCount  = (Entry::GetAudioOutCountFn) lib->getFunction ("PAX_getAudioOutputCount");
 
         if (! e.create || ! e.destroy || ! e.prepare || ! e.process)
         {
@@ -141,7 +141,7 @@ void DynamicNodeProcessor::process (int numSamples)
 {
     if (instance == nullptr) return;
 
-    // ── Convert juce::MidiBuffer → NGA_MidiEvent array ───────────────────
+    // ── Convert juce::MidiBuffer → PAX_MidiEvent array ───────────────────
     int inCount = 0;
     for (const auto& meta : inputMidi)
     {
@@ -188,12 +188,26 @@ void DynamicNodeProcessor::process (int numSamples)
 
     // ── Call into the addon ──────────────────────────────────────────────
     int outCount = 0;
-    fnProcess (instance,
-                   audioInPtrs, audioOutPtrs, 2, numSamples,
-                   midiInBuf,  inCount,
-                   midiOutBuf, &outCount, kMaxMidiEvents);
+    PAX_ProcessContext ctx {};
+    ctx.audioIn       = audioInPtrs;
+    ctx.audioOut      = audioOutPtrs;
+    ctx.numChannels   = 2;
+    ctx.numSamples    = numSamples;
+    ctx.midiIn        = midiInBuf;
+    ctx.midiInCount   = inCount;
+    ctx.midiOut       = midiOutBuf;
+    ctx.midiOutCount  = &outCount;
+    ctx.midiMaxCount  = kMaxMidiEvents;
+    // Value fields — NULL/0 until value ports are implemented
+    ctx.valuesIn      = nullptr;
+    ctx.valueInCount  = 0;
+    ctx.valuesOut     = nullptr;
+    ctx.valueOutCount = nullptr;
+    ctx.valueMaxCount = 0;
 
-    // ── Convert NGA_MidiEvent array → juce::MidiBuffer ───────────────────
+    fnProcess (instance, &ctx);
+
+    // ── Convert PAX_MidiEvent array → juce::MidiBuffer ───────────────────
     outputMidi.clear();
     for (int i = 0; i < outCount; ++i)
     {
@@ -221,7 +235,7 @@ int DynamicNodeProcessor::getParameterCount() const
     return (fnGetParamCount && instance) ? fnGetParamCount (instance) : 0;
 }
 
-void DynamicNodeProcessor::getParameterInfo (int index, NGA_ParameterInfo& info) const
+void DynamicNodeProcessor::getParameterInfo (int index, PAX_ParameterInfo& info) const
 {
     if (fnGetParamInfo && instance)
         fnGetParamInfo (instance, index, &info);

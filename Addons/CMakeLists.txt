@@ -39,7 +39,7 @@ add_node_addon(SpectrumyserAddon    SpectrumyserAddon/SpectrumyserAddon.cpp)
 # ── Install target (optional) ─────────────────────────────────────────────────
 # cmake --install build --prefix ~ will copy addons to the right folder.
 if(APPLE)
-    set(ADDON_INSTALL_DIR "$ENV{HOME}/Library/Application Support/Patchy/Addons")
+    set(ADDON_INSTALL_DIR "$ENV{HOME}/Library/Patchy/Addons")
 elseif(WIN32)
     set(ADDON_INSTALL_DIR "$ENV{APPDATA}/Patchy/Addons")
 else()

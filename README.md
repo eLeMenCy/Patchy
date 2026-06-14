@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.876
+> Version 0.0.877
 
 ---
 
@@ -355,36 +355,42 @@ struct MyAddon {};
 
 extern "C" {
 
-const NGA_Descriptor* NGA_getDescriptor() {
-    static NGA_Descriptor d {
+const PAX_Descriptor* PAX_getDescriptor() {
+    static PAX_Descriptor d {
         "My Addon", "My Studio", "1.0.0",
         2,               // nodeType: 1=MIDI, 2=Audio, 3=AV
-        NGA_API_VERSION,
+        PAX_API_VERSION,
         1, 1, 0, 0       // audioIn, audioOut, midiIn, midiOut
     };
     return &d;
 }
 
-NGA_Instance* NGA_create()           { return new MyAddon(); }
-void NGA_destroy(NGA_Instance* i)    { delete (MyAddon*)i; }
-void NGA_prepare(NGA_Instance*, double, int) {}
+PAX_Instance* PAX_create()           { return new MyAddon(); }
+void PAX_destroy (PAX_Instance* i)   { delete (MyAddon*)i; }
+void PAX_prepare (PAX_Instance*, double, int) {}
 
-void NGA_process(NGA_Instance*,
-                 float** audioIn, float** audioOut,
-                 int numChannels, int numSamples,
-                 const NGA_MidiEvent*, int,
-                       NGA_MidiEvent*, int* outCount, int)
+void PAX_process (PAX_Instance*, const PAX_ProcessContext* ctx)
 {
-    *outCount = 0;
-    for (int ch = 0; ch < numChannels; ++ch)
-        if (audioIn && audioOut && audioIn[ch] && audioOut[ch])
-            std::memcpy(audioOut[ch], audioIn[ch], (size_t)numSamples * sizeof(float));
+    // Audio pass-through example
+    if (ctx->audioIn && ctx->audioOut)
+        for (int ch = 0; ch < ctx->numChannels; ++ch)
+            if (ctx->audioIn[ch] && ctx->audioOut[ch])
+                std::memcpy (ctx->audioOut[ch], ctx->audioIn[ch],
+                             (size_t) ctx->numSamples * sizeof (float));
+
+    // MIDI pass-through
+    *ctx->midiOutCount = 0;
+    for (int e = 0; e < ctx->midiInCount && e < ctx->midiMaxCount; ++e)
+        ctx->midiOut[(*ctx->midiOutCount)++] = ctx->midiIn[e];
+
+    // Value ports — NULL until implemented by host, always guard:
+    // if (ctx->valuesOut && ctx->valueMaxCount > 0) { ... }
 }
 
-int   NGA_getParameterCount(NGA_Instance*)                          { return 0; }
-void  NGA_getParameterInfo (NGA_Instance*, int, NGA_ParameterInfo*) {}
-float NGA_getParameter     (NGA_Instance*, int)                     { return 0.f; }
-void  NGA_setParameter     (NGA_Instance*, int, float)              {}
+int   PAX_getParameterCount (PAX_Instance*)                          { return 0; }
+void  PAX_getParameterInfo  (PAX_Instance*, int, PAX_ParameterInfo*) {}
+float PAX_getParameter      (PAX_Instance*, int)                     { return 0.f; }
+void  PAX_setParameter      (PAX_Instance*, int, float)              {}
 
 } // extern "C"
 ```
@@ -393,15 +399,15 @@ void  NGA_setParameter     (NGA_Instance*, int, float)              {}
 
 | Symbol | Description |
 |--------|-------------|
-| `NGA_getAudioOutputCount` | Return current output port count (dynamic ports) |
-| `NGA_getFFTSize` | Return FFT magnitude bin count (for spectrum display) |
-| `NGA_getFFTMagnitudes` | Return pointer to FFT magnitude array |
+| `PAX_getAudioOutputCount` | Return current output port count (dynamic ports) |
+| `PAX_getFFTSize` | Return FFT magnitude bin count (for spectrum display) |
+| `PAX_getFFTMagnitudes` | Return pointer to FFT magnitude array |
 
 ---
 
 ## API Reference
 
-### NGA_Descriptor
+### PAX_Descriptor
 
 ```c
 typedef struct {
@@ -409,25 +415,25 @@ typedef struct {
     const char* vendor;      // Author/studio
     const char* version;     // Semver string e.g. "1.0.0"
     int         nodeType;    // 1=MIDI, 2=Audio, 3=AV
-    int         apiVersion;  // Must equal NGA_API_VERSION
+    int         apiVersion;  // Must equal PAX_API_VERSION
     int         audioInputs;
     int         audioOutputs;
     int         midiInputs;
     int         midiOutputs;
-} NGA_Descriptor;
+} PAX_Descriptor;
 ```
 
-### NGA_MidiEvent
+### PAX_MidiEvent
 
 ```c
 typedef struct {
     int     sampleOffset;
-    uint8_t data[3];
-    uint8_t size;
-} NGA_MidiEvent;
+    uint8_t byteCount;
+    uint8_t bytes[3];
+} PAX_MidiEvent;
 ```
 
-### NGA_ParameterInfo
+### PAX_ParameterInfo
 
 ```c
 typedef struct {
@@ -436,7 +442,41 @@ typedef struct {
     float       maxValue;
     float       defaultValue;
     float       step;   // 0 = continuous, ≥1 = integer steps
-} NGA_ParameterInfo;
+} PAX_ParameterInfo;
+```
+
+### PAX_Value  *(new in API v2)*
+
+```c
+typedef struct {
+    uint32_t key;        // Integer key resolved from name at setup time
+    uint8_t  type;       // Domain: PAX_TYPE_GENERIC/DMX/OSC/MQTT/UDP/ARTNET
+    uint8_t  dataType;   // PAX_DATA_FLOAT / PAX_DATA_STRING / PAX_DATA_BLOB
+    uint16_t dataSize;   // Byte length of data[] when dataType != PAX_DATA_FLOAT
+    float    value;      // Primary payload (default)
+    uint8_t  data[56];   // Inline buffer for strings/blobs
+} PAX_Value;
+```
+
+### PAX_ProcessContext  *(new in API v2)*
+
+```c
+typedef struct {
+    float**              audioIn;        // [numChannels] input channel pointers
+    float**              audioOut;       // [numChannels] output channel pointers
+    int                  numChannels;    // Always 2 (stereo)
+    int                  numSamples;     // Block size
+    const PAX_MidiEvent* midiIn;
+    int                  midiInCount;
+    PAX_MidiEvent*       midiOut;
+    int*                 midiOutCount;
+    int                  midiMaxCount;
+    const PAX_Value*     valuesIn;       // NULL until value ports implemented
+    int                  valueInCount;
+    PAX_Value*           valuesOut;      // NULL until value ports implemented
+    int*                 valueOutCount;
+    int                  valueMaxCount;
+} PAX_ProcessContext;
 ```
 
 ---
@@ -489,4 +529,4 @@ Addon developers are free to license their addons under any terms — proprietar
 
 ---
 
-*Patchy v0.0.876 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.877 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

@@ -85,19 +85,19 @@ AddonScanner::ScanResult AddonScanner::tryLoad (const juce::File& file)
     }
 
     // Check all required symbols are present
-    using GetDescFn = const NGA_Descriptor* (*)();
-    using CreateFn  = NGA_Instance*          (*)();
-    using DestroyFn = void (*)(NGA_Instance*);
-    using PrepareFn = void (*)(NGA_Instance*, double, int);
-    using ProcessFn = void (*)(NGA_Instance*, float**, float**, int, int,
-                               const NGA_MidiEvent*, int,
-                               NGA_MidiEvent*, int*, int);
+    using GetDescFn = const PAX_Descriptor* (*)();
+    using CreateFn  = PAX_Instance*          (*)();
+    using DestroyFn = void (*)(PAX_Instance*);
+    using PrepareFn = void (*)(PAX_Instance*, double, int);
+    using ProcessFn = void (*)(PAX_Instance*, float**, float**, int, int,
+                               const PAX_MidiEvent*, int,
+                               PAX_MidiEvent*, int*, int);
 
-    auto getDesc = (GetDescFn)  lib->getFunction ("NGA_getDescriptor");
-    auto create  = (CreateFn)   lib->getFunction ("NGA_create");
-    auto destroy = (DestroyFn)  lib->getFunction ("NGA_destroy");
-    auto prepare = (PrepareFn)  lib->getFunction ("NGA_prepare");
-    auto process = (ProcessFn)  lib->getFunction ("NGA_process");
+    auto getDesc = (GetDescFn)  lib->getFunction ("PAX_getDescriptor");
+    auto create  = (CreateFn)   lib->getFunction ("PAX_create");
+    auto destroy = (DestroyFn)  lib->getFunction ("PAX_destroy");
+    auto prepare = (PrepareFn)  lib->getFunction ("PAX_prepare");
+    auto process = (ProcessFn)  lib->getFunction ("PAX_process");
 
     if (! getDesc || ! create || ! destroy || ! prepare || ! process)
     {
@@ -105,18 +105,18 @@ AddonScanner::ScanResult AddonScanner::tryLoad (const juce::File& file)
         return result;
     }
 
-    const NGA_Descriptor* desc = getDesc();
+    const PAX_Descriptor* desc = getDesc();
     if (desc == nullptr)
     {
-        result.errorMsg = "NGA_getDescriptor returned NULL";
+        result.errorMsg = "PAX_getDescriptor returned NULL";
         return result;
     }
 
-    if (desc->apiVersion != NGA_API_VERSION)
+    if (desc->apiVersion != PAX_API_VERSION)
     {
         result.errorMsg = "API version mismatch (addon="
                           + juce::String (desc->apiVersion)
-                          + " host=" + juce::String (NGA_API_VERSION) + ")";
+                          + " host=" + juce::String (PAX_API_VERSION) + ")";
         return result;
     }
 

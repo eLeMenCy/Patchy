@@ -21,54 +21,51 @@ struct TransposeAddon
 
 extern "C" {
 
-const NGA_Descriptor* NGA_getDescriptor()
+const PAX_Descriptor* PAX_getDescriptor()
 {
-    static NGA_Descriptor d {
+    static PAX_Descriptor d {
         "Transpose",
         "Patchy Examples",
         "1.1.0",
         1,               // nodeType: MIDI
-        NGA_API_VERSION
+        PAX_API_VERSION
     };
     return &d;
 }
 
-NGA_Instance* NGA_create()           { return new TransposeAddon(); }
-void NGA_destroy (NGA_Instance* i)   { delete static_cast<TransposeAddon*> (i); }
-void NGA_prepare (NGA_Instance*, double, int) {}
+PAX_Instance* PAX_create()           { return new TransposeAddon(); }
+void PAX_destroy (PAX_Instance* i)   { delete static_cast<TransposeAddon*> (i); }
+void PAX_prepare (PAX_Instance*, double, int) {}
 
-void NGA_process (NGA_Instance* i,
-                  float**, float**, int, int,
-                  const NGA_MidiEvent* midiIn,  int midiInCount,
-                  NGA_MidiEvent*       midiOut, int* midiOutCount, int midiMaxCount)
+void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
 {
     auto* node    = static_cast<TransposeAddon*> (i);
     int   shift   = (int) std::round (node->semitones);
     int   written = 0;
 
-    for (int e = 0; e < midiInCount && written < midiMaxCount; ++e)
+    for (int e = 0; e < ctx->midiInCount && written < ctx->midiMaxCount; ++e)
     {
-        midiOut[written] = midiIn[e];
+        ctx->midiOut[written] = ctx->midiIn[e];
 
-        if (midiIn[e].byteCount >= 2)
+        if (ctx->midiIn[e].byteCount >= 2)
         {
-            const uint8_t status  = midiIn[e].bytes[0] & 0xF0;
+            const uint8_t status  = ctx->midiIn[e].bytes[0] & 0xF0;
             const bool    isNote  = (status == 0x90 || status == 0x80);
             if (isNote)
             {
-                int note = midiIn[e].bytes[1] + shift;
-                midiOut[written].bytes[1] = (uint8_t) std::clamp (note, 0, 127);
+                int note = ctx->midiIn[e].bytes[1] + shift;
+                ctx->midiOut[written].bytes[1] = (uint8_t) std::clamp (note, 0, 127);
             }
         }
         ++written;
     }
 
-    *midiOutCount = written;
+    *ctx->midiOutCount = written;
 }
 
-int NGA_getParameterCount (NGA_Instance*) { return 1; }
+int PAX_getParameterCount (PAX_Instance*) { return 1; }
 
-void NGA_getParameterInfo (NGA_Instance*, int index, NGA_ParameterInfo* info)
+void PAX_getParameterInfo (PAX_Instance*, int index, PAX_ParameterInfo* info)
 {
     if (index == 0)
     {
@@ -80,13 +77,13 @@ void NGA_getParameterInfo (NGA_Instance*, int index, NGA_ParameterInfo* info)
     }
 }
 
-float NGA_getParameter (NGA_Instance* i, int index)
+float PAX_getParameter (PAX_Instance* i, int index)
 {
     if (index == 0) return static_cast<TransposeAddon*> (i)->semitones;
     return 0.f;
 }
 
-void NGA_setParameter (NGA_Instance* i, int index, float value)
+void PAX_setParameter (PAX_Instance* i, int index, float value)
 {
     if (index == 0)
         static_cast<TransposeAddon*> (i)->semitones = std::clamp (value, -24.0f, 24.0f);

@@ -95,22 +95,22 @@ struct EnvelopeAddon
 // ── NGA exports ───────────────────────────────────────────────────────────────
 extern "C" {
 
-const NGA_Descriptor* NGA_getDescriptor()
+const PAX_Descriptor* PAX_getDescriptor()
 {
-    static NGA_Descriptor d { "Envelope", "Patchy Examples", "1.0.0", 3, NGA_API_VERSION };
+    static PAX_Descriptor d { "Envelope", "Patchy Examples", "1.0.0", 3, PAX_API_VERSION };
     return &d;
 }
 
-NGA_Instance* NGA_create()
+PAX_Instance* PAX_create()
 {
     auto* a = new EnvelopeAddon();
     a->updateCoeffs();
     return a;
 }
 
-void NGA_destroy (NGA_Instance* i) { delete static_cast<EnvelopeAddon*> (i); }
+void PAX_destroy (PAX_Instance* i) { delete static_cast<EnvelopeAddon*> (i); }
 
-void NGA_prepare (NGA_Instance* i, double sampleRate, int /*blockSize*/)
+void PAX_prepare (PAX_Instance* i, double sampleRate, int /*blockSize*/)
 {
     auto* a = static_cast<EnvelopeAddon*> (i);
     a->sampleRate = sampleRate;
@@ -121,24 +121,20 @@ void NGA_prepare (NGA_Instance* i, double sampleRate, int /*blockSize*/)
     a->updateCoeffs();
 }
 
-void NGA_process (NGA_Instance* i,
-                  float** audioIn, float** audioOut,
-                  int numChannels, int numSamples,
-                  const NGA_MidiEvent* midiIn,  int midiInCount,
-                  NGA_MidiEvent*       midiOut, int* midiOutCount, int midiMaxCount)
+void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
 {
     auto* a = static_cast<EnvelopeAddon*> (i);
 
     // Pass audio through unchanged
-    if (audioIn && audioOut)
-        for (int ch = 0; ch < numChannels; ++ch)
-            if (audioIn[ch] && audioOut[ch])
-                std::memcpy (audioOut[ch], audioIn[ch], (size_t) numSamples * sizeof (float));
+    if (ctx->audioIn && ctx->audioOut)
+        for (int ch = 0; ch < ctx->numChannels; ++ch)
+            if (ctx->audioIn[ch] && ctx->audioOut[ch])
+                std::memcpy (ctx->audioOut[ch], ctx->audioIn[ch], (size_t) ctx->numSamples * sizeof (float));
 
     // Pass MIDI through unchanged
     int written = 0;
-    for (int e = 0; e < midiInCount && written < midiMaxCount; ++e)
-        midiOut[written++] = midiIn[e];
+    for (int e = 0; e < ctx->midiInCount && written < ctx->midiMaxCount; ++e)
+        ctx->midiOut[written++] = ctx->midiIn[e];
 
     // ── Envelope detection ────────────────────────────────────────────────────
     const bool spectral = a->mode >= 0.5f;
@@ -149,16 +145,16 @@ void NGA_process (NGA_Instance* i,
     float sumSq = 0.f;
     int   count = 0;
 
-    if (audioIn)
+    if (ctx->audioIn)
     {
-        for (int ch = 0; ch < std::min (numChannels, 2); ++ch)
+        for (int ch = 0; ch < std::min (ctx->numChannels, 2); ++ch)
         {
-            if (! audioIn[ch]) continue;
+            if (! ctx->audioIn[ch]) continue;
             auto& filt = (ch == 0) ? a->filterL : a->filterR;
 
-            for (int s = 0; s < numSamples; ++s)
+            for (int s = 0; s < ctx->numSamples; ++s)
             {
-                float v = audioIn[ch][s];
+                float v = ctx->audioIn[ch][s];
                 if (spectral)
                     v = filt.process (v, f0, q, sr);
                 sumSq += v * v;
@@ -173,24 +169,24 @@ void NGA_process (NGA_Instance* i,
     const float env      = a->envFollower.process (scaled, a->attackCoeff, a->releaseCoeff);
     const int   cc       = (int) std::clamp (env * 127.f, 0.f, 127.f);
 
-    if (cc != a->lastCc && written < midiMaxCount)
+    if (cc != a->lastCc && written < ctx->midiMaxCount)
     {
         const uint8_t ch = (uint8_t) std::clamp ((int) a->midiChannel - 1, 0, 15);
-        midiOut[written].bytes[0]  = 0xB0 | ch;   // CC message
-        midiOut[written].bytes[1]  = (uint8_t) std::clamp ((int) a->ccNumber, 0, 127);
-        midiOut[written].bytes[2]  = (uint8_t) cc;
-        midiOut[written].byteCount = 3;
-        midiOut[written].sampleOffset = numSamples - 1;
+        ctx->midiOut[written].bytes[0]  = 0xB0 | ch;
+        ctx->midiOut[written].bytes[1]  = (uint8_t) std::clamp ((int) a->ccNumber, 0, 127);
+        ctx->midiOut[written].bytes[2]  = (uint8_t) cc;
+        ctx->midiOut[written].byteCount = 3;
+        ctx->midiOut[written].sampleOffset = ctx->numSamples - 1;
         ++written;
         a->lastCc = cc;
     }
 
-    *midiOutCount = written;
+    *ctx->midiOutCount = written;
 }
 
-int NGA_getParameterCount (NGA_Instance*) { return 8; }
+int PAX_getParameterCount (PAX_Instance*) { return 8; }
 
-void NGA_getParameterInfo (NGA_Instance*, int index, NGA_ParameterInfo* info)
+void PAX_getParameterInfo (PAX_Instance*, int index, PAX_ParameterInfo* info)
 {
     switch (index)
     {
@@ -206,7 +202,7 @@ void NGA_getParameterInfo (NGA_Instance*, int index, NGA_ParameterInfo* info)
     }
 }
 
-float NGA_getParameter (NGA_Instance* i, int index)
+float PAX_getParameter (PAX_Instance* i, int index)
 {
     auto* a = static_cast<EnvelopeAddon*> (i);
     switch (index)
@@ -223,7 +219,7 @@ float NGA_getParameter (NGA_Instance* i, int index)
     }
 }
 
-void NGA_setParameter (NGA_Instance* i, int index, float value)
+void PAX_setParameter (PAX_Instance* i, int index, float value)
 {
     auto* a = static_cast<EnvelopeAddon*> (i);
     switch (index)

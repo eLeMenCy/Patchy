@@ -43,14 +43,14 @@ struct StereoSplitterAddon
 
 extern "C" {
 
-const NGA_Descriptor* NGA_getDescriptor()
+const PAX_Descriptor* PAX_getDescriptor()
 {
-    static NGA_Descriptor d {
+    static PAX_Descriptor d {
         "Splitter",        // name
         "Patchy Examples", // vendor
         "1.1.0",           // version
         2,                 // nodeType: Audio
-        NGA_API_VERSION,   // apiVersion
+        PAX_API_VERSION,   // apiVersion
         1,                 // audioInputs:  1 stereo in
         2,                 // audioOutputs: 2 mono out (L + R)
         0,                 // midiInputs
@@ -59,43 +59,38 @@ const NGA_Descriptor* NGA_getDescriptor()
     return &d;
 }
 
-NGA_Instance* NGA_create()           { return new StereoSplitterAddon(); }
-void NGA_destroy (NGA_Instance* i)   { delete static_cast<StereoSplitterAddon*> (i); }
-void NGA_prepare (NGA_Instance*, double, int) {}
+PAX_Instance* PAX_create()           { return new StereoSplitterAddon(); }
+void PAX_destroy (PAX_Instance* i)   { delete static_cast<StereoSplitterAddon*> (i); }
+void PAX_prepare (PAX_Instance*, double, int) {}
 
-void NGA_process (NGA_Instance* i,
-                  float** audioIn, float** audioOut,
-                  int /*numChannels*/, int numSamples,
-                  const NGA_MidiEvent*, int,
-                  NGA_MidiEvent*, int* outCount, int)
+void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
 {
-    *outCount = 0;
-    if (! audioIn || ! audioOut) return;
+    if (! ctx->audioIn || ! ctx->audioOut) return;
 
     auto* a = static_cast<StereoSplitterAddon*> (i);
     float lGain, rGain;
     a->gains (lGain, rGain);
 
-    // Audio Out 1 = Left channel × left gain — mono: copy to both channels
-    if (audioIn[0] && audioOut[0])
-        for (int s = 0; s < numSamples; ++s)
-            audioOut[0][s] = audioIn[0][s] * lGain;
-    if (audioIn[0] && audioOut[1])   // ch1 of port 0 = same as ch0
-        for (int s = 0; s < numSamples; ++s)
-            audioOut[1][s] = audioIn[0][s] * lGain;
+    // Port 0 (Audio Out 1): Left channel → both ch0 and ch1 (mono)
+    if (ctx->audioIn[0] && ctx->audioOut[0])
+        for (int s = 0; s < ctx->numSamples; ++s)
+            ctx->audioOut[0][s] = ctx->audioIn[0][s] * lGain;
+    if (ctx->audioIn[0] && ctx->audioOut[1])
+        for (int s = 0; s < ctx->numSamples; ++s)
+            ctx->audioOut[1][s] = ctx->audioIn[0][s] * lGain;
 
-    // Audio Out 2 = Right channel × right gain — mono: copy to both channels
-    if (audioIn[1] && audioOut[2])
-        for (int s = 0; s < numSamples; ++s)
-            audioOut[2][s] = audioIn[1][s] * rGain;
-    if (audioIn[1] && audioOut[3])   // ch1 of port 1 = same as ch0
-        for (int s = 0; s < numSamples; ++s)
-            audioOut[3][s] = audioIn[1][s] * rGain;
+    // Port 1 (Audio Out 2): Right channel → both ch0 and ch1 (mono)
+    if (ctx->audioIn[1] && ctx->audioOut[2])
+        for (int s = 0; s < ctx->numSamples; ++s)
+            ctx->audioOut[2][s] = ctx->audioIn[1][s] * rGain;
+    if (ctx->audioIn[1] && ctx->audioOut[3])
+        for (int s = 0; s < ctx->numSamples; ++s)
+            ctx->audioOut[3][s] = ctx->audioIn[1][s] * rGain;
 }
 
-int NGA_getParameterCount (NGA_Instance*) { return 1; }
+int PAX_getParameterCount (PAX_Instance*) { return 1; }
 
-void NGA_getParameterInfo (NGA_Instance*, int index, NGA_ParameterInfo* info)
+void PAX_getParameterInfo (PAX_Instance*, int index, PAX_ParameterInfo* info)
 {
     if (index == 0)
     {
@@ -107,12 +102,12 @@ void NGA_getParameterInfo (NGA_Instance*, int index, NGA_ParameterInfo* info)
     }
 }
 
-float NGA_getParameter (NGA_Instance* i, int index)
+float PAX_getParameter (PAX_Instance* i, int index)
 {
     return index == 0 ? static_cast<StereoSplitterAddon*> (i)->balance : 0.f;
 }
 
-void NGA_setParameter (NGA_Instance* i, int index, float value)
+void PAX_setParameter (PAX_Instance* i, int index, float value)
 {
     if (index == 0)
         static_cast<StereoSplitterAddon*> (i)->balance = std::clamp (value, -1.0f, 1.0f);

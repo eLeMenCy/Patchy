@@ -221,14 +221,14 @@ struct SpectrumyserAddon
 // ─────────────────────────────────────────────────────────────────────────────
 extern "C" {
 
-const NGA_Descriptor* NGA_getDescriptor()
+const PAX_Descriptor* PAX_getDescriptor()
 {
-    static NGA_Descriptor d {
+    static PAX_Descriptor d {
         "Spectrumyser",    // name
         "Patchy",          // vendor
         "1.0.0",           // version
         2,                 // nodeType: Audio
-        NGA_API_VERSION,
+        PAX_API_VERSION,
         1,                 // audioInputs
         3,                 // audioOutputs (default 3 bands — updated by bandCount param)
         0, 0
@@ -236,40 +236,35 @@ const NGA_Descriptor* NGA_getDescriptor()
     return &d;
 }
 
-NGA_Instance* NGA_create()         { return new SpectrumyserAddon(); }
-void NGA_destroy (NGA_Instance* i) { delete static_cast<SpectrumyserAddon*>(i); }
+PAX_Instance* PAX_create()         { return new SpectrumyserAddon(); }
+void PAX_destroy (PAX_Instance* i) { delete static_cast<SpectrumyserAddon*>(i); }
 
-void NGA_prepare (NGA_Instance* i, double sampleRate, int blockSize)
+void PAX_prepare (PAX_Instance* i, double sampleRate, int blockSize)
 {
     static_cast<SpectrumyserAddon*>(i)->prepare (sampleRate, blockSize);
 }
 
-void NGA_process (NGA_Instance* i,
-                  float** audioIn, float** audioOut,
-                  int /*numChannels*/, int numSamples,
-                  const NGA_MidiEvent*, int,
-                  NGA_MidiEvent*, int* outCount, int)
+void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
 {
-    *outCount = 0;
-    if (! audioIn || ! audioOut) return;
+    if (! ctx->audioIn || ! ctx->audioOut) return;
 
     auto* s = static_cast<SpectrumyserAddon*>(i);
 
     // Update FFT with left channel
-    if (audioIn[0])
-        s->updateFFT (audioIn[0], numSamples);
+    if (ctx->audioIn[0])
+        s->updateFFT (ctx->audioIn[0], ctx->numSamples);
 
     // Process each active band
     for (int b = 0; b < s->bandCount; ++b)
     {
-        float* outL = audioOut[b * 2];
-        float* outR = audioOut[b * 2 + 1];
-        float* inL  = audioIn[0];
-        float* inR  = audioIn[1] ? audioIn[1] : audioIn[0];
+        float* outL = ctx->audioOut[b * 2];
+        float* outR = ctx->audioOut[b * 2 + 1];
+        float* inL  = ctx->audioIn[0];
+        float* inR  = ctx->audioIn[1] ? ctx->audioIn[1] : ctx->audioIn[0];
 
         if (! outL) continue;
 
-        for (int n = 0; n < numSamples; ++n)
+        for (int n = 0; n < ctx->numSamples; ++n)
         {
             float l = inL ? s->filters[b][0].process (inL[n]) : 0.f;
             float r = inR ? s->filters[b][1].process (inR[n]) : l;
@@ -279,9 +274,9 @@ void NGA_process (NGA_Instance* i,
     }
 }
 
-int NGA_getParameterCount (NGA_Instance*) { return 1 + MAX_BANDS * 2; }
+int PAX_getParameterCount (PAX_Instance*) { return 1 + MAX_BANDS * 2; }
 
-void NGA_getParameterInfo (NGA_Instance* i, int index, NGA_ParameterInfo* info)
+void PAX_getParameterInfo (PAX_Instance* i, int index, PAX_ParameterInfo* info)
 {
     auto* s = static_cast<SpectrumyserAddon*>(i);
     if (index == 0)
@@ -305,7 +300,7 @@ void NGA_getParameterInfo (NGA_Instance* i, int index, NGA_ParameterInfo* info)
     info->step         = 0.f;
 }
 
-float NGA_getParameter (NGA_Instance* i, int index)
+float PAX_getParameter (PAX_Instance* i, int index)
 {
     auto* s = static_cast<SpectrumyserAddon*>(i);
     if (index == 0) return (float) s->bandCount;
@@ -314,7 +309,7 @@ float NGA_getParameter (NGA_Instance* i, int index)
     return isLow ? s->bandLow[band] : s->bandHigh[band];
 }
 
-void NGA_setParameter (NGA_Instance* i, int index, float value)
+void PAX_setParameter (PAX_Instance* i, int index, float value)
 {
     auto* s = static_cast<SpectrumyserAddon*>(i);
     if (index == 0)
@@ -333,16 +328,16 @@ void NGA_setParameter (NGA_Instance* i, int index, float value)
 }
 
 // Dynamic port count — returns bandCount (one stereo port per band)
-int NGA_getAudioOutputCount (NGA_Instance* i)
+int PAX_getAudioOutputCount (PAX_Instance* i)
 {
     return static_cast<SpectrumyserAddon*>(i)->bandCount;
 }
 
 // Extra: expose FFT magnitudes for UI snapshot
 // Returns magnitudes as a packed float array via a special parameter index
-int NGA_getFFTSize (NGA_Instance*) { return FFT_SIZE / 2; }
+int PAX_getFFTSize (PAX_Instance*) { return FFT_SIZE / 2; }
 
-const float* NGA_getFFTMagnitudes (NGA_Instance* i)
+const float* PAX_getFFTMagnitudes (PAX_Instance* i)
 {
     return static_cast<SpectrumyserAddon*>(i)->magnitudes.data();
 }

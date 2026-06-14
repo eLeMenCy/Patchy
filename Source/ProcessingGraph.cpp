@@ -10,7 +10,7 @@
 // rebuild — called on message thread after graph edit
 // ─────────────────────────────────────────────────────────────────────────────
 
-void ProcessingGraph::rebuild (const GraphModel& model, AddonRegistry* reg,
+void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                                std::function<MidiMonitorBuffer*(const juce::String&)>  getMidiBuffer,
                                std::function<AudioMonitorBuffer*(const juce::String&)> getAudioBuffer,
                                std::function<MidiMonitorBuffer*(const juce::String&)>  getKeyboardBuffer)
@@ -36,20 +36,20 @@ void ProcessingGraph::rebuild (const GraphModel& model, AddonRegistry* reg,
         juce::String id  = nd->getProperty ("id").toString();
         int          type = (int) nd->getProperty ("nodeType");
 
-        juce::String addonName = nd->getProperty ("addonName").toString();
+        juce::String paxName = nd->getProperty ("addonName").toString();
 
         std::unique_ptr<NodeProcessor> proc;
 
-        if (addonName.isNotEmpty())
+        if (paxName.isNotEmpty())
         {
             // Dynamic addon node — ONLY use registry, never fall through to built-ins.
             // Addon nodeType (1=MIDI, 2=Audio, 3=AV) is separate from
             // built-in nodeType (1=MidiInDevice … 4=AudioOutDevice).
             if (registry != nullptr)
-                proc = registry->createNode (id, addonName);
+                proc = registry->createNode (id, paxName);
 
             if (proc == nullptr)
-                juce::Logger::writeToLog ("ProcessingGraph: addon not found: " + addonName);
+                juce::Logger::writeToLog ("ProcessingGraph: addon not found: " + paxName);
             // Leave proc as nullptr — node will be skipped in processing
         }
         else
@@ -74,7 +74,7 @@ void ProcessingGraph::rebuild (const GraphModel& model, AddonRegistry* reg,
         {
             // Restore addon parameters from settingsJson so a graph rebuild
             // (e.g. dropping a node or adding a connection) doesn't reset sliders
-            if (auto* dyn = dynamic_cast<DynamicNodeProcessor*> (proc.get()))
+            if (auto* dyn = dynamic_cast<DynamicPaxProcessor*> (proc.get()))
             {
                 auto settingsJson = nd->getProperty ("settingsJson").toString();
                 if (settingsJson.isNotEmpty())
@@ -302,7 +302,7 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
                         srcName = midiIn->selectedDeviceName;
                     else if (auto* kbd = dynamic_cast<MidiKeyboardNode*> (src))
                         srcName = kbd->customName;
-                    else if (auto* dyn = dynamic_cast<DynamicNodeProcessor*> (src))
+                    else if (auto* dyn = dynamic_cast<DynamicPaxProcessor*> (src))
                         srcName = dyn->customName;
                     mon->pushFromSource (src->outputMidi, srcLabel, srcName);
                 }

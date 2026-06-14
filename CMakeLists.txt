@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Patchy VERSION 0.0.877)
+project(Patchy VERSION 0.0.881)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -90,7 +90,7 @@ endif()
 
 # ── Plugin target ─────────────────────────────────────────────────────────────
 juce_add_plugin(Patchy
-    VERSION                  "0.0.877"
+    VERSION                  "0.0.881"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGrp"
@@ -112,8 +112,8 @@ target_sources(Patchy PRIVATE
     Source/PatchyEditor.cpp
     Source/ProcessingGraph.cpp
     Source/NodeProcessor.cpp
-    Addons/AddonRegistry.cpp
-    Addons/AddonScanner.cpp
+    Pax/PaxRegistry.cpp
+    Pax/PaxScanner.cpp
     Source/GraphModel.cpp
     Source/WebBridge.cpp
     Source/StandaloneApp.cpp
@@ -150,8 +150,8 @@ target_compile_definitions(Patchy PRIVATE
     JUCE_USE_WIN_WEBVIEW2=1
 )
 
-# ── Example addons (optional, built separately)
-add_subdirectory(Addons EXCLUDE_FROM_ALL)
+# ── Example Pax (built separately) (optional, built separately)
+add_subdirectory(Pax EXCLUDE_FROM_ALL)
 
 # ── Convenience targets ───────────────────────────────────────────────────────
 if(NPM_EXE)
@@ -178,7 +178,7 @@ if (PATCHY_BUILD_TESTS)
         Source/GraphModel.cpp
     )
 
-    target_include_directories (PatchyTests PRIVATE Source Addons)
+    target_include_directories (PatchyTests PRIVATE Source Pax)
 
     target_compile_features (PatchyTests PRIVATE cxx_std_20)
 

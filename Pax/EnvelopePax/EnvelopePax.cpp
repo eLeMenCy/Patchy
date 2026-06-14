@@ -1,5 +1,5 @@
 /**
- * EnvelopeAddon — MIDI+Audio Node addon
+ * EnvelopePax — MIDI+Audio Node Pax
  *
  * Converts audio amplitude or a frequency band level into a MIDI CC stream.
  * Use to drive external LED controllers, DAW automation, or any MIDI-capable device.
@@ -8,12 +8,12 @@
  * Spectral mode:  bandpass-filters the audio first, then tracks RMS → CC
  *
  * Build:
- *   macOS:  clang++ -std=c++20 -shared -fPIC EnvelopeAddon.cpp -o EnvelopeAddon.dylib
- *   Linux:  g++     -std=c++20 -shared -fPIC EnvelopeAddon.cpp -o EnvelopeAddon.so
- *   Win:    cl /std=c++20 /LD EnvelopeAddon.cpp /Fe:EnvelopeAddon.dll
+ *   macOS:  clang++ -std=c++20 -shared -fPIC EnvelopePax.cpp -o EnvelopeAddon.dylib
+ *   Linux:  g++     -std=c++20 -shared -fPIC EnvelopePax.cpp -o EnvelopePax.so
+ *   Win:    cl /std=c++20 /LD EnvelopePax.cpp /Fe:EnvelopePax.dll
  */
 
-#include "../AddonAPI.h"
+#include "../PaxAPI.h"
 #include <cmath>
 #include <algorithm>
 #include <cstring>
@@ -53,8 +53,8 @@ struct EnvelopeFollower
     }
 };
 
-// ── Addon state ───────────────────────────────────────────────────────────────
-struct EnvelopeAddon
+// ── Pax state ───────────────────────────────────────────────────────────────
+struct EnvelopePax
 {
     // Parameters
     float mode        =    0.f;   // 0 = Amplitude, 1 = Spectral
@@ -103,16 +103,16 @@ const PAX_Descriptor* PAX_getDescriptor()
 
 PAX_Instance* PAX_create()
 {
-    auto* a = new EnvelopeAddon();
+    auto* a = new EnvelopePax();
     a->updateCoeffs();
     return a;
 }
 
-void PAX_destroy (PAX_Instance* i) { delete static_cast<EnvelopeAddon*> (i); }
+void PAX_destroy (PAX_Instance* i) { delete static_cast<EnvelopePax*> (i); }
 
 void PAX_prepare (PAX_Instance* i, double sampleRate, int /*blockSize*/)
 {
-    auto* a = static_cast<EnvelopeAddon*> (i);
+    auto* a = static_cast<EnvelopePax*> (i);
     a->sampleRate = sampleRate;
     a->filterL.reset();
     a->filterR.reset();
@@ -123,7 +123,7 @@ void PAX_prepare (PAX_Instance* i, double sampleRate, int /*blockSize*/)
 
 void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
 {
-    auto* a = static_cast<EnvelopeAddon*> (i);
+    auto* a = static_cast<EnvelopePax*> (i);
 
     // Pass audio through unchanged
     if (ctx->audioIn && ctx->audioOut)
@@ -204,7 +204,7 @@ void PAX_getParameterInfo (PAX_Instance*, int index, PAX_ParameterInfo* info)
 
 float PAX_getParameter (PAX_Instance* i, int index)
 {
-    auto* a = static_cast<EnvelopeAddon*> (i);
+    auto* a = static_cast<EnvelopePax*> (i);
     switch (index)
     {
         case 0: return a->mode;
@@ -221,7 +221,7 @@ float PAX_getParameter (PAX_Instance* i, int index)
 
 void PAX_setParameter (PAX_Instance* i, int index, float value)
 {
-    auto* a = static_cast<EnvelopeAddon*> (i);
+    auto* a = static_cast<EnvelopePax*> (i);
     switch (index)
     {
         case 0: a->mode        = std::clamp (value, 0.f, 1.f);     break;

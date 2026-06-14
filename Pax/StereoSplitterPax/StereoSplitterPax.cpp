@@ -1,5 +1,5 @@
 /**
- * StereoSplitterAddon — Audio Node addon
+ * StereoSplitterPax — Audio Node Pax
  *
  * Splits a stereo input into two mono outputs:
  *   Audio In  → left channel  → Audio Out 1
@@ -17,12 +17,12 @@
  *   Win:    cl /std:c++20 /LD StereoSplitterAddon.cpp /Fe:StereoSplitterAddon.dll
  */
 
-#include "../AddonAPI.h"
+#include "../PaxAPI.h"
 #include <cstring>
 #include <algorithm>
 #include <cmath>
 
-struct StereoSplitterAddon
+struct StereoSplitterPax
 {
     float balance = 0.0f;   // -1.0 (full left) to +1.0 (full right)
 
@@ -59,15 +59,15 @@ const PAX_Descriptor* PAX_getDescriptor()
     return &d;
 }
 
-PAX_Instance* PAX_create()           { return new StereoSplitterAddon(); }
-void PAX_destroy (PAX_Instance* i)   { delete static_cast<StereoSplitterAddon*> (i); }
+PAX_Instance* PAX_create()           { return new StereoSplitterPax(); }
+void PAX_destroy (PAX_Instance* i)   { delete static_cast<StereoSplitterPax*> (i); }
 void PAX_prepare (PAX_Instance*, double, int) {}
 
 void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
 {
     if (! ctx->audioIn || ! ctx->audioOut) return;
 
-    auto* a = static_cast<StereoSplitterAddon*> (i);
+    auto* a = static_cast<StereoSplitterPax*> (i);
     float lGain, rGain;
     a->gains (lGain, rGain);
 
@@ -104,13 +104,13 @@ void PAX_getParameterInfo (PAX_Instance*, int index, PAX_ParameterInfo* info)
 
 float PAX_getParameter (PAX_Instance* i, int index)
 {
-    return index == 0 ? static_cast<StereoSplitterAddon*> (i)->balance : 0.f;
+    return index == 0 ? static_cast<StereoSplitterPax*> (i)->balance : 0.f;
 }
 
 void PAX_setParameter (PAX_Instance* i, int index, float value)
 {
     if (index == 0)
-        static_cast<StereoSplitterAddon*> (i)->balance = std::clamp (value, -1.0f, 1.0f);
+        static_cast<StereoSplitterPax*> (i)->balance = std::clamp (value, -1.0f, 1.0f);
 }
 
 } // extern "C"

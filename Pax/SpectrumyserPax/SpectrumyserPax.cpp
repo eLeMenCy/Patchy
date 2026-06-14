@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 /**
- * SpectrumyserAddon — Audio spectrum analyser with frequency band outputs
+ * SpectrumyserPax — Audio spectrum analyser with frequency band outputs
  *
  * Takes 1 stereo audio input and splits it into 1-5 configurable frequency
  * band outputs. Each output port carries the audio filtered to that band.
@@ -25,7 +25,7 @@
  *   Win:    cl /std:c++20 /LD SpectrumyserAddon.cpp /Fe:SpectrumyserAddon.dll
  */
 
-#include "../AddonAPI.h"
+#include "../PaxAPI.h"
 #include <cstring>
 #include <algorithm>
 #include <cmath>
@@ -145,7 +145,7 @@ static void fft (std::vector<float>& re, std::vector<float>& im)
 static constexpr int MAX_BANDS   = 5;
 static constexpr int FFT_SIZE    = 1024;
 
-struct SpectrumyserAddon
+struct SpectrumyserPax
 {
     // Band config
     int   bandCount = 3;
@@ -236,19 +236,19 @@ const PAX_Descriptor* PAX_getDescriptor()
     return &d;
 }
 
-PAX_Instance* PAX_create()         { return new SpectrumyserAddon(); }
-void PAX_destroy (PAX_Instance* i) { delete static_cast<SpectrumyserAddon*>(i); }
+PAX_Instance* PAX_create()         { return new SpectrumyserPax(); }
+void PAX_destroy (PAX_Instance* i) { delete static_cast<SpectrumyserPax*>(i); }
 
 void PAX_prepare (PAX_Instance* i, double sampleRate, int blockSize)
 {
-    static_cast<SpectrumyserAddon*>(i)->prepare (sampleRate, blockSize);
+    static_cast<SpectrumyserPax*>(i)->prepare (sampleRate, blockSize);
 }
 
 void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
 {
     if (! ctx->audioIn || ! ctx->audioOut) return;
 
-    auto* s = static_cast<SpectrumyserAddon*>(i);
+    auto* s = static_cast<SpectrumyserPax*>(i);
 
     // Update FFT with left channel
     if (ctx->audioIn[0])
@@ -278,7 +278,7 @@ int PAX_getParameterCount (PAX_Instance*) { return 1 + MAX_BANDS * 2; }
 
 void PAX_getParameterInfo (PAX_Instance* i, int index, PAX_ParameterInfo* info)
 {
-    auto* s = static_cast<SpectrumyserAddon*>(i);
+    auto* s = static_cast<SpectrumyserPax*>(i);
     if (index == 0)
     {
         info->name         = "Bands";
@@ -302,7 +302,7 @@ void PAX_getParameterInfo (PAX_Instance* i, int index, PAX_ParameterInfo* info)
 
 float PAX_getParameter (PAX_Instance* i, int index)
 {
-    auto* s = static_cast<SpectrumyserAddon*>(i);
+    auto* s = static_cast<SpectrumyserPax*>(i);
     if (index == 0) return (float) s->bandCount;
     int band  = (index - 1) / 2;
     bool isLow = ((index - 1) % 2) == 0;
@@ -311,7 +311,7 @@ float PAX_getParameter (PAX_Instance* i, int index)
 
 void PAX_setParameter (PAX_Instance* i, int index, float value)
 {
-    auto* s = static_cast<SpectrumyserAddon*>(i);
+    auto* s = static_cast<SpectrumyserPax*>(i);
     if (index == 0)
     {
         s->bandCount = (int) std::clamp (value, 1.f, 5.f);
@@ -330,7 +330,7 @@ void PAX_setParameter (PAX_Instance* i, int index, float value)
 // Dynamic port count — returns bandCount (one stereo port per band)
 int PAX_getAudioOutputCount (PAX_Instance* i)
 {
-    return static_cast<SpectrumyserAddon*>(i)->bandCount;
+    return static_cast<SpectrumyserPax*>(i)->bandCount;
 }
 
 // Extra: expose FFT magnitudes for UI snapshot
@@ -339,7 +339,7 @@ int PAX_getFFTSize (PAX_Instance*) { return FFT_SIZE / 2; }
 
 const float* PAX_getFFTMagnitudes (PAX_Instance* i)
 {
-    return static_cast<SpectrumyserAddon*>(i)->magnitudes.data();
+    return static_cast<SpectrumyserPax*>(i)->magnitudes.data();
 }
 
 } // extern "C"

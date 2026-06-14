@@ -18,7 +18,7 @@ struct NodeData
 {
     juce::String      id, label;
     int               nodeType        = 1;
-    juce::String      addonName;        // empty = built-in, non-empty = dynamic addon
+    juce::String      paxName;        // empty = built-in, non-empty = dynamic addon
     juce::String      selectedDeviceId;  // for nodeType 4 and 5
     juce::String      settingsJson;      // UI settings blob (JSON string)
     float             x = 100.f, y = 100.f;
@@ -46,7 +46,7 @@ public:
     float viewportZoom = 1.0f;
 
     NodeData&   addNode       (int nodeType, float x, float y,
-                              const juce::String& addonName = {},
+                              const juce::String& paxName = {},
                               int audioIn=0, int audioOut=0,
                               int midiIn=0,  int midiOut=0);
 
@@ -55,7 +55,7 @@ public:
      *  are restored. */
     NodeData&   restoreNode   (const juce::String& savedId,
                                int nodeType, float x, float y,
-                               const juce::String& addonName = {},
+                               const juce::String& paxName = {},
                                int audioIn=0, int audioOut=0,
                                int midiIn=0,  int midiOut=0);
 

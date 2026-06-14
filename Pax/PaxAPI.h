@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2024-2025 eLeMenCy
-// See Addons/LICENSE for details.
+// See Pax/LICENSE for details.
 //
-// Addon developers are free to use this header under the MIT license
-// and may license their own addon code under any terms they choose.
+// Pax developers are free to use this header under the MIT license
+// and may license their own Pax code under any terms they choose.
 
 /**
- * AddonAPI.h  —  Patchy Addon API v2  (PAX)
+ * PaxAPI.h  —  Patchy Pax API v2  (PAX)
  *
- * This is the ONLY file an addon author needs.
+ * This is the ONLY file an Xtension author needs.
  * No JUCE dependency. No Patchy source dependency.
  *
- * Build your addon as a shared library:
+ * Build your Pax as a shared library:
  *   macOS:   clang++ -std=c++17 -shared -fPIC MyNode.cpp -o MyNode.dylib
  *   Linux:   g++     -std=c++17 -shared -fPIC MyNode.cpp -o MyNode.so
  *   Windows: cl /std:c++17 /LD MyNode.cpp /Fe:MyNode.dll
  *
- * Drop the binary into the Patchy addons folder and restart.
+ * Drop the binary into the Patchy Pax folder and restart.
  *
  * ── API v2 changes (NGA_ → PAX_) ────────────────────────────────────────────
  *  - All symbols renamed from NGA_ to PAX_
@@ -37,7 +37,7 @@ extern "C" {
 #endif
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  API version — host rejects addons built against a different major version
+//  API version — host rejects Pax built against a different major version
 // ─────────────────────────────────────────────────────────────────────────────
 #define PAX_API_VERSION 2
 
@@ -115,7 +115,7 @@ typedef struct {
 //
 //  Fields marked [placeholder] are reserved for future use — the host
 //  passes NULL / 0 until the corresponding feature is implemented.
-//  Addons should check for NULL before accessing these fields.
+//  Pax should check for NULL before accessing these fields.
 // ─────────────────────────────────────────────────────────────────────────────
 typedef struct {
     // ── Audio ────────────────────────────────────────────────────────────────
@@ -174,7 +174,7 @@ typedef struct {
 } PAX_ParameterInfo;
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Required exports  (every addon MUST provide all of these)
+//  Required exports  (every Pax MUST provide all of these)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Return a pointer to a static PAX_Descriptor. Called once at scan time.
@@ -224,17 +224,17 @@ void  PAX_setParameter (PAX_Instance* instance, int index, float value);
 // ─────────────────────────────────────────────────────────────────────────────
 //  Optional capability exports
 //  The host checks for these symbols at load time and calls them only if
-//  present. Addons that don't need them simply don't export them.
+//  present. Pax that don't need them simply don't export them.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Return current audio output port count (for dynamic port addons).
+/** Return current audio output port count (for dynamic port Pax).
  *  Called by host after PAX_setParameter(index=0) if exported. */
 int PAX_getAudioOutputCount (PAX_Instance* instance);
 
-/** Return FFT magnitude bin count (for spectrum display addons). */
+/** Return FFT magnitude bin count (for spectrum display Pax). */
 int PAX_getFFTSize (PAX_Instance* instance);
 
-/** Return pointer to FFT magnitude array (for spectrum display addons). */
+/** Return pointer to FFT magnitude array (for spectrum display Pax). */
 const float* PAX_getFFTMagnitudes (PAX_Instance* instance);
 
 #ifdef __cplusplus

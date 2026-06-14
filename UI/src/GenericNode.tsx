@@ -3,14 +3,14 @@ import { HintContext, NODE_HINTS, BUTTON_HINTS } from './HintPanel';
 import { DawContext } from './DawContext';
 import { X } from 'lucide-react';
 import { NodeProps } from '@xyflow/react';
-import { Bridge, AddonParamInfo } from './Bridge';
+import { Bridge, PaxParamInfo } from './Bridge';
 import { useNodeDelete, NodeHeaderButton, useNodeCollapsed, useNodeSettings, NodeHandle, nodeContainerStyle, SettingsPanelHeader, Checkbox } from './NodeUtils';
 
 import { NodeSelect } from './NodeSelect';
 
 export interface NodeData {
   label: string;
-  nodeType: 1 | 2 | 3 | 4 | number;  // 1-4 built-in, higher = addon
+  nodeType: 1 | 2 | 3 | 4 | number;  // 1-4 built-in, higher = Xtension
   selectedDeviceId?: string;
   ports: {
     id: string;
@@ -18,7 +18,7 @@ export interface NodeData {
     type: 'midi' | 'audio';
     direction: 'input' | 'output';
   }[];
-  addonParams?: AddonParamInfo[];
+  paxParams?: PaxParamInfo[];
   settingsJson?: string;
   [key: string]: unknown;
 }
@@ -30,8 +30,8 @@ const THEME: Record<number, { accent: string; dim: string; glow: string; tag: st
   3: { accent: 'var(--audio)', dim: 'var(--audio-dim)', glow: 'var(--audio-glow)', tag: 'AUDIO IN DEVICE'  },
   4: { accent: 'var(--audio)', dim: 'var(--audio-dim)', glow: 'var(--audio-glow)', tag: 'AUDIO OUT DEVICE' },
 };
-// Default theme for addon nodes
-const ADDON_THEME = { accent: 'var(--av)', dim: 'var(--av-dim)', glow: 'var(--av-glow)', tag: 'PLUGIN' };
+// Default theme for Xtension nodes
+const PAX_THEME = { accent: 'var(--av)', dim: 'var(--av-dim)', glow: 'var(--av-glow)', tag: 'PAX' };
 
 
 // ── Device selector combobox (unified for MIDI and Audio) ────────────────────
@@ -206,7 +206,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
   const nodeData = data as NodeData;
   // nodeType>=100 means addon: extract ngaType = nodeType-100 for theming
   const ngaType  = nodeData.nodeType >= 100 ? nodeData.nodeType - 100 : null;
-  const addonTag = (() => {
+  const paxTag = (() => {
     if (ngaType === null) return null;
     const prefix = ({ 1: 'MIDI', 2: 'AUDIO', 3: 'AV' } as Record<number,string>)[ngaType] ?? 'PLUGIN';
     const labelUp = nodeData.label.toUpperCase();
@@ -215,18 +215,18 @@ function GenericNode({ id, data, selected }: NodeProps) {
     return prefix + ' ' + body;
   })();
   const theme    = ngaType !== null
-    ? ({ 1: { accent: 'var(--midi)',  dim: 'var(--midi-dim)',  glow: 'var(--midi-glow)',  tag: addonTag! },
-          2: { accent: 'var(--audio)', dim: 'var(--audio-dim)', glow: 'var(--audio-glow)', tag: addonTag! },
-          3: { accent: 'var(--av)',    dim: 'var(--av-dim)',    glow: 'var(--av-glow)',    tag: addonTag! },
-        }[ngaType] ?? { ...ADDON_THEME, tag: addonTag! })
-    : (THEME[nodeData.nodeType] ?? ADDON_THEME);
+    ? ({ 1: { accent: 'var(--midi)',  dim: 'var(--midi-dim)',  glow: 'var(--midi-glow)',  tag: paxTag! },
+          2: { accent: 'var(--audio)', dim: 'var(--audio-dim)', glow: 'var(--audio-glow)', tag: paxTag! },
+          3: { accent: 'var(--av)',    dim: 'var(--av-dim)',    glow: 'var(--av-glow)',    tag: paxTag! },
+        }[ngaType] ?? { ...PAX_THEME, tag: paxTag! })
+    : (THEME[nodeData.nodeType] ?? PAX_THEME);
 
   const inputs  = nodeData.ports.filter(p => p.direction === 'input');
   const outputs = nodeData.ports.filter(p => p.direction === 'output');
 
   const { handleDelete } = useNodeDelete(id);
   const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
-  const isAddon = ngaType !== null;
+  const isPax = ngaType !== null;
   const isAudioDevice = nodeData.nodeType === 3 || nodeData.nodeType === 4;
   const { setHint } = useContext(HintContext);
   const portBodyRef = useRef<HTMLDivElement>(null);
@@ -292,36 +292,36 @@ function GenericNode({ id, data, selected }: NodeProps) {
     });
     return unsub;
   }, [isAudioDevice, id]);
-  const addonParams = (data.addonParams ?? []) as AddonParamInfo[];
+  const paxParams = (data.paxParams ?? []) as PaxParamInfo[];
   const [paramValues, setParamValues] = useState<number[]>([]);
 
-  // Sync paramValues when addonParams arrive (may come after mount)
+  // Sync paramValues when paxParams arrive (may come after mount)
   // Also restore saved values from settingsJson if available
   useEffect(() => {
-    if (addonParams.length > 0 && paramValues.length === 0) {
+    if (paxParams.length > 0 && paramValues.length === 0) {
       const saved = nodeData.settingsJson ? JSON.parse(nodeData.settingsJson) as number[] : null;
-      const vals = saved && saved.length === addonParams.length
+      const vals = saved && saved.length === paxParams.length
         ? saved
-        : addonParams.map(p => p.defaultValue);
+        : paxParams.map(p => p.defaultValue);
       setParamValues(vals);
-      // Restore param values to C++ addon
-      vals.forEach((v, i) => Bridge.setAddonParameter(id, i, v));
+      // Restore param values to C++ Xtension
+      vals.forEach((v, i) => Bridge.setPaxParameter(id, i, v));
     }
-  }, [addonParams.length]);
+  }, [paxParams.length]);
 
   // Sync paramValues when settingsJson changes externally (e.g. undo/redo).
   useEffect(() => {
-    if (addonParams.length === 0) return;
+    if (paxParams.length === 0) return;
     const vals = nodeData.settingsJson
       ? (() => { try { return JSON.parse(nodeData.settingsJson) as number[]; } catch { return null; } })()
-      : addonParams.map(p => p.defaultValue);
-    if (!vals || vals.length !== addonParams.length) return;
+      : paxParams.map(p => p.defaultValue);
+    if (!vals || vals.length !== paxParams.length) return;
     setParamValues(prev => {
       if (prev.length === vals.length && prev.every((v, i) => v === vals[i])) return prev;
-      vals.forEach((v, i) => Bridge.setAddonParameter(id, i, v));
+      vals.forEach((v, i) => Bridge.setPaxParameter(id, i, v));
       return vals;
     });
-  }, [nodeData.settingsJson, addonParams.length]);
+  }, [nodeData.settingsJson, paxParams.length]);
 
   const onParamChange = useCallback((index: number, value: number) => {
     setParamValues(prev => {
@@ -329,7 +329,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
       Bridge.setNodeSettings(id, next);
       return next;
     });
-    Bridge.setAddonParameter(id, index, value);
+    Bridge.setPaxParameter(id, index, value);
   }, [id]);
   const [customName, setCustomName] = useState('');
   const onNameChange = useCallback((name: string) => {
@@ -350,8 +350,8 @@ function GenericNode({ id, data, selected }: NodeProps) {
         onDoubleClick={toggleCollapsed}
         onMouseEnter={e => {
           if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-            const addonName = nodeData.addonName as string | undefined;
-            const h = (addonName ? NODE_HINTS[addonName] : null) ?? NODE_HINTS[String(theme.tag ?? '')] ?? null;
+            const paxName = nodeData.paxName as string | undefined;
+            const h = (paxName ? NODE_HINTS[paxName] : null) ?? NODE_HINTS[String(theme.tag ?? '')] ?? null;
             if (h) setHint(h);
           }
         }}
@@ -393,8 +393,8 @@ function GenericNode({ id, data, selected }: NodeProps) {
           </div>
         </div>
 
-        {/* Addon name input */}
-        {isAddon && (
+        {/* Xtension name input */}
+        {isPax && (
           <input type="text" value={customName}
             placeholder={theme.tag}
             onChange={e => onNameChange(e.target.value)}
@@ -436,8 +436,8 @@ function GenericNode({ id, data, selected }: NodeProps) {
 
       {!collapsed && <>
       {/* Device selector — only renders for device nodes, provides portBodyRef anchor */}
-      <div ref={portBodyRef} style={{ padding: !isAddon ? '8px 10px' : '0',
-                                         minHeight: isAddon && addonParams.length === 0 ? 32 : undefined,
+      <div ref={portBodyRef} style={{ padding: !isPax ? '8px 10px' : '0',
+                                         minHeight: isPax && paxParams.length === 0 ? 32 : undefined,
                                          position: 'relative' }}>
         {(nodeData.nodeType === 1 || nodeData.nodeType === 2) && (
           <DeviceSelector
@@ -467,22 +467,22 @@ function GenericNode({ id, data, selected }: NodeProps) {
         </>)}
       </div>
 
-      {/* Addon parameter sliders — outside port body so padding works correctly */}
-      {isAddon && addonParams.length > 0 && (
+      {/* Xtension parameter sliders — outside port body so padding works correctly */}
+      {isPax && paxParams.length > 0 && (
         <div className="nodrag" style={{ padding: '8px 10px 6px',
                                          borderTop: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 2 }}>
             <NodeHeaderButton
               onClick={() => {
-                const defaults = addonParams.map(p => p.defaultValue);
+                const defaults = paxParams.map(p => p.defaultValue);
                 setParamValues(defaults);
                 Bridge.setNodeSettings(id, defaults);
-                defaults.forEach((v, i) => Bridge.setAddonParameter(id, i, v));
+                defaults.forEach((v, i) => Bridge.setPaxParameter(id, i, v));
                 Bridge.commitNodeSettings(id);
               }}
               onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.reset), onMouseLeave: () => setHint(null) }}><span style={{ fontSize: 11, fontWeight: 700 }}>R</span></NodeHeaderButton>
           </div>
-          {addonParams.map((p, i) => (
+          {paxParams.map((p, i) => (
             <div key={i} style={{ marginBottom: 0, paddingTop: 8 }}>
               {/* Binary toggle for 0/1 integer params */}
               {p.step >= 1 && p.min === 0 && p.max === 1 ? (
@@ -576,7 +576,7 @@ Double-click to reset to default (${p.defaultValue}).` })}
           nodeId={id} label={p.label} direction="in"
           colour={p.type === 'midi' ? 'var(--midi)' : 'rgb(20,80,20)'}
           index={i} total={inputs.length}
-          offset={isAddon ? 6 : 8}
+          offset={isPax ? 6 : 8}
           portBodyRef={portBodyRef}
           portId={p.id}
         />
@@ -588,7 +588,7 @@ Double-click to reset to default (${p.defaultValue}).` })}
           nodeId={id} label={p.label} direction="out"
           colour={p.type === 'midi' ? 'var(--midi)' : 'rgb(20,80,20)'}
           index={i} total={outputs.length}
-          offset={isAddon ? 6 : 8}
+          offset={isPax ? 6 : 8}
           portBodyRef={portBodyRef}
           portId={p.id}
         />

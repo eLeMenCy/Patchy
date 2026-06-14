@@ -1,20 +1,20 @@
 /**
- * LevelAddon — Audio Node addon
+ * LevelPax — Audio Node Pax
  *
  * Gain control from -60 dB (silence) to +6 dB.
  * Use for level control, attenuation and mixing.
  *
  * Build:
- *   macOS:  clang++ -std=c++20 -shared -fPIC LevelAddon.cpp -o LevelAddon.dylib
- *   Linux:  g++     -std=c++20 -shared -fPIC LevelAddon.cpp -o LevelAddon.so
- *   Win:    cl /std:c++20 /LD LevelAddon.cpp /Fe:LevelAddon.dll
+ *   macOS:  clang++ -std=c++20 -shared -fPIC LevelPax.cpp -o LevelAddon.dylib
+ *   Linux:  g++     -std=c++20 -shared -fPIC LevelPax.cpp -o LevelPax.so
+ *   Win:    cl /std:c++20 /LD LevelPax.cpp /Fe:LevelPax.dll
  */
 
-#include "../AddonAPI.h"
+#include "../PaxAPI.h"
 #include <cmath>
 #include <algorithm>
 
-struct LevelAddon
+struct LevelPax
 {
     float gainDb = 0.0f;   // -60 to +6 dB, default 0 dB (unity)
 
@@ -33,14 +33,14 @@ const PAX_Descriptor* PAX_getDescriptor()
     return &d;
 }
 
-PAX_Instance* PAX_create()           { return new LevelAddon(); }
-void PAX_destroy (PAX_Instance* i)   { delete static_cast<LevelAddon*> (i); }
+PAX_Instance* PAX_create()           { return new LevelPax(); }
+void PAX_destroy (PAX_Instance* i)   { delete static_cast<LevelPax*> (i); }
 void PAX_prepare (PAX_Instance*, double, int) {}
 
 void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
 {
     if (! ctx->audioIn || ! ctx->audioOut) return;
-    const float gain = static_cast<LevelAddon*> (i)->linearGain();
+    const float gain = static_cast<LevelPax*> (i)->linearGain();
     for (int ch = 0; ch < ctx->numChannels; ++ch)
         if (ctx->audioIn[ch] && ctx->audioOut[ch])
             for (int s = 0; s < ctx->numSamples; ++s)
@@ -59,13 +59,13 @@ void PAX_getParameterInfo (PAX_Instance*, int index, PAX_ParameterInfo* info)
 
 float PAX_getParameter (PAX_Instance* i, int index)
 {
-    return index == 0 ? static_cast<LevelAddon*> (i)->gainDb : 0.f;
+    return index == 0 ? static_cast<LevelPax*> (i)->gainDb : 0.f;
 }
 
 void PAX_setParameter (PAX_Instance* i, int index, float value)
 {
     if (index == 0)
-        static_cast<LevelAddon*> (i)->gainDb = std::clamp (value, -60.0f, 6.0f);
+        static_cast<LevelPax*> (i)->gainDb = std::clamp (value, -60.0f, 6.0f);
 }
 
 } // extern "C"

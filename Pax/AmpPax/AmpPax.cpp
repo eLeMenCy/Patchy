@@ -1,20 +1,20 @@
 /**
- * AmpAddon — Audio Node addon
+ * AmpPax — Audio Node Pax
  *
  * Amplifier from 0 dB (unity) to +24 dB.
  * Use to boost signals, drive levels up or compensate for weak sources.
  *
  * Build:
- *   macOS:  clang++ -std=c++20 -shared -fPIC AmpAddon.cpp -o AmpAddon.dylib
- *   Linux:  g++     -std=c++20 -shared -fPIC AmpAddon.cpp -o AmpAddon.so
- *   Win:    cl /std:c++20 /LD AmpAddon.cpp /Fe:AmpAddon.dll
+ *   macOS:  clang++ -std=c++20 -shared -fPIC AmpPax.cpp -o AmpAddon.dylib
+ *   Linux:  g++     -std=c++20 -shared -fPIC AmpPax.cpp -o AmpPax.so
+ *   Win:    cl /std:c++20 /LD AmpPax.cpp /Fe:AmpPax.dll
  */
 
-#include "../AddonAPI.h"
+#include "../PaxAPI.h"
 #include <cmath>
 #include <algorithm>
 
-struct AmpAddon
+struct AmpPax
 {
     float gainDb = 0.0f;   // 0 to +24 dB, default 0 dB (unity)
 
@@ -32,14 +32,14 @@ const PAX_Descriptor* PAX_getDescriptor()
     return &d;
 }
 
-PAX_Instance* PAX_create()           { return new AmpAddon(); }
-void PAX_destroy (PAX_Instance* i)   { delete static_cast<AmpAddon*> (i); }
+PAX_Instance* PAX_create()           { return new AmpPax(); }
+void PAX_destroy (PAX_Instance* i)   { delete static_cast<AmpPax*> (i); }
 void PAX_prepare (PAX_Instance*, double, int) {}
 
 void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
 {
     if (! ctx->audioIn || ! ctx->audioOut) return;
-    const float gain = static_cast<AmpAddon*> (i)->linearGain();
+    const float gain = static_cast<AmpPax*> (i)->linearGain();
     for (int ch = 0; ch < ctx->numChannels; ++ch)
         if (ctx->audioIn[ch] && ctx->audioOut[ch])
             for (int s = 0; s < ctx->numSamples; ++s)
@@ -58,13 +58,13 @@ void PAX_getParameterInfo (PAX_Instance*, int index, PAX_ParameterInfo* info)
 
 float PAX_getParameter (PAX_Instance* i, int index)
 {
-    return index == 0 ? static_cast<AmpAddon*> (i)->gainDb : 0.f;
+    return index == 0 ? static_cast<AmpPax*> (i)->gainDb : 0.f;
 }
 
 void PAX_setParameter (PAX_Instance* i, int index, float value)
 {
     if (index == 0)
-        static_cast<AmpAddon*> (i)->gainDb = std::clamp (value, 0.0f, 24.0f);
+        static_cast<AmpPax*> (i)->gainDb = std::clamp (value, 0.0f, 24.0f);
 }
 
 } // extern "C"

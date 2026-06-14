@@ -1,38 +1,38 @@
 #pragma once
-#include "AddonScanner.h"
+#include "PaxScanner.h"
 #include "../Source/NodeProcessor.h"
 #include <memory>
 #include <unordered_map>
 
 /**
- * AddonRegistry
+ * PaxRegistry
  *
  * Singleton (owned by PatchyProcessor).
  * Loaded at startup from scan results.
  *
  * Responsibilities:
  *   - Keep DynamicLibrary handles alive so function pointers remain valid
- *   - Provide a factory: createNode(addonName) → NodeProcessor*
- *   - Tell the UI which addon names are available per nodeType
+ *   - Provide a factory: createNode(paxName) → NodeProcessor*
+ *   - Tell the UI which Pax names are available per nodeType
  */
-class AddonRegistry
+class PaxRegistry
 {
 public:
-    AddonRegistry() = default;
+    PaxRegistry() = default;
 
     /** Populate from a completed scan. Call once on startup. */
-    void load (const std::vector<AddonScanner::ScanResult>& scanResults);
+    void load (const std::vector<PaxScanner::ScanResult>& scanResults);
 
-    /** Create a NodeProcessor that wraps the named addon.
-     *  Returns nullptr if addonName is not registered. */
+    /** Create a NodeProcessor that wraps a loaded Pax.
+     *  Returns nullptr if paxName is not registered. */
     std::unique_ptr<NodeProcessor> createNode (const juce::String& nodeId,
-                                               const juce::String& addonName);
+                                               const juce::String& paxName);
 
-    /** All registered addon names, optionally filtered by nodeType (0 = all). */
-    std::vector<juce::String> getAddonNames (int nodeType = 0) const;
+    /** All registered Pax names, optionally filtered by nodeType (0 = all). */
+    std::vector<juce::String> getPaxNames (int nodeType = 0) const;
 
-    /** Returns true if at least one addon is registered. */
-    bool hasAddons() const { return ! entries.empty(); }
+    /** Returns true if at least one Pax is registered. */
+    bool hasPax() const { return ! entries.empty(); }
 
     /** Full descriptor info for UI display. */
     struct Entry
@@ -82,21 +82,21 @@ private:
 
 // ─────────────────────────────────────────────────────────────────────────────
 /**
- * DynamicNodeProcessor
+ * DynamicPaxProcessor
  *
- * A NodeProcessor that delegates process() to a loaded addon instance.
+ * A NodeProcessor that delegates process() to a loaded Pax instance.
  */
-class DynamicNodeProcessor : public NodeProcessor
+class DynamicPaxProcessor : public NodeProcessor
 {
 public:
-    DynamicNodeProcessor (const juce::String&             nodeId,
-                          const AddonRegistry::Entry& entry);
-    ~DynamicNodeProcessor() override;
+    DynamicPaxProcessor (const juce::String&             nodeId,
+                          const PaxRegistry::Entry& entry);
+    ~DynamicPaxProcessor() override;
 
     void prepare (double sampleRate, int maxBlockSize) override;
     void process (int numSamples) override;
 
-    const juce::String& getAddonName() const { return addonName; }
+    const juce::String& getPaxName() const { return paxName; }
     juce::String customName;   // user-defined display name (for MidiMonitor NAME column)
     std::function<void()> onPortCountChanged;  // called when dynamic port count changes
     int audioInputCount  = 1;  // number of audio input ports
@@ -108,11 +108,11 @@ public:
     float getParameter      (int index) const;
     void  setParameter      (int index, float value);
 
-    // Spectrum data access (for Spectrumyser addon)
+    // Spectrum data access (for Spectrumyser Pax)
     struct SpectrumData
     {
         int           fftSize   = 0;
-        const float*  mags      = nullptr;  // points into addon memory — valid until next process()
+        const float*  mags      = nullptr;  // points into Pax memory — valid until next process()
         bool          valid     = false;
     };
     SpectrumData getSpectrumData() const
@@ -129,18 +129,18 @@ public:
 private:
     std::shared_ptr<juce::DynamicLibrary> lib;
 
-    AddonRegistry::Entry::CreateFn        fnCreate        = nullptr;
-    AddonRegistry::Entry::DestroyFn       fnDestroy       = nullptr;
-    AddonRegistry::Entry::PrepareFn       fnPrepare       = nullptr;
-    AddonRegistry::Entry::ProcessFn       fnProcess       = nullptr;
-    AddonRegistry::Entry::GetParamCountFn fnGetParamCount = nullptr;
-    AddonRegistry::Entry::GetParamInfoFn  fnGetParamInfo  = nullptr;
-    AddonRegistry::Entry::GetParamFn      fnGetParam      = nullptr;
-    AddonRegistry::Entry::SetParamFn          fnSetParam          = nullptr;
-    AddonRegistry::Entry::GetAudioOutCountFn  fnGetAudioOutCount  = nullptr;
+    PaxRegistry::Entry::CreateFn        fnCreate        = nullptr;
+    PaxRegistry::Entry::DestroyFn       fnDestroy       = nullptr;
+    PaxRegistry::Entry::PrepareFn       fnPrepare       = nullptr;
+    PaxRegistry::Entry::ProcessFn       fnProcess       = nullptr;
+    PaxRegistry::Entry::GetParamCountFn fnGetParamCount = nullptr;
+    PaxRegistry::Entry::GetParamInfoFn  fnGetParamInfo  = nullptr;
+    PaxRegistry::Entry::GetParamFn      fnGetParam      = nullptr;
+    PaxRegistry::Entry::SetParamFn          fnSetParam          = nullptr;
+    PaxRegistry::Entry::GetAudioOutCountFn  fnGetAudioOutCount  = nullptr;
 
     PAX_Instance* instance   = nullptr;
-    juce::String  addonName;
+    juce::String  paxName;
 
     static constexpr int kMaxMidiEvents = 256;
     PAX_MidiEvent midiInBuf  [kMaxMidiEvents];

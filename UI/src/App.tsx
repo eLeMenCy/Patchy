@@ -21,7 +21,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { Bridge, FileState, AudioSettings, GraphState, RawNode, RawConnection, PortActivityEntry, AddonParamInfo, FragmentData, UndoState } from './Bridge';
+import { Bridge, FileState, AudioSettings, GraphState, RawNode, RawConnection, PortActivityEntry, PaxParamInfo, FragmentData, UndoState } from './Bridge';
 import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
@@ -37,18 +37,18 @@ import EnvelopeNode     from './EnvelopeNode';
 const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
-// Module-level addon params map — populated when addon list arrives
-const _addonParamsMap = new Map<string, AddonParamInfo[]>();
+// Module-level Xtension params map — populated when Xtension list arrives
+const _paxParamsMap = new Map<string, PaxParamInfo[]>();
 
-function rawToFlowNode(raw: RawNode, addonParamsMap?: Map<string, AddonParamInfo[]>): Node<NodeData | MidiMonitorNodeData> {
+function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>): Node<NodeData | MidiMonitorNodeData> {
   const isMidiMonitor  = raw.nodeType === 5;
   const isAudioMonitor = raw.nodeType === 6;
   const isMidiKeyboard = raw.nodeType === 7;
   return {
     id:       raw.id,
     type:     isMidiMonitor ? 'midiMonitor' : isAudioMonitor ? 'audioMonitor' : isMidiKeyboard ? 'midiKeyboard'
-            : raw.addonName === 'Spectrumyser' ? 'spectrumyser'
-            : raw.addonName === 'Envelope'     ? 'envelope' : 'custom',
+            : raw.paxName === 'Spectrumyser' ? 'spectrumyser'
+            : raw.paxName === 'Envelope'     ? 'envelope' : 'custom',
     position: { x: raw.x, y: raw.y },
     data: isMidiMonitor
       ? { label: raw.label, nodeType: 5, ports: raw.ports, settingsJson: raw.settingsJson } as MidiMonitorNodeData
@@ -58,8 +58,8 @@ function rawToFlowNode(raw: RawNode, addonParamsMap?: Map<string, AddonParamInfo
       ? { label: raw.label, nodeType: 7, ports: raw.ports, settingsJson: raw.settingsJson } as MidiKeyboardNodeData
       : { label: raw.label, nodeType: raw.nodeType,
           ports: raw.ports, selectedDeviceId: raw.selectedDeviceId,
-          addonName: raw.addonName,
-          addonParams: raw.addonName ? (addonParamsMap?.get(raw.addonName) ?? []) : [],
+          paxName: raw.paxName,
+          paxParams: raw.paxName ? (paxParamsMap?.get(raw.paxName) ?? []) : [],
           settingsJson: raw.settingsJson } as NodeData,
   };
 }
@@ -407,7 +407,7 @@ function FlowCanvas() {
         setNodes(prev => {
           const styleMap = new Map(prev.map(n => [n.id, n.style]));
           return state.nodes.map(raw => {
-            const node = rawToFlowNode(raw, _addonParamsMap);
+            const node = rawToFlowNode(raw, _paxParamsMap);
             const existing = styleMap.get(raw.id);
             if (existing) node.style = { ...node.style, ...existing };
             return node;
@@ -434,8 +434,8 @@ function FlowCanvas() {
     });
 
 
-    Bridge.onAddonList((addons) => {
-      addons.forEach(a => _addonParamsMap.set(a.name, a.params ?? []));
+    Bridge.onPaxList((paxItems) => {
+      paxItems.forEach(a => _paxParamsMap.set(a.name, a.params ?? []));
     });
     Bridge.ready();
     return () => unsubGraph();
@@ -573,16 +573,16 @@ function FlowCanvas() {
     const raw = e.dataTransfer.getData('text/plain');
     if (!raw) return;
 
-    // Data is JSON { nodeType, addonName, ngaType? }
-    // For addons: nodeType=0 (sentinel), ngaType=1/2/3 (NGA MIDI/Audio/AV)
-    // For built-ins: nodeType=1-4, addonName=''
+    // Data is JSON { nodeType, paxName, ngaType? }
+    // For Xtensions: nodeType=0 (sentinel), ngaType=1/2/3 (PAX MIDI/Audio/AV)
+    // For built-ins: nodeType=1-4, paxName=''
     let nodeType: number = 1;
-    let addonName = '';
+    let paxName = '';
     let ngaType: number = 0;
     try {
       const parsed = JSON.parse(raw);
       nodeType   = parsed.nodeType   as number;
-      addonName = parsed.addonName ?? '';
+      paxName = parsed.paxName ?? '';
       ngaType    = parsed.ngaType    ?? 0;
     } catch {
       nodeType = parseInt(raw, 10);
@@ -590,12 +590,12 @@ function FlowCanvas() {
 
     // Send ngaType as nodeType to C++ for addons so ports are correct,
     // but offset by 100 to guarantee no collision with built-in types 1-4.
-    // C++ checks addonName first, so the actual value only matters for port layout.
-    const cppNodeType = addonName ? (100 + ngaType) : nodeType;
+    // C++ checks paxName first, so the actual value only matters for port layout.
+    const cppNodeType = paxName ? (100 + ngaType) : nodeType;
 
     const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
     pendingDrop.current = { dropX: position.x, dropY: position.y };
-    Bridge.addNode(cppNodeType, position.x, position.y, addonName);
+    Bridge.addNode(cppNodeType, position.x, position.y, paxName);
   }, [screenToFlowPosition]);
 
   // ── Ghost overlay: track mouse while fragment pending ──────────────────
@@ -637,7 +637,7 @@ function FlowCanvas() {
         ...prev,
         ...pendingFragment.nodes.map(raw => rawToFlowNode(
           { ...raw, x: flowPos.x + raw.x, y: flowPos.y + raw.y },
-          _addonParamsMap
+          _paxParamsMap
         )),
       ]);
       setEdges(prev => [
@@ -773,8 +773,8 @@ function FlowCanvas() {
                           5: 'MidiMonitor', 6: 'AudioMonitor', 7: 'Keyboard',
                         };
                         const names  = selectedNodes.map(n => {
-                          const d = n.data as { nodeType?: number; addonName?: string; label?: string };
-                          return d.addonName || NODE_LABELS[d.nodeType ?? 0] || d.label || 'Node';
+                          const d = n.data as { nodeType?: number; paxName?: string; label?: string };
+                          return d.paxName || NODE_LABELS[d.nodeType ?? 0] || d.label || 'Node';
                         });
                         const unique    = [...new Set(names)];
                         const suggested = unique.slice(0, 3).join('_') + (unique.length > 3 ? '_etc' : '');

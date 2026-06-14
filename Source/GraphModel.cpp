@@ -81,10 +81,10 @@ std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
     return p;
 }
 
-// ── Label helper — maps nodeType + addonName to a display label ──────────────
-static juce::String labelForType (int t, const juce::String& addonName)
+// ── Label helper — maps nodeType + paxName to a display label ──────────────
+static juce::String labelForType (int t, const juce::String& paxName)
 {
-    if (addonName.isNotEmpty()) return addonName;
+    if (paxName.isNotEmpty()) return paxName;
     switch (t)
     {
         case 1:  return "MIDI In Device";
@@ -104,16 +104,16 @@ void GraphModel::notifyChange()
     if (onChange && !notificationsSuspended) onChange();
 }
 
-NodeData& GraphModel::addNode (int t, float x, float y, const juce::String& addonName,
+NodeData& GraphModel::addNode (int t, float x, float y, const juce::String& paxName,
                                int audioIn, int audioOut, int midiIn, int midiOut)
 {
     NodeData n;
     n.id       = juce::Uuid().toString();
     n.nodeType = t;
     n.x = x; n.y = y;
-    n.addonName = addonName;
+    n.paxName = paxName;
 
-    n.label = labelForType (t, addonName);
+    n.label = labelForType (t, paxName);
     n.ports    = portsForType (t, n.id, audioIn, audioOut, midiIn, midiOut);
     nodes.push_back (std::move (n));
     notifyChange();
@@ -184,7 +184,7 @@ juce::var GraphModel::toVar() const
         obj->setProperty ("id",       n.id);
         obj->setProperty ("label",    n.label);
         obj->setProperty ("nodeType",   n.nodeType);
-        obj->setProperty ("addonName",        n.addonName);
+        obj->setProperty ("addonName",        n.paxName);
         obj->setProperty ("selectedDeviceId", n.selectedDeviceId);
         obj->setProperty ("settingsJson",     n.settingsJson);
         obj->setProperty ("x",        n.x);
@@ -243,15 +243,15 @@ juce::var GraphModel::toVar() const
 
 NodeData& GraphModel::restoreNode (const juce::String& savedId,
                                     int t, float x, float y,
-                                    const juce::String& addonName,
+                                    const juce::String& paxName,
                                     int audioIn, int audioOut, int midiIn, int midiOut)
 {
     NodeData n;
     n.id         = savedId;
     n.nodeType   = t;
     n.x = x; n.y = y;
-    n.addonName = addonName;
-    n.label = labelForType (t, addonName);
+    n.paxName = paxName;
+    n.label = labelForType (t, paxName);
     n.ports      = portsForType (t, n.id, audioIn, audioOut, midiIn, midiOut);
 
     nodes.push_back (std::move (n));

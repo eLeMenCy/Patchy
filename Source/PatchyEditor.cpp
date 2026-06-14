@@ -18,15 +18,15 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
                [&p](const juce::String& nid, const juce::String& name)
                { p.setNodeCustomName (nid, name); },
                [&p](const juce::String& nid, int idx, float val)
-               { p.setAddonParameter (nid, idx, val); },
+               { p.setPaxParameter (nid, idx, val); },
                // New graph
                [&p]() { p.newGraph(); },
                // Load graph from JSON
                [&p](const juce::String& json) { p.loadGraphFromJson (json); })
 {
     bridge.getSpectrumSnapshots      = [&p]() { return p.getSpectrumSnapshots(); };
-    bridge.onGetAddonAudioOutCount   = [&p](const juce::String& nid) { return p.getAddonAudioOutCount (nid); };
-    bridge.onPruneAddonEdges         = [&p](const juce::String& nid) { p.pruneProcessingGraphEdges (nid); };
+    bridge.onGetPaxAudioOutCount   = [&p](const juce::String& nid) { return p.getPaxAudioOutCount (nid); };
+    bridge.onPrunePaxEdges         = [&p](const juce::String& nid) { p.pruneProcessingGraphEdges (nid); };
     bridge.onSetAudioDeviceChannels  = [&p](const juce::String& nid, const std::vector<int>& ch)
                                        { p.setAudioDeviceChannels (nid, ch); };
     addAndMakeVisible (bridge);

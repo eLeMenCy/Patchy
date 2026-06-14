@@ -111,8 +111,8 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
       setBandLow(p => { const a=[...p]; lo.forEach((v,i) => a[i]=v); return a; });
       setBandHigh(p => { const a=[...p]; hi.forEach((v,i) => a[i]=v); return a; });
       setBands(Array.from({length:n}, (_,b) => ({ lo: lo[b], hi: hi[b] })));
-      Bridge.setAddonParameter(id, 0, n);
-      lo.forEach((v,b) => { Bridge.setAddonParameter(id, 1+b*2, v); Bridge.setAddonParameter(id, 2+b*2, hi[b]); });
+      Bridge.setPaxParameter(id, 0, n);
+      lo.forEach((v,b) => { Bridge.setPaxParameter(id, 1+b*2, v); Bridge.setPaxParameter(id, 2+b*2, hi[b]); });
     } catch {}
   }, [(data as any)?.settingsJson]);
 
@@ -128,7 +128,7 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
   const handleParam = useCallback((idx: number, val: number) => {
     if (idx === 0) {
       const n = Math.round(val);
-      Bridge.setAddonParameter(id, idx, val);
+      Bridge.setPaxParameter(id, idx, val);
       setBandCount(n);
       setBands(Array.from({length:n}, (_,b) => ({
         lo: bandLow[b] ?? DEFAULT_LOW[b],
@@ -145,7 +145,7 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
     const linked = cmdDown.current;
 
     if (isLow) {
-      Bridge.setAddonParameter(id, idx, val);
+      Bridge.setPaxParameter(id, idx, val);
       setBandLow(p => { const a=[...p]; a[b]=val; return a; });
       setBands(p => p.map((bd,i) => i===b ? {...bd, lo:val} : bd));
       const newLow = [...bandLow]; newLow[b] = val;
@@ -156,14 +156,14 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
         const delta      = newSlider - prevSlider;
         const newHiSlider = Math.min(1000, Math.max(0, toSlider(bandHigh[b] ?? DEFAULT_HIGH[b]) + delta));
         const newHi = fromSlider(newHiSlider);
-        Bridge.setAddonParameter(id, idx+1, newHi);
+        Bridge.setPaxParameter(id, idx+1, newHi);
         newHigh[b] = newHi;
         setBandHigh(p => { const a=[...p]; a[b]=newHi; return a; });
         setBands(p => p.map((bd,i) => i===b ? {...bd, lo:val, hi:newHi} : bd));
       }
       Bridge.setNodeSettings(id, [bandCount, ...Array.from({length:bandCount}, (_,i) => [newLow[i]??DEFAULT_LOW[i], newHigh[i]??DEFAULT_HIGH[i]]).flat()]);
     } else {
-      Bridge.setAddonParameter(id, idx, val);
+      Bridge.setPaxParameter(id, idx, val);
       setBandHigh(p => { const a=[...p]; a[b]=val; return a; });
       setBands(p => p.map((bd,i) => i===b ? {...bd, hi:val} : bd));
       const newLow = [...bandLow];
@@ -174,7 +174,7 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
         const delta      = newSlider - prevSlider;
         const newLoSlider = Math.min(1000, Math.max(0, toSlider(bandLow[b] ?? DEFAULT_LOW[b]) + delta));
         const newLo = fromSlider(newLoSlider);
-        Bridge.setAddonParameter(id, idx-1, newLo);
+        Bridge.setPaxParameter(id, idx-1, newLo);
         newLow[b] = newLo;
         setBandLow(p => { const a=[...p]; a[b]=newLo; return a; });
         setBands(p => p.map((bd,i) => i===b ? {...bd, lo:newLo, hi:val} : bd));
@@ -186,8 +186,8 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
   const handleReset = useCallback(() => {
     // Reset only frequency boundaries for current band count — not the count itself
     for (let b = 0; b < bandCount; b++) {
-      Bridge.setAddonParameter(id, 1+b*2,   DEFAULT_LOW[b]);
-      Bridge.setAddonParameter(id, 1+b*2+1, DEFAULT_HIGH[b]);
+      Bridge.setPaxParameter(id, 1+b*2,   DEFAULT_LOW[b]);
+      Bridge.setPaxParameter(id, 1+b*2+1, DEFAULT_HIGH[b]);
     }
     const newLow  = [...DEFAULT_LOW];
     const newHigh = [...DEFAULT_HIGH];

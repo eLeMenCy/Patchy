@@ -1,20 +1,20 @@
 /**
- * TransposeAddon — MIDI Node addon example
+ * TransposePax — MIDI Node Pax example
  *
  * Transposes all note-on and note-off messages by a variable number of semitones.
- * Demonstrates parameters + the minimal structure of a MIDI-type addon.
+ * Demonstrates parameters + the minimal structure of a MIDI-type Pax.
  *
  * Build:
- *   macOS:  clang++ -std=c++20 -shared -fPIC TransposeAddon.cpp -o TransposeAddon.dylib
- *   Linux:  g++     -std=c++20 -shared -fPIC TransposeAddon.cpp -o TransposeAddon.so
- *   Win:    cl /std:c++20 /LD TransposeAddon.cpp /Fe:TransposeAddon.dll
+ *   macOS:  clang++ -std=c++20 -shared -fPIC TransposePax.cpp -o TransposeAddon.dylib
+ *   Linux:  g++     -std=c++20 -shared -fPIC TransposePax.cpp -o TransposePax.so
+ *   Win:    cl /std:c++20 /LD TransposePax.cpp /Fe:TransposePax.dll
  */
 
-#include "../AddonAPI.h"
+#include "../PaxAPI.h"
 #include <algorithm>
 #include <cmath>
 
-struct TransposeAddon
+struct TransposePax
 {
     float semitones = 0.0f;   // -24 to +24, default 0
 };
@@ -33,13 +33,13 @@ const PAX_Descriptor* PAX_getDescriptor()
     return &d;
 }
 
-PAX_Instance* PAX_create()           { return new TransposeAddon(); }
-void PAX_destroy (PAX_Instance* i)   { delete static_cast<TransposeAddon*> (i); }
+PAX_Instance* PAX_create()           { return new TransposePax(); }
+void PAX_destroy (PAX_Instance* i)   { delete static_cast<TransposePax*> (i); }
 void PAX_prepare (PAX_Instance*, double, int) {}
 
 void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
 {
-    auto* node    = static_cast<TransposeAddon*> (i);
+    auto* node    = static_cast<TransposePax*> (i);
     int   shift   = (int) std::round (node->semitones);
     int   written = 0;
 
@@ -79,14 +79,14 @@ void PAX_getParameterInfo (PAX_Instance*, int index, PAX_ParameterInfo* info)
 
 float PAX_getParameter (PAX_Instance* i, int index)
 {
-    if (index == 0) return static_cast<TransposeAddon*> (i)->semitones;
+    if (index == 0) return static_cast<TransposePax*> (i)->semitones;
     return 0.f;
 }
 
 void PAX_setParameter (PAX_Instance* i, int index, float value)
 {
     if (index == 0)
-        static_cast<TransposeAddon*> (i)->semitones = std::clamp (value, -24.0f, 24.0f);
+        static_cast<TransposePax*> (i)->semitones = std::clamp (value, -24.0f, 24.0f);
 }
 
 } // extern "C"

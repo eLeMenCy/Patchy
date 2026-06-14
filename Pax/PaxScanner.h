@@ -1,20 +1,20 @@
 #pragma once
 #include <juce_core/juce_core.h>
-#include "../Addons/AddonAPI.h"
+#include "../Pax/PaxAPI.h"
 #include <functional>
 #include <vector>
 
 /**
- * AddonScanner
+ * PaxScanner
  *
- * Finds all shared libraries in the standard platform addon folders
+ * Finds all shared libraries in the standard platform Pax folders
  * (plus next to the binary for dev/portable use), attempts to load each
  * one, verifies it exports the required NGA symbols and has a matching
  * API version, then reports the result via a callback.
  *
  * Loading is done on the MESSAGE thread at startup — never on the audio thread.
  */
-class AddonScanner
+class PaxScanner
 {
 public:
     struct ScanResult
@@ -32,14 +32,14 @@ public:
         juce::String errorMsg;
     };
 
-    /** Scan all standard addon folders and return results. */
+    /** Scan all standard Pax folders and return results. */
     static std::vector<ScanResult> scan();
 
     /** Return all folders that will be searched. */
-    static std::vector<juce::File> getAddonFolders();
+    static std::vector<juce::File> getPaxFolders();
 
     /** Platform extension: ".dylib" / ".so" / ".dll" */
-    static juce::String getAddonExtension();
+    static juce::String getPaxExtension();
 
 private:
     static ScanResult tryLoad (const juce::File& file);

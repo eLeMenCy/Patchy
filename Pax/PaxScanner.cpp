@@ -1,8 +1,8 @@
-#include "AddonScanner.h"
+#include "PaxScanner.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-juce::String AddonScanner::getAddonExtension()
+juce::String PaxScanner::getPaxExtension()
 {
 #if JUCE_MAC
     return ".dylib";
@@ -15,46 +15,46 @@ juce::String AddonScanner::getAddonExtension()
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-std::vector<juce::File> AddonScanner::getAddonFolders()
+std::vector<juce::File> PaxScanner::getPaxFolders()
 {
     std::vector<juce::File> folders;
 
 #if JUCE_MAC
     folders.push_back (
         juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-            .getChildFile ("Patchy/Addons"));
+            .getChildFile ("Patchy/Pax"));
 #elif JUCE_WINDOWS
     folders.push_back (
         juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-            .getChildFile ("Patchy/Addons"));
+            .getChildFile ("Patchy/Pax"));
 #else // Linux
     folders.push_back (
         juce::File::getSpecialLocation (juce::File::userHomeDirectory)
-            .getChildFile (".patchy/addons"));
+            .getChildFile (".patchy/pax"));
 #endif
 
     // Also scan next to the binary — convenient for development
     folders.push_back (
         juce::File::getSpecialLocation (juce::File::currentExecutableFile)
             .getParentDirectory()
-            .getChildFile ("PatchyAddons"));
+            .getChildFile ("PatchyPax"));
 
     return folders;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-std::vector<AddonScanner::ScanResult> AddonScanner::scan()
+std::vector<PaxScanner::ScanResult> PaxScanner::scan()
 {
     std::vector<ScanResult> results;
-    const auto ext = getAddonExtension();
+    const auto ext = getPaxExtension();
 
-    for (const auto& folder : getAddonFolders())
+    for (const auto& folder : getPaxFolders())
     {
         if (! folder.isDirectory())
             continue;
 
-        juce::Logger::writeToLog ("AddonScanner: scanning " + folder.getFullPathName());
+        juce::Logger::writeToLog ("PaxScanner: scanning " + folder.getFullPathName());
 
         for (const auto& file : folder.findChildFiles (
                  juce::File::findFiles, false, "*" + ext))
@@ -72,7 +72,7 @@ std::vector<AddonScanner::ScanResult> AddonScanner::scan()
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-AddonScanner::ScanResult AddonScanner::tryLoad (const juce::File& file)
+PaxScanner::ScanResult PaxScanner::tryLoad (const juce::File& file)
 {
     ScanResult result;
     result.file = file;
@@ -114,7 +114,7 @@ AddonScanner::ScanResult AddonScanner::tryLoad (const juce::File& file)
 
     if (desc->apiVersion != PAX_API_VERSION)
     {
-        result.errorMsg = "API version mismatch (addon="
+        result.errorMsg = "API version mismatch (pax="
                           + juce::String (desc->apiVersion)
                           + " host=" + juce::String (PAX_API_VERSION) + ")";
         return result;

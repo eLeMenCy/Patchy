@@ -3,7 +3,7 @@
 #include <functional>
 #include <vector>
 #include "GraphModel.h"
-#include "../Addons/AddonRegistry.h"
+#include "../Pax/PaxRegistry.h"
 
 #include "MidiMonitorNode.h"
 #include "AudioMonitorNode.h"
@@ -59,7 +59,7 @@ class WebBridge : public juce::Component,
 {
 public:
     explicit WebBridge (GraphModel& model,
-                       AddonRegistry* registry = nullptr,
+                       PaxRegistry* registry = nullptr,
                        std::function<void(const juce::String&, const juce::String&)> onSetMidiDevice  = nullptr,
                        std::function<void(const juce::String&, const juce::String&)> onSetAudioDevice = nullptr,
                        std::function<std::vector<MidiMonitorBatch>()> drainMonitor = nullptr,
@@ -95,8 +95,8 @@ public:
     void pushToUI (const juce::String& bridgeFn, juce::String json);
     bool isStandalone = false;  // true only in standalone app
     std::function<std::vector<SpectrumSnapshot>()> getSpectrumSnapshots;
-    std::function<int(const juce::String&)>        onGetAddonAudioOutCount;
-    std::function<void(const juce::String&)>       onPruneAddonEdges;
+    std::function<int(const juce::String&)>        onGetPaxAudioOutCount;
+    std::function<void(const juce::String&)>       onPrunePaxEdges;
     std::function<void(double, int, bool)> onSetAudioEngineSettings;
     std::function<void()>                  onUIReady;
     std::function<void(const juce::String&, const std::vector<int>&)> onSetAudioDeviceChannels;
@@ -132,7 +132,7 @@ private:
 
     bool         connected = false;
     juce::String devServerUrl;
-    AddonRegistry*  registry         = nullptr;
+    PaxRegistry*  registry         = nullptr;
     std::function<std::vector<MidiMonitorBatch>()> drainMonitor;
 
     std::function<std::vector<AudioSnapshot>()>    getAudioSnapshots;
@@ -150,7 +150,7 @@ private:
     void pushSpectrumSnapshots();
     void pushPortActivity();
 
-    void pushAddonList();
+    void pushPaxList();
 
     // ── File operations ───────────────────────────────────────────────────────
     void saveToFile     (const juce::File& file);

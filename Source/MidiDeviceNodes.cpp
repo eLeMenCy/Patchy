@@ -1,6 +1,6 @@
 #include "MidiDeviceNodes.h"
 #include "ProcessingGraph.h"
-#include "../Addons/AddonRegistry.h"
+#include "../Pax/PaxRegistry.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  MidiDeviceManager

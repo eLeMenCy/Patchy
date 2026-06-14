@@ -6,7 +6,7 @@
 #include "AudioMonitorNode.h"  // for AudioMonitorBuffer and AudioMonitorNode
 #include "MidiKeyboardNode.h"
 #include "GraphModel.h"
-#include "../Addons/AddonRegistry.h"
+#include "../Pax/PaxRegistry.h"
 #include <memory>
 #include <unordered_map>
 
@@ -25,7 +25,7 @@ public:
     ProcessingGraph& operator= (ProcessingGraph&&) = default;
 
     void rebuild (const GraphModel& model,
-                 AddonRegistry* registry = nullptr,
+                 PaxRegistry* registry = nullptr,
                  std::function<MidiMonitorBuffer*(const juce::String&)>  getMidiBuffer     = nullptr,
                  std::function<AudioMonitorBuffer*(const juce::String&)> getAudioBuffer    = nullptr,
                  std::function<MidiMonitorBuffer*(const juce::String&)>  getKeyboardBuffer = nullptr);

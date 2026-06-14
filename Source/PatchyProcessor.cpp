@@ -10,7 +10,7 @@ PatchyProcessor::PatchyProcessor()
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true))
 {
     // Scan for dynamic addons at startup
-    auto scanResults = AddonScanner::scan();
+    auto scanResults = PaxScanner::scan();
     registry.load (scanResults);
     juce::Logger::writeToLog (
         juce::String ("PatchyProcessor: ")
@@ -251,13 +251,13 @@ void PatchyProcessor::setStateInformation (const void* data, int sizeInBytes)
     {
         auto* nd = nv.getDynamicObject();
         if (nd == nullptr) continue;
-        juce::String addonName = nd->getProperty ("addonName").toString();
+        juce::String paxName = nd->getProperty ("addonName").toString();
         int audioIn = 0, audioOut = 0, midiIn = 0, midiOut = 0;
-        if (addonName.isNotEmpty())
+        if (paxName.isNotEmpty())
         {
             for (const auto& e : registry.getEntries())
             {
-                if (e.name == addonName)
+                if (e.name == paxName)
                 {
                     audioIn  = e.audioInputs;
                     audioOut = e.audioOutputs;
@@ -272,7 +272,7 @@ void PatchyProcessor::setStateInformation (const void* data, int sizeInBytes)
             (int)   nd->getProperty ("nodeType"),
             (float) nd->getProperty ("x"),
             (float) nd->getProperty ("y"),
-            addonName, audioIn, audioOut, midiIn, midiOut);
+            paxName, audioIn, audioOut, midiIn, midiOut);
         restoredNode.selectedDeviceId = nd->getProperty ("selectedDeviceId").toString();
         restoredNode.settingsJson     = nd->getProperty ("settingsJson").toString();
     }

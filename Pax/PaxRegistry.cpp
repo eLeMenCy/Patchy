@@ -1,11 +1,11 @@
-#include "AddonRegistry.h"
+#include "PaxRegistry.h"
 #include <algorithm>
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  AddonRegistry
+//  PaxRegistry
 // ─────────────────────────────────────────────────────────────────────────────
 
-void AddonRegistry::load (const std::vector<AddonScanner::ScanResult>& results)
+void PaxRegistry::load (const std::vector<PaxScanner::ScanResult>& results)
 {
     entries.clear();
     nameToIndex.clear();
@@ -60,25 +60,25 @@ void AddonRegistry::load (const std::vector<AddonScanner::ScanResult>& results)
 
         nameToIndex[e.name] = static_cast<int>(entries.size());
         entries.push_back (std::move (e));
-        juce::Logger::writeToLog ("Registry: loaded addon '" + r.name + "'");
+        juce::Logger::writeToLog ("Registry: loaded Pax '" + r.name + "'");
     }
 }
 
 std::unique_ptr<NodeProcessor>
-AddonRegistry::createNode (const juce::String& nodeId,
-                                 const juce::String& addonName)
+PaxRegistry::createNode (const juce::String& nodeId,
+                                 const juce::String& paxName)
 {
-    auto it = nameToIndex.find (addonName);
+    auto it = nameToIndex.find (paxName);
     if (it == nameToIndex.end())
     {
-        juce::Logger::writeToLog ("Registry: unknown addon '" + addonName + "'");
+        juce::Logger::writeToLog ("Registry: unknown Pax '" + paxName + "'");
         return nullptr;
     }
-    return std::make_unique<DynamicNodeProcessor> (nodeId, entries[static_cast<size_t>(it->second)]);
+    return std::make_unique<DynamicPaxProcessor> (nodeId, entries[static_cast<size_t>(it->second)]);
 }
 
 std::vector<juce::String>
-AddonRegistry::getAddonNames (int nodeType) const
+PaxRegistry::getPaxNames (int nodeType) const
 {
     std::vector<juce::String> names;
     for (const auto& e : entries)
@@ -88,11 +88,11 @@ AddonRegistry::getAddonNames (int nodeType) const
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  DynamicNodeProcessor
+//  DynamicPaxProcessor
 // ─────────────────────────────────────────────────────────────────────────────
 
-DynamicNodeProcessor::DynamicNodeProcessor (const juce::String&             nodeId,
-                                             const AddonRegistry::Entry& e)
+DynamicPaxProcessor::DynamicPaxProcessor (const juce::String&             nodeId,
+                                             const PaxRegistry::Entry& e)
     : NodeProcessor (nodeId, static_cast<NodeProcessor::Type> (e.nodeType)),
       lib             (e.lib),
       fnCreate        (e.create),
@@ -104,7 +104,7 @@ DynamicNodeProcessor::DynamicNodeProcessor (const juce::String&             node
       fnGetParam      (e.getParam),
       fnSetParam          (e.setParam),
       fnGetAudioOutCount  (e.getAudioOutCount),
-      addonName       (e.name)
+      paxName       (e.name)
 {
     jassert (fnCreate != nullptr);
     instance = fnCreate();
@@ -119,7 +119,7 @@ DynamicNodeProcessor::DynamicNodeProcessor (const juce::String&             node
     allocatePortBuffers (audioInputCount, audioOutputCount, 512);
 }
 
-DynamicNodeProcessor::~DynamicNodeProcessor()
+DynamicPaxProcessor::~DynamicPaxProcessor()
 {
     if (instance != nullptr && fnDestroy != nullptr)
     {
@@ -129,7 +129,7 @@ DynamicNodeProcessor::~DynamicNodeProcessor()
     // lib shared_ptr releases here — .dylib unloaded when last processor is gone
 }
 
-void DynamicNodeProcessor::prepare (double sampleRate, int maxBlockSize)
+void DynamicPaxProcessor::prepare (double sampleRate, int maxBlockSize)
 {
     NodeProcessor::prepare (sampleRate, maxBlockSize);
     allocatePortBuffers (audioInputCount, audioOutputCount, maxBlockSize);
@@ -137,7 +137,7 @@ void DynamicNodeProcessor::prepare (double sampleRate, int maxBlockSize)
         fnPrepare (instance, sampleRate, maxBlockSize);
 }
 
-void DynamicNodeProcessor::process (int numSamples)
+void DynamicPaxProcessor::process (int numSamples)
 {
     if (instance == nullptr) return;
 
@@ -186,7 +186,7 @@ void DynamicNodeProcessor::process (int numSamples)
         }
     }
 
-    // ── Call into the addon ──────────────────────────────────────────────
+    // ── Call into the Pax ──────────────────────────────────────────────
     int outCount = 0;
     PAX_ProcessContext ctx {};
     ctx.audioIn       = audioInPtrs;
@@ -230,23 +230,23 @@ void DynamicNodeProcessor::process (int numSamples)
 
 }
 
-int DynamicNodeProcessor::getParameterCount() const
+int DynamicPaxProcessor::getParameterCount() const
 {
     return (fnGetParamCount && instance) ? fnGetParamCount (instance) : 0;
 }
 
-void DynamicNodeProcessor::getParameterInfo (int index, PAX_ParameterInfo& info) const
+void DynamicPaxProcessor::getParameterInfo (int index, PAX_ParameterInfo& info) const
 {
     if (fnGetParamInfo && instance)
         fnGetParamInfo (instance, index, &info);
 }
 
-float DynamicNodeProcessor::getParameter (int index) const
+float DynamicPaxProcessor::getParameter (int index) const
 {
     return (fnGetParam && instance) ? fnGetParam (instance, index) : 0.f;
 }
 
-void DynamicNodeProcessor::setParameter (int index, float value)
+void DynamicPaxProcessor::setParameter (int index, float value)
 {
     if (fnSetParam && instance)
         fnSetParam (instance, index, value);

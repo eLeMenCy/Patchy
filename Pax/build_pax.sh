@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-#  build_addons.sh — Build all Patchy addons in one go
+#  build_pax.sh — Build all Patchy Pax in one go
 #
 #  Usage:
-#    ./build_addons.sh              # Build only
-#    ./build_addons.sh --install    # Build + install to Patchy addons folder
-#    ./build_addons.sh --clean      # Clean build directory first, then build
-#    ./build_addons.sh --clean --install
+#    ./build_pax.sh              # Build only
+#    ./build_pax.sh --install    # Build + install to Patchy Pax folder
+#    ./build_pax.sh --clean      # Clean build directory first, then build
+#    ./build_pax.sh --clean --install
 #
-#  Built binaries land in:  Addons/build/addons/
-#  Install destination:     ~/Library/Patchy/Addons/                        (macOS)
-#                           ~/.patchy/addons/                              (Linux)
+#  Built binaries land in:  Pax/build/pax/
+#  Install destination:     ~/Library/Patchy/Pax/   (macOS)
+#                           ~/.patchy/pax/           (Linux)
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -e
@@ -55,8 +55,8 @@ cmake --build "$BUILD_DIR" \
 
 # ── Report ────────────────────────────────────────────────────────────────────
 echo ""
-echo "✓ Built addons:"
-find "$BUILD_DIR/addons" -name "*.dylib" -o -name "*.so" | sort | while read -r f; do
+echo "✓ Built Pax:"
+find "$BUILD_DIR/pax" -name "*.dylib" -o -name "*.so" 2>/dev/null | sort | while read -r f; do
     echo "    $(basename "$f")"
 done
 
@@ -66,12 +66,12 @@ if [ "$INSTALL" = true ]; then
     echo "→ Installing..."
     cmake --install "$BUILD_DIR" --prefix "$HOME"
     if [ "$(uname)" = "Darwin" ]; then
-        DEST="$HOME/Library/Patchy/Addons"
+        DEST="$HOME/Library/Patchy/Pax"
     else
-        DEST="$HOME/.patchy/addons"
+        DEST="$HOME/.patchy/pax"
     fi
     echo ""
-    echo "✓ Addons installed to:"
+    echo "✓ Pax installed to:"
     echo "    $DEST"
 fi
 

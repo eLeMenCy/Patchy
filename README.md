@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.877
+> Version 0.0.881
 
 ---
 
@@ -16,14 +16,14 @@
 4. [Signal Flow Visualisation](#signal-flow-visualisation)
 5. [DAW Mode](#daw-mode)
 6. [Standalone Mode](#standalone-mode)
-7. [Addon System](#addon-system)
+7. [Xtension System](#xtension-system)
 8. [Patch Files](#patch-files)
 9. [Fragment Export / Import](#fragment-export--import)
 10. [Channel Selection](#channel-selection)
 11. [Undo / Redo](#undo--redo)
 12. [Keyboard Shortcuts](#keyboard-shortcuts)
 13. [Building](#building)
-14. [Writing an Addon](#writing-an-addon)
+14. [Writing an Xtension](#writing-an-xtension)
 15. [API Reference](#api-reference)
 16. [Thread Safety](#thread-safety)
 17. [Performance](#performance)
@@ -45,10 +45,10 @@
 - **Auto-save** — full graph state persisted automatically via DAW project state
 - **Fragment export/import** — select any nodes, export as a reusable `.patchy` fragment, reimport with ghost-placement UX
 - **50-step undo/redo** — full graph snapshot history via `⌘Z` / `⌘⇧Z`
-- **Parameter persistence** — addon parameters (sliders, steps) survive graph rebuilds, file loads and app restarts
+- **Parameter persistence** — Xtension parameters (sliders, steps) survive graph rebuilds, file loads and app restarts
 - **Built-in nodes** — MIDI In/Out, Audio In/Out, MIDI Monitor, Audio Monitor (oscilloscope), MIDI Keyboard
-- **Addon system** — drop a `.dylib/.so/.dll` into the addons folder; new node type appears in the sidebar on next launch
-- **Dynamic port counts** — addons can change their output port count at runtime (e.g. Spectrumyser band count) without audio interruption
+- **Xtension system** — drop a `.dylib/.so/.dll` into the addons folder; new node type appears in the sidebar on next launch
+- **Dynamic port counts** — Xtensions can change their output port count at runtime (e.g. Spectrumyser band count) without audio interruption
 - **Restructured burger menu** — `☰` top-right opens File and Edit flyout submenus with keyboard shortcuts
 - **Hint panel** — hover any node, button, port or edge to see a description in the sidebar hint panel
 - **Fold/Unfold** — double-click header to collapse nodes; edges merge gracefully to centre
@@ -75,23 +75,23 @@ Patchy/
 │   ├── MidiKeyboardNode.h           MIDI Keyboard (type 7)
 │   └── StandaloneApp.h/.cpp         Standalone wrapper (window bounds, file location)
 │
-├── Addons/                          Addon ecosystem
-│   ├── AddonAPI.h                   The ONLY header an addon author needs
-│   ├── AddonRegistry.h/.cpp         Loads addons, owns DynamicLibrary handles
-│   ├── AddonScanner.h/.cpp          Discovers addons in platform folders
-│   ├── LevelAddon/                  Audio level control (-60dB to +6dB)
-│   ├── AmpAddon/                    Audio amplifier (0dB to +24dB)
-│   ├── TransposeAddon/              MIDI transpose (-24 to +24 semitones)
-│   ├── EnvelopeAddon/               Audio envelope → MIDI CC converter
-│   ├── StereoSplitterAddon/         Stereo → Left + Right split (1 in / 2 out)
-│   └── SpectrumyserAddon/           FFT spectrum analyser with band outputs
+├── Pax/                          Xtension ecosystem
+│   ├── PaxAPI.h                   The ONLY header an addon author needs
+│   ├── PaxRegistry.h/.cpp         Loads addons, owns DynamicLibrary handles
+│   ├── PaxScanner.h/.cpp          Discovers addons in platform folders
+│   ├── LevelPax/                  Audio level control (-60dB to +6dB)
+│   ├── AmpPax/                    Audio amplifier (0dB to +24dB)
+│   ├── TransposePax/              MIDI transpose (-24 to +24 semitones)
+│   ├── EnvelopePax/               Audio envelope → MIDI CC converter
+│   ├── StereoSplitterPax/         Stereo → Left + Right split (1 in / 2 out)
+│   └── SpectrumyserPax/           FFT spectrum analyser with band outputs
 │
 ├── UI/                              React / TypeScript frontend
 │   └── src/
 │       ├── App.tsx                  ReactFlow canvas, graph sync, port activity, menus
 │       ├── Bridge.ts                JS↔C++ typed façade + subscriber system
 │       ├── NodeUtils.tsx            Shared hooks, components + style helpers
-│       ├── GenericNode.tsx          Device nodes + addon nodes (types 1–4, 100+)
+│       ├── GenericNode.tsx          Device nodes + Xtension nodes (types 1–4, 100+)
 │       │                            Includes channel selection settings panel
 │       ├── MidiMonitorNode.tsx      MIDI Monitor node (type 5)
 │       ├── AudioMonitorNode.tsx     Audio Monitor node (type 6)
@@ -125,7 +125,7 @@ Patchy/
 | 5 | MIDI Monitor | MIDI In + Out | Inspects MIDI events; pass-through; event table with filters |
 | 6 | Audio Monitor | Audio In | Stereo oscilloscope; trigger modes; VU zoom |
 | 7 | MIDI Keyboard | MIDI In + Out | Virtual keyboard; pitch/mod wheels; upstream note display |
-| 100+ | Addon nodes | Per descriptor | Dynamically loaded from `.dylib/.so/.dll` |
+| 100+ | Xtension nodes | Per descriptor | Dynamically loaded from `.dylib/.so/.dll` |
 
 ---
 
@@ -178,21 +178,21 @@ When launched as a standalone application, Patchy:
 
 ---
 
-## Addon System
+## Xtension System
 
-Addons are shared libraries implementing the `NGA_Descriptor` C API in `Addons/AddonAPI.h`. Discovered at startup by `AddonScanner`, loaded by `AddonRegistry`.
+Addons are shared libraries implementing the `NGA_Descriptor` C API in `Pax/PaxAPI.h`. Discovered at startup by `PaxScanner`, loaded by `PaxRegistry`.
 
-### Addon folder locations
+### Xtension folder locations
 
 | Platform | Path |
 |----------|------|
-| macOS | `~/Library/Patchy/Addons/` |
-| Windows | `%APPDATA%\Patchy\Addons\` |
-| Linux | `~/.patchy/addons/` |
+| macOS | `~/Library/Patchy/Pax/` |
+| Windows | `%APPDATA%\Patchy\Pax\` |
+| Linux | `~/.patchy/pax/` |
 
-### Bundled addons
+### Bundled Xtensions
 
-| Addon | Type | Ports | Parameters |
+| Xtension | Type | Ports | Parameters |
 |-------|------|-------|------------|
 | Level | Audio | 1in/1out | Level: -60dB to +6dB |
 | Amp | Audio | 1in/1out | Amp: 0dB to +24dB |
@@ -203,22 +203,22 @@ Addons are shared libraries implementing the `NGA_Descriptor` C API in `Addons/A
 
 ### Parameter persistence
 
-Addon parameters are automatically saved in `settingsJson` on every change and restored when:
+Xtension parameters are automatically saved in `settingsJson` on every change and restored when:
 - A patch file is loaded
 - The graph is rebuilt (adding/connecting nodes)
 - The app is restarted (via DAW project state or patch file)
 
 ### Dynamic port counts
 
-Addons can change their output port count at runtime by exporting `NGA_getAudioOutputCount`. Patchy updates the node's ports and routing live — without a full graph rebuild or audio interruption — only when the count actually changes.
+Xtensions can change their output port count at runtime by exporting `PAX_getAudioOutputCount`. Patchy updates the node's ports and routing live — without a full graph rebuild or audio interruption — only when the count actually changes.
 
-### Building an addon (macOS example)
+### Building an Xtension (macOS example)
 
 ```bash
 cd Addons/SpectrumyserAddon
 clang++ -std=c++20 -shared -fPIC SpectrumyserAddon.cpp \
         -o SpectrumyserAddon.dylib
-cp SpectrumyserAddon.dylib ~/Library/Patchy/Addons/
+cp SpectrumyserAddon.dylib ~/Library/Patchy/Pax/
 ```
 
 ---
@@ -343,9 +343,9 @@ Build the host in Debug mode with `PATCHY_DEV_MODE=ON` to connect to the Vite de
 
 ---
 
-## Writing an Addon
+## Writing an Xtension
 
-Include only `Addons/AddonAPI.h`. No JUCE dependency required.
+Include only `Pax/PaxAPI.h`. No JUCE dependency required.
 
 ```cpp
 #include "AddonAPI.h"
@@ -357,7 +357,7 @@ extern "C" {
 
 const PAX_Descriptor* PAX_getDescriptor() {
     static PAX_Descriptor d {
-        "My Addon", "My Studio", "1.0.0",
+        "My Xtension", "My Studio", "1.0.0",
         2,               // nodeType: 1=MIDI, 2=Audio, 3=AV
         PAX_API_VERSION,
         1, 1, 0, 0       // audioIn, audioOut, midiIn, midiOut
@@ -523,10 +523,10 @@ Patchy uses a **source-open, binary-paid** model:
 | Source code | Free | GPL v3 — compile it yourself |
 | Official pre-built binary | Paid | Convenience fee — supports development |
 | Addon API (`AddonAPI.h`) | Free | MIT — no strings attached |
-| Bundled example addons | Free | MIT — use as reference |
+| Bundled example Xtensions | Free | MIT — use as reference |
 
-Addon developers are free to license their addons under any terms — proprietary, MIT, GPL, or anything else.
+Xtension developers are free to license their Xtensions under any terms — proprietary, MIT, GPL, or anything else.
 
 ---
 
-*Patchy v0.0.877 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.881 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

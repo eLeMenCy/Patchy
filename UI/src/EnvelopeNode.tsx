@@ -235,11 +235,11 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
   const [ccValue, setCcValue] = useState(0);
   const portBodyRef = useRef<HTMLDivElement>(null);
 
-  // Restore params from addonParams in node data
+  // Restore params from paxParams in node data
   useEffect(() => {
-    // addonParams contains parameter definitions (name/min/max/default)
-    // Use defaultValue to initialise — actual values come via Bridge.setAddonParameter
-    const params: any[] = (data as any)?.addonParams ?? [];
+    // paxParams contains parameter definitions (name/min/max/default)
+    // Use defaultValue to initialise — actual values come via Bridge.setPaxParameter
+    const params: any[] = (data as any)?.paxParams ?? [];
     params.forEach((p: any, i: number) => {
       const v = p.defaultValue ?? 0;
       try {
@@ -266,7 +266,7 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
       if (v.length < 8) return;
       setMode(Math.round(v[0]));  setCcNumber(Math.round(v[1]));  setMidiCh(Math.round(v[2]));
       setAttack(v[3]);  setRelease(v[4]);  setSensitivity(v[5]);  setBandLow(v[6]);  setBandHigh(v[7]);
-      v.forEach((val, i) => Bridge.setAddonParameter(id, i, val));
+      v.forEach((val, i) => Bridge.setPaxParameter(id, i, val));
     } catch {}
   }, [(data as any)?.settingsJson]);
 
@@ -279,7 +279,7 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
   }, [id]);
 
   const setParam = useCallback((idx: number, val: number) => {
-    Bridge.setAddonParameter(id, idx, val);
+    Bridge.setPaxParameter(id, idx, val);
     // Build updated settings — use current state + override idx
     const cur = [mode, ccNumber, midiCh, attack, release, sensitivity, bandLow, bandHigh];
     cur[idx] = val;

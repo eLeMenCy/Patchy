@@ -113,7 +113,7 @@ WebBridge::getResource (const juce::String& url)
 //  Constructor
 // ─────────────────────────────────────────────────────────────────────────────
 
-WebBridge::WebBridge (GraphModel& model, AddonRegistry* reg,
+WebBridge::WebBridge (GraphModel& model, PaxRegistry* reg,
                        std::function<void(const juce::String&, const juce::String&)> setMidiCb,
                        std::function<void(const juce::String&, const juce::String&)> setAudioCb,
                        std::function<std::vector<MidiMonitorBatch>()> monitorFn,
@@ -255,7 +255,7 @@ void WebBridge::handleMessage (const juce::String& json)
         const bool wasConnected = connected;
         connected = true;
         juce::Logger::writeToLog ("WebBridge: UI ready.");
-        pushAddonList();
+        pushPaxList();
         pushToUI ("onFileState", buildFileStateJson());
         pushMidiDevices();
         pushAudioDevices();
@@ -271,15 +271,15 @@ void WebBridge::handleMessage (const juce::String& json)
     {
         pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
         graph.pushSnapshot();
-        juce::String addonName = obj->getProperty ("addonName").toString();
+        juce::String paxName = obj->getProperty ("paxName").toString();
         int audioIn = 0, audioOut = 0, midiIn = 0, midiOut = 0;
 
         // Look up port counts from registry for addon nodes
-        if (registry && addonName.isNotEmpty())
+        if (registry && paxName.isNotEmpty())
         {
             for (const auto& e : registry->getEntries())
             {
-                if (e.name == addonName)
+                if (e.name == paxName)
                 {
                     audioIn  = e.audioInputs;
                     audioOut = e.audioOutputs;
@@ -294,9 +294,9 @@ void WebBridge::handleMessage (const juce::String& json)
             (int)   obj->getProperty ("nodeType"),
             (float) obj->getProperty ("x"),
             (float) obj->getProperty ("y"),
-            addonName, audioIn, audioOut, midiIn, midiOut);
+            paxName, audioIn, audioOut, midiIn, midiOut);
     }
-    else if (type == "setAddonParameter")
+    else if (type == "setPaxParameter")
     {
         juce::String nodeId = obj->getProperty ("nodeId").toString();
         int   index = (int)   obj->getProperty ("index");
@@ -306,9 +306,9 @@ void WebBridge::handleMessage (const juce::String& json)
 
         // Only update port count when band count changes (index 0)
         // Frequency boundary changes (index 1+) do NOT need any graph update
-        if (index == 0 && onGetAddonAudioOutCount)
+        if (index == 0 && onGetPaxAudioOutCount)
         {
-            int newCount = onGetAddonAudioOutCount (nodeId);
+            int newCount = onGetPaxAudioOutCount (nodeId);
             if (newCount > 0)
             {
                 // Check current port count — only update if it actually changed
@@ -322,7 +322,7 @@ void WebBridge::handleMessage (const juce::String& json)
                     graph.suspendNotifications();
                     graph.updateNodeAudioOutputCount (nodeId, newCount);
                     graph.resumeNotificationsQuiet();
-                    if (onPruneAddonEdges) onPruneAddonEdges (nodeId);
+                    if (onPrunePaxEdges) onPrunePaxEdges (nodeId);
                     pushGraphToUI();
                 }
             }
@@ -590,13 +590,13 @@ void WebBridge::handleMessage (const juce::String& json)
             int          nodeType = (int) nObj->getProperty ("nodeType");
             float        x        = (float) (double) nObj->getProperty ("x");
             float        y        = (float) (double) nObj->getProperty ("y");
-            juce::String addonName= nObj->getProperty ("addonName").toString();
+            juce::String paxName= nObj->getProperty ("addonName").toString();
             int audioIn  = (int) nObj->getProperty ("audioInputs");
             int audioOut = (int) nObj->getProperty ("audioOutputs");
             int midiIn   = (int) nObj->getProperty ("midiInputs");
             int midiOut  = (int) nObj->getProperty ("midiOutputs");
 
-            auto& nd = graph.restoreNode (savedId, nodeType, x, y, addonName,
+            auto& nd = graph.restoreNode (savedId, nodeType, x, y, paxName,
                                           audioIn, audioOut, midiIn, midiOut);
             // Restore device selection if present
             juce::String devId = nObj->getProperty ("selectedDeviceId").toString();
@@ -646,7 +646,7 @@ void WebBridge::pushUndoState()
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-void WebBridge::pushAddonList()
+void WebBridge::pushPaxList()
 {
     if (! connected || registry == nullptr) return;
 
@@ -692,12 +692,12 @@ void WebBridge::pushAddonList()
     }
 
     auto* root = new juce::DynamicObject();
-    root->setProperty ("addons", arr);
+    root->setProperty ("paxItems", arr);
 
     auto json = juce::JSON::toString (root, true);
     json = json.replace ("\\", "\\\\").replace ("`", "\\`");
 
-    pushToUI ("onAddonList", json);
+    pushToUI ("onPaxList", json);
 }
 
 void WebBridge::pushMidiDevices()

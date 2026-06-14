@@ -1,7 +1,7 @@
 import { DragEvent, useEffect, useState, useContext } from 'react';
 import { DawContext } from './DawContext';
 import { HintPanel, NODE_HINTS, HintContext } from './HintPanel';
-import { Bridge, AddonInfo } from './Bridge';
+import { Bridge, PaxInfo } from './Bridge';
 
 const BUILTIN_GROUPS = [
   {
@@ -29,41 +29,41 @@ const PLUGIN_GROUPS = [
   { label: 'Hybrid',       ngaType: 3, accent: 'var(--av)',    dim: 'var(--av-dim)'    },
 ];
 
-function DragItem({ nodeType, label, desc, accent, dim, icon, addonName = '', addonInfo }: {
+function DragItem({ nodeType, label, desc, accent, dim, icon, paxName = '', paxInfo }: {
   nodeType:   number;
   label:      string;
   desc:       string;
   accent:     string;
   dim:        string;
   icon:       string;
-  addonName?: string;
-  addonInfo?: AddonInfo;
+  paxName?: string;
+  paxInfo?: PaxInfo;
 }) {
   const onDragStart = (e: DragEvent<HTMLDivElement>) => {
     e.dataTransfer.setData('text/plain', JSON.stringify({
-      nodeType:  addonName ? 0 : nodeType,
-      addonName,
-      ngaType:   addonName ? nodeType : 0,
+      nodeType:  paxName ? 0 : nodeType,
+      paxName,
+      ngaType:   paxName ? nodeType : 0,
     }));
     e.dataTransfer.effectAllowed = 'copy';
   };
 
   const { setHint } = useContext(HintContext);
-  const nodeHint = NODE_HINTS[addonName ?? ''] ?? NODE_HINTS[label] ?? NODE_HINTS[label.toUpperCase()] ?? null;
+  const nodeHint = NODE_HINTS[paxName ?? ''] ?? NODE_HINTS[label] ?? NODE_HINTS[label.toUpperCase()] ?? null;
   const buildHint = () => {
-    if (addonInfo) {
-      const typeLabel = addonInfo.nodeType === 1 ? 'MIDI' : addonInfo.nodeType === 2 ? 'Audio' : 'Hybrid';
+    if (paxInfo) {
+      const typeLabel = paxInfo.nodeType === 1 ? 'MIDI' : paxInfo.nodeType === 2 ? 'Audio' : 'Hybrid';
       const ports = [];
-      if (addonInfo.audioInputs)  ports.push(`${addonInfo.audioInputs} audio in`);
-      if (addonInfo.audioOutputs) ports.push(`${addonInfo.audioOutputs} audio out`);
-      if (addonInfo.midiInputs)   ports.push(`${addonInfo.midiInputs} MIDI in`);
-      if (addonInfo.midiOutputs)  ports.push(`${addonInfo.midiOutputs} MIDI out`);
+      if (paxInfo.audioInputs)  ports.push(`${paxInfo.audioInputs} audio in`);
+      if (paxInfo.audioOutputs) ports.push(`${paxInfo.audioOutputs} audio out`);
+      if (paxInfo.midiInputs)   ports.push(`${paxInfo.midiInputs} MIDI in`);
+      if (paxInfo.midiOutputs)  ports.push(`${paxInfo.midiOutputs} MIDI out`);
       return {
         title: label,
         body: (nodeHint?.body ?? '') +
               `
 
-v${addonInfo.version} · ${addonInfo.vendor}
+v${paxInfo.version} · ${paxInfo.vendor}
 Type: ${typeLabel} · ${ports.join(', ')}`
       };
     }
@@ -147,9 +147,9 @@ function Section({ label, accent, children, defaultOpen = true }: {
 
 export default function Sidebar() {
   const { isStandalone } = useContext(DawContext);
-  const [addons, setAddons] = useState<AddonInfo[]>([]);
-  useEffect(() => { Bridge.onAddonList(list => setAddons(list)); }, []);
-  const hasAddons = addons.length > 0;
+  const [paxItems, setPaxItems] = useState<PaxInfo[]>([]);
+  useEffect(() => { Bridge.onPaxList(list => setPaxItems(list)); }, []);
+  const hasPax = paxItems.length > 0;
 
   return (
     <aside style={{
@@ -185,23 +185,23 @@ export default function Sidebar() {
         </Section>
       ))}
 
-      {/* Addons */}
-      {hasAddons && (
+      {/* Xtensions */}
+      {hasPax && (
         <>
           <div style={{ padding: '10px 12px 0', borderTop: '1px solid var(--border)', marginTop: 4 }}>
             <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-              Addons
+              Pax
             </div>
           </div>
           {PLUGIN_GROUPS.map(group => {
-            const items = addons.filter(p => p.nodeType === group.ngaType);
+            const items = paxItems.filter(p => p.nodeType === group.ngaType);
             if (items.length === 0) return null;
             return (
               <Section key={group.label} label={group.label} accent={group.accent}>
                 {items.map(p => (
                   <DragItem key={p.name} nodeType={p.nodeType} label={p.name}
-                    desc={p.vendor || 'Addon'} accent={group.accent} dim={group.dim}
-                    icon="⬡" addonName={p.name} addonInfo={p} />
+                    desc={p.vendor || 'Xtension'} accent={group.accent} dim={group.dim}
+                    icon="⬡" paxName={p.name} paxInfo={p} />
                 ))}
               </Section>
             );
@@ -209,15 +209,15 @@ export default function Sidebar() {
         </>
       )}
 
-      {/* No addons hint */}
-      {!hasAddons && (
+      {/* No Xtensions hint */}
+      {!hasPax && (
         <div style={{
           padding: '8px 14px', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6,
           borderTop: '1px solid var(--border)', marginTop: 4,
         }}>
-          No addons found.<br />
+          No Xtensions found.<br />
           Drop <span style={{ color: 'var(--text-dim)' }}>.dylib / .so / .dll</span><br />
-          into the addons folder.
+          into the Xtensions folder.
         </div>
       )}
 

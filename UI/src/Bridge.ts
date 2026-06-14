@@ -19,8 +19,8 @@ export interface GraphState {
 export interface RawNode {
   id: string;
   label: string;
-  nodeType: number;  // 1-4 built-in, higher = addon
-  addonName?: string;
+  nodeType: number;  // 1-4 built-in, higher = Xtension
+  paxName?: string;
   settingsJson?: string;   // serialised UI settings blob
   x: number;
   y: number;
@@ -94,9 +94,9 @@ export interface AudioDeviceList {
   audioOutDevices: AudioDeviceInfo[];
   audioInDevices:  AudioDeviceInfo[];
 }
-type AddonListCallback   = (addons: AddonInfo[]) => void;
+type AddonListCallback   = (addons: PaxInfo[]) => void;
 
-export interface AddonParamInfo {
+export interface PaxParamInfo {
   index:        number;
   name:         string;
   min:          number;
@@ -147,7 +147,7 @@ export interface FragmentData {
   height: number;
 }
 
-export interface AddonInfo {
+export interface PaxInfo {
   name:         string;
   vendor:       string;
   version:      string;
@@ -156,7 +156,7 @@ export interface AddonInfo {
   audioOutputs: number;
   midiInputs:   number;
   midiOutputs:  number;
-  params:       AddonParamInfo[];
+  params:       PaxParamInfo[];
 }
 
 // ── Singleton bridge ─────────────────────────────────────────────────────────
@@ -220,8 +220,12 @@ function _dispatchClaimed() {
   onGraphUpdate: (json: string) => {
     try {
       const state: GraphState = JSON.parse(json);
+      // Map legacy "addonName" key → paxName (JSON key migrated in commit 2)
+      for (const node of state.nodes) {
+        if (!node.paxName && (node as any).addonName)
+          node.paxName = (node as any).addonName;
+      }
       // Rebuild claimed devices from graph state — keeps claims in sync with C++
-      // (handles New graph, Load graph, and any other full graph reset)
       _claimedDevices.clear();
       for (const node of state.nodes) {
         if (node.selectedDeviceId && (node.nodeType === 3 || node.nodeType === 4)) {
@@ -312,6 +316,11 @@ function _dispatchClaimed() {
   onFragmentReady: (json: string) => {
     try {
       const fragment = JSON.parse(json) as FragmentData;
+      // Map legacy "addonName" key → paxName (JSON key migrated in commit 2)
+      for (const node of fragment.nodes ?? []) {
+        if (!node.paxName && (node as any).addonName)
+          node.paxName = (node as any).addonName;
+      }
       _fragmentReadySubscribers.forEach(cb => cb(fragment));
     } catch (e) {
       console.error('Bridge fragment parse error', e);
@@ -333,13 +342,13 @@ function _dispatchClaimed() {
     } catch {}
   },
 
-  onAddonList: (json: string) => {
+  onPaxList: (json: string) => {
     try {
       const data = JSON.parse(json);
-      const addons = data.addons ?? [];
+      const addons = data.paxItems ?? [];
       _addonListSubscribers.forEach(cb => cb(addons));
     } catch (e) {
-      console.error('Bridge addon list parse error', e);
+      console.error('Bridge Xtension list parse error', e);
     }
   },
 
@@ -451,7 +460,7 @@ export const Bridge = {
     sendToJuce({ type: 'importFragmentNodes', nodes, connections });
   },
 
-  onAddonList(cb: AddonListCallback) {
+  onPaxList(cb: AddonListCallback) {
     _addonListSubscribers.push(cb);
     return () => {
       const idx = _addonListSubscribers.indexOf(cb);
@@ -503,8 +512,8 @@ export const Bridge = {
       if (idx !== -1) _audioDeviceChangedSubscribers.splice(idx, 1);
     };
   },
-  setAddonParameter(nodeId: string, index: number, value: number) {
-    sendToJuce({ type: 'setAddonParameter', nodeId, index, value });
+  setPaxParameter(nodeId: string, index: number, value: number) {
+    sendToJuce({ type: 'setPaxParameter', nodeId, index, value });
   },
   setNodeSettings(nodeId: string, settings: object) {
     sendToJuce({ type: 'setNodeSettings', nodeId, settings: JSON.stringify(settings) });
@@ -562,8 +571,8 @@ export const Bridge = {
     sendToJuce({ type: 'ready' });
   },
 
-  addNode(nodeType: number, x: number, y: number, addonName = '') {
-    sendToJuce({ type: 'addNode', nodeType, x, y, addonName });
+  addNode(nodeType: number, x: number, y: number, paxName = '') {
+    sendToJuce({ type: 'addNode', nodeType, x, y, paxName });
   },
 
   removeNode(nodeId: string) {

@@ -9,8 +9,8 @@
 #include <unordered_map>
 #include "AudioDeviceNodes.h"
 #include "WebBridge.h"
-#include "../Addons/AddonRegistry.h"
-#include "../Addons/AddonScanner.h"
+#include "../Pax/PaxRegistry.h"
+#include "../Pax/PaxScanner.h"
 
 /**
  * PatchyProcessor
@@ -75,12 +75,12 @@ public:
 
     // Returns the current audio output count for a dynamic addon node (e.g. Spectrumyser)
     // Also resizes the live node's output buffers to avoid a full graph rebuild
-    int getAddonAudioOutCount (const juce::String& nodeId)
+    int getPaxAudioOutCount (const juce::String& nodeId)
     {
         for (auto& node : processingGraph.getNodes())
         {
             if (node->id != nodeId) continue;
-            if (auto* dyn = dynamic_cast<DynamicNodeProcessor*> (node.get()))
+            if (auto* dyn = dynamic_cast<DynamicPaxProcessor*> (node.get()))
             {
                 if (dyn->audioOutputCount > 0)
                 {
@@ -102,7 +102,7 @@ public:
     }  // true only in standalone app, false in DAW/plugin mode
 
     /** Access the registry (for UI sidebar population). */
-    AddonRegistry& getRegistry()       { return registry; }
+    PaxRegistry& getRegistry()       { return registry; }
 
     /** Open a MIDI device for the given node (called from WebBridge via PatchyEditor). */
     void setMidiDevice (const juce::String& nodeId, const juce::String& deviceId)
@@ -167,11 +167,11 @@ public:
 
     AudioDeviceManager& getAudioDeviceManager() { return audioDeviceManager; }
 
-    void setAddonParameter (const juce::String& nodeId, int index, float value)
+    void setPaxParameter (const juce::String& nodeId, int index, float value)
     {
         for (auto& node : processingGraph.getNodes())
             if (node->id == nodeId)
-                if (auto* dyn = dynamic_cast<DynamicNodeProcessor*> (node.get()))
+                if (auto* dyn = dynamic_cast<DynamicPaxProcessor*> (node.get()))
                     { dyn->setParameter (index, value); break; }
     }
 
@@ -198,7 +198,7 @@ public:
             {
                 if (auto* kbd = dynamic_cast<MidiKeyboardNode*> (node.get()))
                     { kbd->customName = name; break; }
-                if (auto* dyn = dynamic_cast<DynamicNodeProcessor*> (node.get()))
+                if (auto* dyn = dynamic_cast<DynamicPaxProcessor*> (node.get()))
                     { dyn->customName = name; break; }
             }
     }
@@ -223,8 +223,8 @@ public:
         std::vector<SpectrumSnapshot> result;
         for (auto& node : processingGraph.getNodes())
         {
-            auto* dyn = dynamic_cast<DynamicNodeProcessor*> (node.get());
-            if (! dyn || dyn->getAddonName() != "Spectrumyser") continue;
+            auto* dyn = dynamic_cast<DynamicPaxProcessor*> (node.get());
+            if (! dyn || dyn->getPaxName() != "Spectrumyser") continue;
 
             auto sd = dyn->getSpectrumData();
             if (! sd.valid || sd.fftSize <= 0 || ! sd.mags) continue;
@@ -428,7 +428,7 @@ public:
 private:
     GraphModel          graphModel;
     ProcessingGraph     processingGraph;
-    AddonRegistry  registry;
+    PaxRegistry  registry;
     MidiDeviceManager   midiDeviceManager;
     AudioDeviceManager  audioDeviceManager;
     std::unordered_map<juce::String, std::unique_ptr<MidiMonitorBuffer>>  monitorBuffers;

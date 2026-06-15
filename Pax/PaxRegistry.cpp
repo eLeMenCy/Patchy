@@ -187,25 +187,27 @@ void DynamicPaxProcessor::process (int numSamples)
     }
 
     // ── Call into the Pax ──────────────────────────────────────────────
-    int outCount = 0;
+    int outCount      = 0;
+    int valueOutCount = 0;
     PAX_ProcessContext ctx {};
-    ctx.audioIn       = audioInPtrs;
-    ctx.audioOut      = audioOutPtrs;
-    ctx.numChannels   = 2;
-    ctx.numSamples    = numSamples;
-    ctx.midiIn        = midiInBuf;
-    ctx.midiInCount   = inCount;
-    ctx.midiOut       = midiOutBuf;
-    ctx.midiOutCount  = &outCount;
-    ctx.midiMaxCount  = kMaxMidiEvents;
-    // Value fields — NULL/0 until value ports are implemented
-    ctx.valuesIn      = nullptr;
-    ctx.valueInCount  = 0;
-    ctx.valuesOut     = nullptr;
-    ctx.valueOutCount = nullptr;
-    ctx.valueMaxCount = 0;
+    ctx.audioIn        = audioInPtrs;
+    ctx.audioOut       = audioOutPtrs;
+    ctx.numChannels    = 2;
+    ctx.numSamples     = numSamples;
+    ctx.midiIn         = midiInBuf;
+    ctx.midiInCount    = inCount;
+    ctx.midiOut        = midiOutBuf;
+    ctx.midiOutCount   = &outCount;
+    ctx.midiMaxCount   = kMaxMidiEvents;
+    // Value buffers — now live
+    ctx.valuesIn       = inputValues.data();
+    ctx.valueInCount   = inputValueCount;
+    ctx.valuesOut      = outputValues.data();
+    ctx.valueOutCount  = &valueOutCount;
+    ctx.valueMaxCount  = kMaxValueEvents;
 
     fnProcess (instance, &ctx);
+    outputValueCount = valueOutCount;
 
     // ── Convert PAX_MidiEvent array → juce::MidiBuffer ───────────────────
     outputMidi.clear();

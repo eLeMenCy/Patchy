@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_core/juce_core.h>
+#include "../Pax/PaxAPI.h"
 
 /**
  * NodeProcessor — base class for all processing nodes.
@@ -56,6 +57,10 @@ public:
 
         for (auto& buf : inputAudioBuffers)  buf.clear();
         for (auto& buf : outputAudioBuffers) buf.clear();
+
+        // Reset value buffers — clear events from previous block
+        inputValueCount  = 0;
+        outputValueCount = 0;
     }
 
     /** Allocate per-port audio buffers (called when port count is known). */
@@ -74,9 +79,16 @@ public:
     juce::AudioBuffer<float> inputAudio,  outputAudio;   // single-port (built-ins)
     juce::MidiBuffer         inputMidi,   outputMidi;
 
-    // Multi-port audio buffers (addon nodes with variable port counts)
+    // Multi-port audio buffers (Pax nodes with variable port counts)
     std::vector<juce::AudioBuffer<float>> inputAudioBuffers;
     std::vector<juce::AudioBuffer<float>> outputAudioBuffers;
+
+    // ── Value buffers (PAX_Value — DMX, OSC, MQTT, UDP etc.) ─────────────────
+    static constexpr int kMaxValueEvents = 256;
+    std::array<PAX_Value, kMaxValueEvents> inputValues  {};
+    std::array<PAX_Value, kMaxValueEvents> outputValues {};
+    int inputValueCount  = 0;
+    int outputValueCount = 0;
 
     const juce::String id;
     const Type         nodeType;
@@ -88,4 +100,4 @@ protected:
 };
 
 // Built-in stub node types removed — all built-in nodes are now device nodes.
-// Dynamic addon nodes use DynamicNodeProcessor (see AddonRegistry.h).
+// Dynamic addon nodes use DynamicPaxProcessor (see PaxRegistry.h).

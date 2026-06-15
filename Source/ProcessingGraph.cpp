@@ -294,6 +294,14 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
                 for (auto meta : src->outputMidi)
                     n->inputMidi.addEvent (meta.getMessage(), meta.samplePosition);
 
+                // ── Propagate value events ────────────────────────────────
+                for (int vi = 0; vi < src->outputValueCount; ++vi)
+                {
+                    if (n->inputValueCount >= NodeProcessor::kMaxValueEvents) break;
+                    n->inputValues[static_cast<size_t>(n->inputValueCount++)] =
+                        src->outputValues[static_cast<size_t>(vi)];
+                }
+
                 if (auto* mon = dynamic_cast<MidiMonitorNode*> (n))
                 {
                     juce::String srcLabel = labelMap.count (src->id) ? labelMap.at (src->id) : src->id;

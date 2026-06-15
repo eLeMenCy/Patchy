@@ -65,11 +65,14 @@ function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>)
 }
 
 function rawToFlowEdge(raw: RawConnection): Edge {
-  const isMidi  = raw.sourcePortId.toLowerCase().includes('midi');
-  const isAudio = raw.sourcePortId.toLowerCase().includes('audio');
-  const cls     = isMidi && isAudio ? 'edge-mixed'
-                : isMidi            ? 'edge-midi'
-                :                     'edge-audio';
+  const src = raw.sourcePortId.toLowerCase();
+  const cls = src.includes('audio') ? 'edge-audio'
+            : src.includes('_osc_')  ? 'edge-osc'
+            : src.includes('_dmx_')  ? 'edge-dmx'
+            : src.includes('_mqtt_') ? 'edge-mqtt'
+            : src.includes('_udp_')  ? 'edge-udp'
+            : src.includes('_value_') ? 'edge-value'
+            : 'edge-midi';
   return {
     id:           raw.id,
     source:       raw.sourceNodeId,
@@ -349,9 +352,14 @@ function FlowCanvas() {
       const edge = target.closest('.react-flow__edge') as HTMLElement | null;
       if (edge) {
         const cls = edge.className ?? '';
-        if (cls.includes('edge-midi'))  setHint(EDGE_HINTS['midi']);
+        if (cls.includes('edge-midi'))   setHint(EDGE_HINTS['midi']);
         else if (cls.includes('edge-audio')) setHint(EDGE_HINTS['audio']);
         else if (cls.includes('edge-mixed')) setHint(EDGE_HINTS['av']);
+        else if (cls.includes('edge-osc'))   setHint(EDGE_HINTS['osc']   ?? EDGE_HINTS['midi']);
+        else if (cls.includes('edge-dmx'))   setHint(EDGE_HINTS['dmx']   ?? EDGE_HINTS['midi']);
+        else if (cls.includes('edge-mqtt'))  setHint(EDGE_HINTS['mqtt']  ?? EDGE_HINTS['midi']);
+        else if (cls.includes('edge-udp'))   setHint(EDGE_HINTS['udp']   ?? EDGE_HINTS['midi']);
+        else if (cls.includes('edge-value')) setHint(EDGE_HINTS['value'] ?? EDGE_HINTS['midi']);
         return;
       }
     };
@@ -490,10 +498,26 @@ function FlowCanvas() {
   const isValidConnection = useCallback((connection: Connection | Edge): boolean => {
     const { sourceHandle, targetHandle } = connection;
     if (!sourceHandle || !targetHandle) return false;
-    const srcType  = sourceHandle.includes('Audio') ? 'audio' : 'midi';
-    const dstType  = targetHandle.includes('Audio') ? 'audio' : 'midi';
+
+    // Extract port type from handle ID — format: {nodeId}_{Label}_{in|out}
+    // We match known type keywords in the handle ID (case-insensitive segment match)
+    const getPortType = (handle: string): string => {
+      const h = handle.toLowerCase();
+      if (h.includes('audio'))  return 'audio';
+      if (h.includes('_osc_'))  return 'osc';
+      if (h.includes('_dmx_'))  return 'dmx';
+      if (h.includes('_mqtt_')) return 'mqtt';
+      if (h.includes('_udp_'))  return 'udp';
+      if (h.includes('_value_')) return 'value';
+      return 'midi'; // default
+    };
+
+    const srcType  = getPortType(sourceHandle);
+    const dstType  = getPortType(targetHandle);
     const srcIsOut = sourceHandle.endsWith('_out');
     const dstIsIn  = targetHandle.endsWith('_in');
+
+    // Strict: types must match exactly, direction must be out→in
     return srcType === dstType && srcIsOut && dstIsIn;
   }, []);
   // ── Reconnect (drag existing edge endpoint to a new port) ─────────────────
@@ -546,9 +570,17 @@ function FlowCanvas() {
       connection.target,
       connection.targetHandle!,
     );
+    const src = connection.sourceHandle?.toLowerCase() ?? '';
+    const edgeCls = src.includes('audio')   ? 'edge-audio'
+                  : src.includes('_osc_')   ? 'edge-osc'
+                  : src.includes('_dmx_')   ? 'edge-dmx'
+                  : src.includes('_mqtt_')  ? 'edge-mqtt'
+                  : src.includes('_udp_')   ? 'edge-udp'
+                  : src.includes('_value_') ? 'edge-value'
+                  : 'edge-midi';
     setEdges(es => addEdge({
       ...connection,
-      className: connection.sourceHandle?.includes('Audio') ? 'edge-audio' : 'edge-midi',
+      className: edgeCls,
       style: { strokeWidth: 2 },
     }, es));
   }, [isValidConnection]);

@@ -4,7 +4,7 @@
 #include <vector>
 #include <deque>
 
-enum class PortType      { Midi, Audio };
+enum class PortType      { Midi, Audio, OSC, DMX, MQTT, UDP, Value };
 enum class PortDirection { Input, Output };
 
 struct Port

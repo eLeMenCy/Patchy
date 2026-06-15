@@ -31,7 +31,7 @@ export interface RawNode {
 export interface RawPort {
   id: string;
   label: string;
-  type: 'midi' | 'audio';
+  type: 'midi' | 'audio' | 'osc' | 'dmx' | 'mqtt' | 'udp' | 'value';
   direction: 'input' | 'output';
 }
 

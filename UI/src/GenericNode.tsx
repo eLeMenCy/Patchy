@@ -201,6 +201,19 @@ function ChannelSummary ({ channels }: { channels: number[] }) {
   );
 }
 
+// ── Port colour by type ───────────────────────────────────────────────────────
+function portColour (type: string): string {
+  switch (type) {
+    case 'audio': return 'rgb(20,80,20)';
+    case 'osc':   return 'var(--osc)';
+    case 'dmx':   return 'var(--dmx)';
+    case 'mqtt':  return 'var(--mqtt)';
+    case 'udp':   return 'var(--udp)';
+    case 'value': return 'var(--value)';
+    default:      return 'var(--midi)';
+  }
+}
+
 // ── Main node ─────────────────────────────────────────────────────────────────
 function GenericNode({ id, data, selected }: NodeProps) {
   const nodeData = data as NodeData;
@@ -574,7 +587,7 @@ Double-click to reset to default (${p.defaultValue}).` })}
       {inputs.map((p, i) => (
         <NodeHandle key={p.id}
           nodeId={id} label={p.label} direction="in"
-          colour={p.type === 'midi' ? 'var(--midi)' : 'rgb(20,80,20)'}
+          colour={portColour(p.type)}
           index={i} total={inputs.length}
           offset={isPax ? 6 : 8}
           portBodyRef={portBodyRef}
@@ -586,7 +599,7 @@ Double-click to reset to default (${p.defaultValue}).` })}
       {outputs.map((p, i) => (
         <NodeHandle key={p.id}
           nodeId={id} label={p.label} direction="out"
-          colour={p.type === 'midi' ? 'var(--midi)' : 'rgb(20,80,20)'}
+          colour={portColour(p.type)}
           index={i} total={outputs.length}
           offset={isPax ? 6 : 8}
           portBodyRef={portBodyRef}
@@ -598,3 +611,5 @@ Double-click to reset to default (${p.defaultValue}).` })}
 }
 
 export default GenericNode;
+
+// This line intentionally left blank — appending portColour helper below

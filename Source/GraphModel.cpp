@@ -212,7 +212,17 @@ juce::var GraphModel::toVar() const
             auto* po = new juce::DynamicObject();
             po->setProperty ("id",        p.id);
             po->setProperty ("label",     p.label);
-            po->setProperty ("type",      p.type == PortType::Midi ? "midi" : "audio");
+            po->setProperty ("type", [&]() -> juce::String {
+                switch (p.type) {
+                    case PortType::Audio: return "audio";
+                    case PortType::OSC:   return "osc";
+                    case PortType::DMX:   return "dmx";
+                    case PortType::MQTT:  return "mqtt";
+                    case PortType::UDP:   return "udp";
+                    case PortType::Value: return "value";
+                    default:              return "midi";
+                }
+            }());
             po->setProperty ("direction", p.direction == PortDirection::Input ? "input" : "output");
             ports.add (po);
         }

@@ -19,7 +19,7 @@ export interface GraphState {
 export interface RawNode {
   id: string;
   label: string;
-  nodeType: number;  // 1-4 built-in, higher = Xtension
+  nodeType: number;  // 1-4 built-in, higher = Pax
   paxName?: string;
   settingsJson?: string;   // serialised UI settings blob
   x: number;
@@ -338,7 +338,7 @@ function _dispatchClaimed() {
       const addons = data.paxItems ?? [];
       _addonListSubscribers.forEach(cb => cb(addons));
     } catch (e) {
-      console.error('Bridge Xtension list parse error', e);
+      console.error('Bridge Pax list parse error', e);
     }
   },
 

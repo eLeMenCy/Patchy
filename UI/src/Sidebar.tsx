@@ -185,7 +185,7 @@ export default function Sidebar() {
         </Section>
       ))}
 
-      {/* Xtensions */}
+      {/* Pax */}
       {hasPax && (
         <>
           <div style={{ padding: '10px 12px 0', borderTop: '1px solid var(--border)', marginTop: 4 }}>
@@ -200,7 +200,7 @@ export default function Sidebar() {
               <Section key={group.label} label={group.label} accent={group.accent}>
                 {items.map(p => (
                   <DragItem key={p.name} nodeType={p.nodeType} label={p.name}
-                    desc={p.vendor || 'Xtension'} accent={group.accent} dim={group.dim}
+                    desc={p.vendor || 'Pax'} accent={group.accent} dim={group.dim}
                     icon="⬡" paxName={p.name} paxInfo={p} />
                 ))}
               </Section>
@@ -209,15 +209,15 @@ export default function Sidebar() {
         </>
       )}
 
-      {/* No Xtensions hint */}
+      {/* No Pax hint */}
       {!hasPax && (
         <div style={{
           padding: '8px 14px', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6,
           borderTop: '1px solid var(--border)', marginTop: 4,
         }}>
-          No Xtensions found.<br />
+          No Pax found.<br />
           Drop <span style={{ color: 'var(--text-dim)' }}>.dylib / .so / .dll</span><br />
-          into the Xtensions folder.
+          into the Pax folder.
         </div>
       )}
 

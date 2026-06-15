@@ -37,7 +37,7 @@ import EnvelopeNode     from './EnvelopeNode';
 const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
-// Module-level Xtension params map — populated when Xtension list arrives
+// Module-level Pax params map — populated when Pax list arrives
 const _paxParamsMap = new Map<string, PaxParamInfo[]>();
 
 function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>): Node<NodeData | MidiMonitorNodeData> {
@@ -574,7 +574,7 @@ function FlowCanvas() {
     if (!raw) return;
 
     // Data is JSON { nodeType, paxName, ngaType? }
-    // For Xtensions: nodeType=0 (sentinel), ngaType=1/2/3 (PAX MIDI/Audio/AV)
+    // For Pax: nodeType=0 (sentinel), ngaType=1/2/3 (PAX MIDI/Audio/AV)
     // For built-ins: nodeType=1-4, paxName=''
     let nodeType: number = 1;
     let paxName = '';

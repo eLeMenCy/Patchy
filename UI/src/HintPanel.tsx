@@ -89,7 +89,7 @@ export const NODE_HINTS: Record<string, { title: string; body: string }> = {
   'MIDI MONITOR':     { title: 'MIDI Monitor',     body: 'Displays incoming MIDI events in real time. Filter by channel or event type. Double-click header to fold.' },
   'AUDIO MONITOR':    { title: 'Audio Monitor',    body: 'Oscilloscope view of the audio signal. Supports L/R overlay, separate channels, amplitude zoom and clip detection.' },
   'MIDI KEYBOARD':    { title: 'MIDI Keyboard',    body: 'On-screen MIDI keyboard. Click or drag to play notes. Supports pitch bend, mod wheel and configurable velocity.' },
-  // Xtensions
+  // Pax
   'AudioLevel':  { title: 'Audio Level',    body: 'Controls signal level from -60dB (silence) to +6dB. Use before outputs or between processing nodes.' },
   'Level':       { title: 'Audio Level',    body: 'Controls signal level from -60dB (silence) to +6dB. Use before outputs or between processing nodes.' },
   'Amp':         { title: 'Amp',            body: 'Boosts the signal from 0dB (unity) to +24dB. Use to drive weak signals or compensate for low levels.' },

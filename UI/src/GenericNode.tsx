@@ -10,7 +10,7 @@ import { NodeSelect } from './NodeSelect';
 
 export interface NodeData {
   label: string;
-  nodeType: 1 | 2 | 3 | 4 | number;  // 1-4 built-in, higher = Xtension
+  nodeType: 1 | 2 | 3 | 4 | number;  // 1-4 built-in, higher = Pax
   selectedDeviceId?: string;
   ports: {
     id: string;
@@ -30,7 +30,7 @@ const THEME: Record<number, { accent: string; dim: string; glow: string; tag: st
   3: { accent: 'var(--audio)', dim: 'var(--audio-dim)', glow: 'var(--audio-glow)', tag: 'AUDIO IN DEVICE'  },
   4: { accent: 'var(--audio)', dim: 'var(--audio-dim)', glow: 'var(--audio-glow)', tag: 'AUDIO OUT DEVICE' },
 };
-// Default theme for Xtension nodes
+// Default theme for Pax nodes
 const PAX_THEME = { accent: 'var(--av)', dim: 'var(--av-dim)', glow: 'var(--av-glow)', tag: 'PAX' };
 
 
@@ -304,7 +304,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
         ? saved
         : paxParams.map(p => p.defaultValue);
       setParamValues(vals);
-      // Restore param values to C++ Xtension
+      // Restore param values to C++ Pax
       vals.forEach((v, i) => Bridge.setPaxParameter(id, i, v));
     }
   }, [paxParams.length]);
@@ -393,7 +393,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
           </div>
         </div>
 
-        {/* Xtension name input */}
+        {/* Pax name input */}
         {isPax && (
           <input type="text" value={customName}
             placeholder={theme.tag}
@@ -467,7 +467,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
         </>)}
       </div>
 
-      {/* Xtension parameter sliders — outside port body so padding works correctly */}
+      {/* Pax parameter sliders — outside port body so padding works correctly */}
       {isPax && paxParams.length > 0 && (
         <div className="nodrag" style={{ padding: '8px 10px 6px',
                                          borderTop: '1px solid var(--border)' }}>

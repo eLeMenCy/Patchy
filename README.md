@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.885
+> Version 0.0.887
 
 ---
 
@@ -46,7 +46,8 @@
 - **Fragment export/import** — select any nodes, export as a reusable `.patchy` fragment, reimport with ghost-placement UX
 - **50-step undo/redo** — full graph snapshot history via `⌘Z` / `⌘⇧Z`
 - **Parameter persistence** — Pax parameters (sliders, steps) survive graph rebuilds, file loads and app restarts
-- **Built-in nodes** — MIDI In/Out, Audio In/Out, MIDI Monitor, Audio Monitor (oscilloscope), MIDI Keyboard
+- **Built-in nodes** — MIDI In/Out, Audio In/Out, MIDI Monitor, Audio Monitor (oscilloscope), MIDI Keyboard, UDP In/Out
+- **UDP device nodes** — first Phase 3 protocol nodes; receive and send raw UDP datagrams; Unicast, Multicast and Broadcast modes; live byte-rate label; activity flash
 - **Pax system** — drop a `.dylib/.so/.dll` into the Pax folder; new node type appears in the sidebar on next launch
 - **Dynamic port counts** — Pax can change their output port count at runtime (e.g. Spectrumyser band count) without audio interruption
 - **Restructured burger menu** — `☰` top-right opens File and Edit flyout submenus with keyboard shortcuts
@@ -70,6 +71,8 @@ Patchy/
 │   ├── MidiDeviceNodes.h/.cpp       MIDI In (type 1) + MIDI Out (type 2)
 │   ├── AudioDeviceNodes.h/.cpp      Audio In (type 3) + Audio Out (type 4)
 │   │                                Includes AudioDeviceManager + multi-channel FIFO
+│   ├── UdpDeviceNodes.h/.cpp        UDP In (type 8) + UDP Out (type 9) + UdpDeviceManager
+│   │                                Background socket thread, lock-free FIFO, byte-rate counter
 │   ├── MidiMonitorNode.h/.cpp       MIDI Monitor (type 5)
 │   ├── AudioMonitorNode.h/.cpp      Audio Monitor (type 6)
 │   ├── MidiKeyboardNode.h           MIDI Keyboard (type 7)
@@ -91,8 +94,8 @@ Patchy/
 │       ├── App.tsx                  ReactFlow canvas, graph sync, port activity, menus
 │       ├── Bridge.ts                JS↔C++ typed façade + subscriber system
 │       ├── NodeUtils.tsx            Shared hooks, components + style helpers
-│       ├── GenericNode.tsx          Device nodes + Pax nodes (types 1–4, 100+)
-│       │                            Includes channel selection settings panel
+│       ├── GenericNode.tsx          Device nodes + Pax nodes (types 1–4, 8–9, 100+)
+│       │                            Includes channel selection + UDP settings panels
 │       ├── MidiMonitorNode.tsx      MIDI Monitor node (type 5)
 │       ├── AudioMonitorNode.tsx     Audio Monitor node (type 6)
 │       ├── MidiKeyboardNode.tsx     MIDI Keyboard node (type 7)
@@ -128,6 +131,8 @@ Patchy/
 | 5 | MIDI Monitor | MIDI In + Out | Inspects MIDI events; pass-through; event table with filters |
 | 6 | Audio Monitor | Audio In | Stereo oscilloscope; trigger modes; VU zoom |
 | 7 | MIDI Keyboard | MIDI In + Out | Virtual keyboard; pitch/mod wheels; upstream note display |
+| 8 | UDP In Device | Value Out | Listens on a UDP port; Unicast · Multicast · Broadcast; live byte-rate |
+| 9 | UDP Out Device | Value In | Sends datagrams to a configured host:port; Unicast · Multicast · Broadcast |
 | 100+ | Pax nodes | Per descriptor | Dynamically loaded from `.dylib/.so/.dll` |
 
 ---
@@ -137,6 +142,8 @@ Patchy/
 All ports and edges animate live at 30fps:
 
 **MIDI activity** — flashes bright cyan-white (80ms) on OUT port, edge and downstream IN port
+
+**UDP activity** — flashes steel blue (80ms) on Value Out port, edge and downstream IN port; live byte-rate label (B/s or kB/s) displayed inline on UDP In nodes while packets are flowing
 
 **Audio level** — continuously reflects RMS level via colour:
 - Silence → dim base colour
@@ -532,4 +539,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.885 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.887 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

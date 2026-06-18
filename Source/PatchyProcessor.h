@@ -8,6 +8,7 @@
 #include "MidiKeyboardNode.h"
 #include <unordered_map>
 #include "AudioDeviceNodes.h"
+#include "UdpDeviceNodes.h"
 #include "WebBridge.h"
 #include "../Pax/PaxRegistry.h"
 #include "../Pax/PaxScanner.h"
@@ -167,6 +168,39 @@ public:
 
     AudioDeviceManager& getAudioDeviceManager() { return audioDeviceManager; }
 
+    /** Apply UDP settings (port, mode, target/multicast) to a live node and persist them. */
+    void setUdpSettings (const juce::String& nodeId,
+                         int port, int mode,
+                         const juce::String& targetHost,
+                         const juce::String& multicastAddr)
+    {
+        UdpDeviceManager::Settings s;
+        s.port          = port;
+        s.mode          = static_cast<UdpMode> (mode);
+        s.targetHost    = targetHost;
+        s.multicastAddr = multicastAddr;
+
+        udpDeviceManager.storeSettings (nodeId, s);
+        udpDeviceManager.applyToGraph (nodeId, processingGraph);
+        if (pendingGraph != nullptr)
+            udpDeviceManager.applyToGraph (nodeId, *pendingGraph);
+
+        // Persist in settingsJson for save/restore
+        if (auto* node = graphModel.findNode (nodeId))
+        {
+            juce::var existing;
+            try { existing = juce::JSON::parse (node->settingsJson); } catch (...) {}
+            if (existing.getDynamicObject() == nullptr)
+                existing = new juce::DynamicObject();
+            auto* obj = existing.getDynamicObject();
+            obj->setProperty ("udpPort",          port);
+            obj->setProperty ("udpMode",           mode);
+            obj->setProperty ("udpTargetHost",     targetHost);
+            obj->setProperty ("udpMulticastAddr",  multicastAddr);
+            node->settingsJson = juce::JSON::toString (existing, true);
+        }
+    }
+
     void setPaxParameter (const juce::String& nodeId, int index, float value)
     {
         for (auto& node : processingGraph.getNodes())
@@ -259,6 +293,10 @@ public:
             PortActivity a;
             a.nodeId        = node->id;
             a.midiOutEvents = node->drainMidiActivity();
+
+            // Byte-rate for UDP In nodes
+            if (auto* udpIn = dynamic_cast<UdpInDeviceNode*> (node.get()))
+                a.udpBytes = udpIn->drainByteActivity();
 
             // Audio RMS from AudioMonitorBuffer (for AudioMonitorNode)
             auto it = audioMonitorBuffers.find (node->id);
@@ -431,6 +469,7 @@ private:
     PaxRegistry  registry;
     MidiDeviceManager   midiDeviceManager;
     AudioDeviceManager  audioDeviceManager;
+    UdpDeviceManager    udpDeviceManager;
     std::unordered_map<juce::String, std::unique_ptr<MidiMonitorBuffer>>  monitorBuffers;
     std::unordered_map<juce::String, std::unique_ptr<MidiMonitorBuffer>>  keyboardMonitorBuffers;
     std::unordered_map<juce::String, std::unique_ptr<AudioMonitorBuffer>> audioMonitorBuffers;

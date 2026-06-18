@@ -119,6 +119,7 @@ target_sources(Patchy PRIVATE
     Source/StandaloneApp.cpp
     Source/MidiDeviceNodes.cpp
     Source/AudioDeviceNodes.cpp
+    Source/UdpDeviceNodes.cpp
     Source/MidiMonitorNode.cpp
     Source/AudioMonitorNode.cpp
     Source/MidiKeyboardNode.cpp

@@ -72,6 +72,7 @@ void PatchyProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     processingGraph.prepare (sampleRate, samplesPerBlock);
 midiDeviceManager.applyDeviceSelections  (processingGraph);
     audioDeviceManager.applyDeviceSelections (processingGraph);
+    udpDeviceManager.applyAllSettings        (processingGraph);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -194,6 +195,25 @@ void PatchyProcessor::rebuildProcessingGraph()
                 catch (...) {}
             }
         }
+        else if (n.nodeType == 8 || n.nodeType == 9)
+        {
+            // Restore UDP settings from settingsJson (undo/redo safe)
+            if (n.settingsJson.isNotEmpty())
+            {
+                try
+                {
+                    auto parsed = juce::JSON::parse (n.settingsJson);
+                    UdpDeviceManager::Settings s;
+                    s.port          = (int) parsed["udpPort"];
+                    s.mode          = static_cast<UdpMode> ((int) parsed["udpMode"]);
+                    s.targetHost    = parsed["udpTargetHost"].toString();
+                    s.multicastAddr = parsed["udpMulticastAddr"].toString();
+                    if (s.port > 0)
+                        udpDeviceManager.storeSettings (n.id, s);
+                }
+                catch (...) {}
+            }
+        }
     }
 
     // If selections changed (e.g. after undo), close all transferred devices
@@ -205,6 +225,7 @@ void PatchyProcessor::rebuildProcessingGraph()
     midiDeviceManager.applyDeviceSelections  (*newGraph);
     audioDeviceManager.applyDeviceSelections (*newGraph);
     audioDeviceManager.applyAllChannelSelections (*newGraph);
+    udpDeviceManager.applyAllSettings            (*newGraph);
 
     pendingGraph = std::move (newGraph);
     graphPending.store (true);

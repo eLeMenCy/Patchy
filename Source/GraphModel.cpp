@@ -53,6 +53,16 @@ std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
         mk ("MIDI In",  PortType::Midi, PortDirection::Input);
         mk ("MIDI Out", PortType::Midi, PortDirection::Output);
     }
+    else if (t == 8)
+    {
+        // UdpInDeviceNode: 1 Value output (feeds downstream graph nodes)
+        mk ("Value Out", PortType::Value, PortDirection::Output);
+    }
+    else if (t == 9)
+    {
+        // UdpOutDeviceNode: 1 Value input (receives from upstream graph nodes)
+        mk ("Value In",  PortType::Value, PortDirection::Input);
+    }
     else if (t >= 100)
     {
         // Dynamic addon node — ports based on NGA nodeType (t - 100)
@@ -94,6 +104,8 @@ static juce::String labelForType (int t, const juce::String& paxName)
         case 5:  return "MIDI Monitor";
         case 6:  return "Audio Monitor";
         case 7:  return "MIDI Keyboard";
+        case 8:  return "UDP In";
+        case 9:  return "UDP Out";
         default: return "Addon Node";
     }
 }

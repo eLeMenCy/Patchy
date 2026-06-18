@@ -1,6 +1,7 @@
 #include "ProcessingGraph.h"
 #include "MidiDeviceNodes.h"
 #include "AudioDeviceNodes.h"
+#include "UdpDeviceNodes.h"
 #include "MidiMonitorNode.h"
 #include "AudioMonitorNode.h"
 #include <unordered_set>
@@ -64,6 +65,8 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                 case 5:  proc = std::make_unique<MidiMonitorNode>     (id, getMidiBuffer   ? getMidiBuffer(id)   : nullptr); break;
                 case 6:  proc = std::make_unique<AudioMonitorNode>  (id, getAudioBuffer  ? getAudioBuffer(id)  : nullptr); break;
                 case 7:  proc = std::make_unique<MidiKeyboardNode>  (id, getKeyboardBuffer ? getKeyboardBuffer(id) : nullptr); break;
+                case 8:  proc = std::make_unique<UdpInDeviceNode>   (id); break;
+                case 9:  proc = std::make_unique<UdpOutDeviceNode>  (id); break;
                 default:
                     juce::Logger::writeToLog ("ProcessingGraph: unknown built-in type " + juce::String (type));
                     break;
@@ -407,6 +410,20 @@ AudioInDeviceNode* ProcessingGraph::findAudioInNode (const juce::String& nodeId)
     auto it = nodeMap.find (nodeId);
     if (it == nodeMap.end()) return nullptr;
     return dynamic_cast<AudioInDeviceNode*> (it->second);
+}
+
+UdpInDeviceNode* ProcessingGraph::findUdpInNode (const juce::String& nodeId)
+{
+    auto it = nodeMap.find (nodeId);
+    if (it == nodeMap.end()) return nullptr;
+    return dynamic_cast<UdpInDeviceNode*> (it->second);
+}
+
+UdpOutDeviceNode* ProcessingGraph::findUdpOutNode (const juce::String& nodeId)
+{
+    auto it = nodeMap.find (nodeId);
+    if (it == nodeMap.end()) return nullptr;
+    return dynamic_cast<UdpOutDeviceNode*> (it->second);
 }
 
 void ProcessingGraph::closeAllAudioDevices()

@@ -15,7 +15,7 @@ export interface NodeData {
   ports: {
     id: string;
     label: string;
-    type: 'midi' | 'audio';
+    type: 'midi' | 'audio' | 'osc' | 'dmx' | 'mqtt' | 'udp' | 'value';
     direction: 'input' | 'output';
   }[];
   paxParams?: PaxParamInfo[];
@@ -25,10 +25,12 @@ export interface NodeData {
 
 // ── Colour theme per node type ────────────────────────────────────────────────
 const THEME: Record<number, { accent: string; dim: string; glow: string; tag: string }> = {
-  1: { accent: 'var(--midi)',  dim: 'var(--midi-dim)',  glow: 'var(--midi-glow)',  tag: 'MIDI IN DEVICE'   },
-  2: { accent: 'var(--midi)',  dim: 'var(--midi-dim)',  glow: 'var(--midi-glow)',  tag: 'MIDI OUT DEVICE'  },
+  1: { accent: 'var(--midi)', dim: 'var(--midi-dim)', glow: 'var(--midi-glow)', tag: 'MIDI IN DEVICE'   },
+  2: { accent: 'var(--midi)', dim: 'var(--midi-dim)', glow: 'var(--midi-glow)', tag: 'MIDI OUT DEVICE'  },
   3: { accent: 'var(--audio)', dim: 'var(--audio-dim)', glow: 'var(--audio-glow)', tag: 'AUDIO IN DEVICE'  },
   4: { accent: 'var(--audio)', dim: 'var(--audio-dim)', glow: 'var(--audio-glow)', tag: 'AUDIO OUT DEVICE' },
+  8: { accent: 'var(--udp)', dim: 'var(--udp-dim)', glow: 'var(--udp-glow)', tag: 'UDP IN DEVICE'    },
+  9: { accent: 'var(--udp)', dim: 'var(--udp-dim)', glow: 'var(--udp-glow)', tag: 'UDP OUT DEVICE'   },
 };
 // Default theme for Pax nodes
 const PAX_THEME = { accent: 'var(--av)', dim: 'var(--av-dim)', glow: 'var(--av-glow)', tag: 'PAX' };
@@ -201,6 +203,156 @@ function ChannelSummary ({ channels }: { channels: number[] }) {
   );
 }
 
+// ── UDP port summary label ────────────────────────────────────────────────────
+function UdpPortSummary ({ port, mode, multicastAddr, byteRate, onClick }: { port: number; mode: 0 | 1 | 2; multicastAddr: string; byteRate: string; onClick: () => void }) {
+  const baseStyle: React.CSSProperties = {
+    fontSize: 9, marginBottom: 3, letterSpacing: '0.05em',
+    cursor: 'pointer', borderRadius: 3, padding: '2px 4px',
+    transition: 'background .12s',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+  };
+  if (!port) {
+    return (
+      <div
+        className="nodrag"
+        onClick={onClick}
+        style={{ ...baseStyle, color: '#ef5350', justifyContent: 'center' }}
+        onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(239,83,80,.12)'; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+      >
+        No port set
+      </div>
+    );
+  }
+  const modeTag = mode === 1 ? ` · multicast${multicastAddr ? ` · ${multicastAddr}` : ''}` : mode === 2 ? ' · broadcast' : '';
+  return (
+    <div
+      className="nodrag"
+      onClick={onClick}
+      style={{ ...baseStyle, color: 'var(--text-muted)' }}
+      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--surface)'; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+    >
+      <span>:{port}{modeTag}</span>
+      {byteRate && <span style={{ color: 'var(--udp)', opacity: 0.85 }}>{byteRate}</span>}
+    </div>
+  );
+}
+
+// ── UDP IN/OUT settings panel ────────────────────────────────────────────────
+function UdpDeviceSettingsPanel ({ nodeId, nodeType, port, mode, targetHost, multicastAddr, onClose }: {
+  nodeId:         string;
+  nodeType:       8 | 9;
+  port:           number;
+  mode:           0 | 1 | 2;
+  targetHost:     string;
+  multicastAddr:  string;
+  onClose:        () => void;
+}) {
+  const isOut  = nodeType === 9;
+  const title  = isOut ? 'UDP OUT Settings' : 'UDP IN Settings';
+  const accent = 'var(--udp)';
+
+  const commit = (next: { port?: number; mode?: 0 | 1 | 2; targetHost?: string; multicastAddr?: string }) => {
+    Bridge.setUdpSettings(
+      nodeId,
+      next.port ?? port,
+      next.mode ?? mode,
+      next.targetHost ?? targetHost,
+      next.multicastAddr ?? multicastAddr,
+    );
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', fontSize: 10, padding: '3px 6px', marginTop: 2,
+    background: 'var(--surface)', border: '1px solid var(--border)',
+    borderRadius: 3, color: 'var(--text-dim)',
+    fontFamily: "'JetBrains Mono', monospace",
+  };
+
+  return (
+    <div
+      className="nodrag"
+      onMouseDown={e => e.stopPropagation()}
+      onMouseUp={e => e.stopPropagation()}
+      onPointerDown={e => e.stopPropagation()}
+      onPointerUp={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+      style={{
+        position: 'absolute', top: 0, left: '100%', marginLeft: 6,
+        width: 200, background: 'var(--surface2)',
+        border: '1px solid var(--border-hi)', borderRadius: 'var(--radius)',
+        padding: '10px 12px', zIndex: 1000,
+        boxShadow: '0 8px 32px rgba(0,0,0,.6)',
+        fontFamily: "'JetBrains Mono', monospace",
+        userSelect: 'none',
+      }}>
+      <SettingsPanelHeader title={title} onReset={() => commit({ port: 0, mode: 0, targetHost: '', multicastAddr: '' })} onClose={onClose} />
+
+      <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 8, marginBottom: 4 }}>
+        Port
+      </div>
+      <input
+        type="number" min={1} max={65535} value={port || ''}
+        placeholder="e.g. 9000"
+        onChange={e => commit({ port: parseInt(e.target.value, 10) || 0 })}
+        style={inputStyle}
+      />
+
+      <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 8, marginBottom: 4 }}>
+        Mode
+      </div>
+      <div style={{ display: 'flex', gap: 4 }}>
+        {(['Unicast', 'Multicast', 'Broadcast'] as const).map((label, i) => (
+          <button key={label}
+            onClick={() => commit({ mode: i as 0 | 1 | 2 })}
+            style={{
+              flex: 1, fontSize: 9, padding: '4px 2px', borderRadius: 3,
+              border: '1px solid ' + (mode === i ? accent : 'var(--border)'),
+              background: mode === i ? 'var(--surface)' : 'transparent',
+              color: mode === i ? accent : 'var(--text-muted)',
+              cursor: 'pointer', fontFamily: "'JetBrains Mono', monospace",
+            }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {isOut && mode === 0 && (
+        <>
+          <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 8, marginBottom: 4 }}>
+            Target Host
+          </div>
+          <input
+            type="text" value={targetHost} placeholder="192.168.1.50"
+            onChange={e => commit({ targetHost: e.target.value })}
+            style={inputStyle}
+          />
+        </>
+      )}
+
+      {mode === 1 && (
+        <>
+          <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 8, marginBottom: 4 }}>
+            Multicast Group
+          </div>
+          <input
+            type="text" value={multicastAddr} placeholder="239.0.0.1"
+            onChange={e => commit({ multicastAddr: e.target.value })}
+            style={inputStyle}
+          />
+        </>
+      )}
+
+      {!port && (
+        <div style={{ fontSize: 9, color: '#ef5350', marginTop: 6 }}>
+          Set a port to activate
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Port colour by type ───────────────────────────────────────────────────────
 function portColour (type: string): string {
   switch (type) {
@@ -241,6 +393,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
   const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
   const isPax = ngaType !== null;
   const isAudioDevice = nodeData.nodeType === 3 || nodeData.nodeType === 4;
+  const isUdpDevice   = nodeData.nodeType === 8 || nodeData.nodeType === 9;
   const { setHint } = useContext(HintContext);
   const portBodyRef = useRef<HTMLDivElement>(null);
 
@@ -273,6 +426,39 @@ function GenericNode({ id, data, selected }: NodeProps) {
       setDeviceChannelCount(2);
     }
   }, [nodeData.settingsJson, isAudioDevice]);
+
+  // ── UDP IN/OUT settings state ───────────────────────────────────────────────
+  const [udpPort, setUdpPort] = useState<number>(0);
+  const [udpMode, setUdpMode] = useState<0 | 1 | 2>(0); // 0=Unicast 1=Multicast 2=Broadcast
+  const [udpTargetHost, setUdpTargetHost] = useState('');
+  const [udpMulticastAddr, setUdpMulticastAddr] = useState('');
+
+  useEffect(() => {
+    if (!isUdpDevice) return;
+    try {
+      const parsed = nodeData.settingsJson ? JSON.parse(nodeData.settingsJson as string) : null;
+      setUdpPort(parsed?.udpPort ?? 0);
+      setUdpMode((parsed?.udpMode ?? 0) as 0 | 1 | 2);
+      setUdpTargetHost(parsed?.udpTargetHost ?? '');
+      setUdpMulticastAddr(parsed?.udpMulticastAddr ?? '');
+    } catch {}
+  }, [nodeData.settingsJson, isUdpDevice]);
+
+  // Byte-rate label for UDP In nodes — subscribe to 30Hz port activity, compute B/s
+  const [udpByteRate, setUdpByteRate] = useState<string>('');
+  useEffect(() => {
+    if (nodeData.nodeType !== 8) return;  // UDP In only
+    const unsub = Bridge.onPortActivity((entries) => {
+      const entry = entries.find(e => e.id === id);
+      if (!entry) return;
+      const bps = (entry.bytes ?? 0) * 30;  // 30Hz poll → bytes/sec
+      if (bps === 0) { setUdpByteRate(''); return; }
+      setUdpByteRate(bps >= 1024
+        ? `${(bps / 1024).toFixed(1)} kB/s`
+        : `${bps} B/s`);
+    });
+    return unsub;
+  }, [id, nodeData.nodeType]);
 
   // Track device channel count from the device list (fallback)
   const selectedDeviceIdRef = useRef(nodeData.selectedDeviceId);
@@ -353,7 +539,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
   return (
     <div
       style={{
-        minWidth:   Math.max(theme.tag.length * 10 + 80, 220),
+        minWidth:   isUdpDevice ? 310 : Math.max(theme.tag.length * 10 + 80, 220),
         userSelect: 'none',
         ...nodeContainerStyle(theme.accent, !!selected, { bg: 'var(--surface)', glow: theme.glow }),
       }}
@@ -442,6 +628,28 @@ function GenericNode({ id, data, selected }: NodeProps) {
           </div>
         )}
 
+        {/* UDP device settings button */}
+        {isUdpDevice && (
+          <div style={{ position: 'relative', display: 'inline-flex' }}>
+            <NodeHeaderButton
+              onClick={toggleSettings}
+              active={showSettings}
+              activeAccent="var(--udp)"
+              onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.settings), onMouseLeave: () => setHint(null) }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </NodeHeaderButton>
+            {!udpPort && !showSettings && (
+              <div style={{
+                position: 'absolute', top: -3, right: -3,
+                width: 7, height: 7, borderRadius: '50%',
+                background: '#ef5350', pointerEvents: 'none',
+              }} />
+            )}
+          </div>
+        )}
+
         {/* Delete button */}
         <NodeHeaderButton onClick={handleDelete} danger
           onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.deleteNode), onMouseLeave: () => setHint(null) }}><X size={14} /></NodeHeaderButton>
@@ -474,6 +682,20 @@ function GenericNode({ id, data, selected }: NodeProps) {
               deviceChannelCount={deviceChannelCount}
               selectedDeviceId={nodeData.selectedDeviceId}
               warning={channelWarning}
+              onClose={closeSettings}
+            />
+          )}
+        </>)}
+        {isUdpDevice && (<>
+          <UdpPortSummary port={udpPort} mode={udpMode} multicastAddr={udpMulticastAddr} byteRate={udpByteRate} onClick={toggleSettings} />
+          {showSettings && (
+            <UdpDeviceSettingsPanel
+              nodeId={id}
+              nodeType={nodeData.nodeType as 8 | 9}
+              port={udpPort}
+              mode={udpMode}
+              targetHost={udpTargetHost}
+              multicastAddr={udpMulticastAddr}
               onClose={closeSettings}
             />
           )}
@@ -587,7 +809,7 @@ Double-click to reset to default (${p.defaultValue}).` })}
       {inputs.map((p, i) => (
         <NodeHandle key={p.id}
           nodeId={id} label={p.label} direction="in"
-          colour={portColour(p.type)}
+          colour={isUdpDevice ? 'var(--udp)' : portColour(p.type)}
           index={i} total={inputs.length}
           offset={isPax ? 6 : 8}
           portBodyRef={portBodyRef}
@@ -599,7 +821,7 @@ Double-click to reset to default (${p.defaultValue}).` })}
       {outputs.map((p, i) => (
         <NodeHandle key={p.id}
           nodeId={id} label={p.label} direction="out"
-          colour={portColour(p.type)}
+          colour={isUdpDevice ? 'var(--udp)' : portColour(p.type)}
           index={i} total={outputs.length}
           offset={isPax ? 6 : 8}
           portBodyRef={portBodyRef}

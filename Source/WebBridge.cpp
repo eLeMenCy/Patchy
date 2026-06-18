@@ -522,6 +522,22 @@ void WebBridge::handleMessage (const juce::String& json)
                 pushSettingsToUI (nodeId, newJson);
             }
         }
+        else if (key == "udpSettings" && onSetUdpSettings)
+        {
+            // value is a JSON object: { port, mode, targetHost, multicastAddr }
+            auto parsed = juce::JSON::parse (value);
+            int port                   = (int) parsed["port"];
+            int mode                   = (int) parsed["mode"];
+            juce::String targetHost    = parsed["targetHost"].toString();
+            juce::String multicastAddr = parsed["multicastAddr"].toString();
+
+            onSetUdpSettings (nodeId, port, mode, targetHost, multicastAddr);
+
+            // PatchyProcessor::setUdpSettings already persists to settingsJson on
+            // the GraphModel node directly — push the updated value to the UI.
+            if (auto* nd = graph.findNode (nodeId))
+                pushSettingsToUI (nodeId, nd->settingsJson);
+        }
         // Push updated graph so React reflects the new selectedDeviceId / settings
         pushGraphToUI();
         pushUndoState();
@@ -875,7 +891,8 @@ void WebBridge::pushPortActivity()
              << Q << "l"        << Q << ":" << lv                          << ","
              << Q << "r"        << Q << ":" << rv                          << ","
              << Q << "portRms"  << Q << ":" << portRmsStr                  << ","
-             << Q << "notes"    << Q << ":" << Q << notesStr        << Q
+             << Q << "notes"    << Q << ":" << Q << notesStr        << Q   << ","
+             << Q << "bytes"    << Q << ":" << a.udpBytes
              << "}";
     }
     json << "]";

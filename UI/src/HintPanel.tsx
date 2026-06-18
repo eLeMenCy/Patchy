@@ -89,6 +89,8 @@ export const NODE_HINTS: Record<string, { title: string; body: string }> = {
   'MIDI MONITOR':     { title: 'MIDI Monitor',     body: 'Displays incoming MIDI events in real time. Filter by channel or event type. Double-click header to fold.' },
   'AUDIO MONITOR':    { title: 'Audio Monitor',    body: 'Oscilloscope view of the audio signal. Supports L/R overlay, separate channels, amplitude zoom and clip detection.' },
   'MIDI KEYBOARD':    { title: 'MIDI Keyboard',    body: 'On-screen MIDI keyboard. Click or drag to play notes. Supports pitch bend, mod wheel and configurable velocity.' },
+  'UDP IN DEVICE':    { title: 'UDP In Device',    body: 'Listens for UDP datagrams on a configured port. Supports unicast, multicast and broadcast. Set the port in the node settings to activate.' },
+  'UDP OUT DEVICE':   { title: 'UDP Out Device',   body: 'Sends incoming graph values as UDP datagrams to a configured target. Supports unicast (host:port), multicast and broadcast.' },
   // Pax
   'AudioLevel':  { title: 'Audio Level',    body: 'Controls signal level from -60dB (silence) to +6dB. Use before outputs or between processing nodes.' },
   'Level':       { title: 'Audio Level',    body: 'Controls signal level from -60dB (silence) to +6dB. Use before outputs or between processing nodes.' },

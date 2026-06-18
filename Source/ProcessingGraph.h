@@ -16,6 +16,8 @@ class MidiInDeviceNode;
 class AudioOutDeviceNode;
 class AudioInDeviceNode;
 class AudioMonitorNode;
+class UdpInDeviceNode;
+class UdpOutDeviceNode;
 
 class ProcessingGraph
 {
@@ -67,6 +69,8 @@ public:
     MidiInDeviceNode*   findMidiInNode   (const juce::String& nodeId);
     AudioOutDeviceNode* findAudioOutNode (const juce::String& nodeId);
     AudioInDeviceNode*  findAudioInNode  (const juce::String& nodeId);
+    UdpInDeviceNode*    findUdpInNode    (const juce::String& nodeId);
+    UdpOutDeviceNode*   findUdpOutNode   (const juce::String& nodeId);
 
     // ── Monitor ───────────────────────────────────────────────────────────
     void closeAllAudioDevices();

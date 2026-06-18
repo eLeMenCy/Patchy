@@ -71,7 +71,7 @@ function rawToFlowEdge(raw: RawConnection): Edge {
             : src.includes('_dmx_')  ? 'edge-dmx'
             : src.includes('_mqtt_') ? 'edge-mqtt'
             : src.includes('_udp_')  ? 'edge-udp'
-            : src.includes('_value_') ? 'edge-value'
+            : src.includes('value')  ? 'edge-udp'
             : 'edge-midi';
   return {
     id:           raw.id,
@@ -115,6 +115,7 @@ function rmsToGlow (rms: number, col: string): string {
 function usePortActivityStyles (edges: any[], nodes: any[]) {
   const styleRef      = useRef<HTMLStyleElement | null>(null);
   const midiTimers    = useRef<Map<string, number>>(new Map());
+  const udpTimers     = useRef<Map<string, number>>(new Map());
   const audioLevels   = useRef<Map<string, number>>(new Map());
   const portRmsLevels = useRef<Map<string, number[]>>(new Map());
   const edgeList      = useRef(edges);
@@ -136,7 +137,14 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
     return Bridge.onPortActivity((entries: PortActivityEntry[]) => {
       const now = Date.now();
       entries.forEach(entry => {
-        if (entry.midi > 0) midiTimers.current.set(entry.id, now + 80);
+        if (entry.midi > 0) {
+          const nodeType = (nodesRef.current.find((n: any) => n.id === entry.id)?.data as any)?.nodeType;
+          if (nodeType === 8 || nodeType === 9) {
+            udpTimers.current.set(entry.id, now + 80);
+          } else {
+            midiTimers.current.set(entry.id, now + 80);
+          }
+        }
         const rms  = Math.min(Math.max(entry.l, entry.r) / 1000 * 4, 1.0);
         const prev = audioLevels.current.get(entry.id) ?? 0;
         audioLevels.current.set(entry.id, Math.max(rms, prev * 0.88));
@@ -167,12 +175,15 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
       // Collect active node ids (audio + midi sources, including unconnected)
       const audioEdges = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('audio'));
       const midiEdges  = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('midi'));
+      const udpEdges   = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('value'));
       const audioSources = new Set<string>(audioEdges.map(e => e.source));
       audioLevels.current.forEach((rms, id) => { if (rms > 0.01) audioSources.add(id); });
       const midiSources  = new Set<string>(midiEdges.map(e => e.source));
       // Add unconnected MIDI sources that have recent activity
       midiTimers.current.forEach((expiry, id) => { if (expiry > now) midiSources.add(id); });
-      const allSources   = new Set([...audioSources, ...midiSources]);
+      const udpSources   = new Set<string>(udpEdges.map(e => e.source));
+      udpTimers.current.forEach((expiry, id) => { if (expiry > now) udpSources.add(id); });
+      const allSources   = new Set([...audioSources, ...midiSources, ...udpSources]);
 
       let css = '';
 
@@ -209,6 +220,18 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
           const fc = '#B2EBF2';
           css += `[data-handleid="${id}_MIDI Out_out"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
           nodeMidiEdges.forEach(e => {
+            css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${fc}!important;filter:drop-shadow(0 0 4px ${fc});transition:none}`;
+            if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
+          });
+        }
+
+        // UDP flash
+        const isUdpFlash = (udpTimers.current.get(id) ?? 0) > now;
+        if (isUdpFlash) {
+          const nodeUdpEdges = udpEdges.filter(e => e.source === id);
+          const fc = '#93c5fd'; // lighter blue flash, distinct from the base --udp colour
+          css += `[data-handleid="${id}_Value Out_out"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
+          nodeUdpEdges.forEach(e => {
             css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${fc}!important;filter:drop-shadow(0 0 4px ${fc});transition:none}`;
             if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
           });

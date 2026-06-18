@@ -33,6 +33,7 @@ struct PortActivity
     std::vector<float> portRms;           // per-output-port RMS for multi-port nodes
     // For keyboard nodes: active notes in inputMidi this frame
     std::vector<std::pair<uint8_t,uint8_t>> incomingNotes; // {status, note}
+    int               udpBytes      = 0;   // bytes received since last push (UDP In nodes only)
 };
 
 struct SpectrumSnapshot
@@ -100,6 +101,7 @@ public:
     std::function<void(double, int, bool)> onSetAudioEngineSettings;
     std::function<void()>                  onUIReady;
     std::function<void(const juce::String&, const std::vector<int>&)> onSetAudioDeviceChannels;
+    std::function<void(const juce::String&, int, int, const juce::String&, const juce::String&)> onSetUdpSettings;
 
 private:
     // ── Resource provider (release) ───────────────────────────────────────

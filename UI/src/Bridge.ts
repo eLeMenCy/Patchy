@@ -51,6 +51,7 @@ export interface PortActivityEntry {
   r:       number;    // audio RMS right ×1000
   portRms: number[];  // per-output-port RMS ×1000 for multi-port nodes
   notes:   string;    // "status,note status,note ..." for keyboard nodes
+  bytes:   number;    // bytes received since last push (UDP In only, 0 otherwise)
 }
 type PortActivityCallback = (entries: PortActivityEntry[]) => void;
 const _portActivitySubscribers: PortActivityCallback[] = [];
@@ -535,6 +536,14 @@ export const Bridge = {
       else        _claimedDevices.delete(nodeId);
       _dispatchClaimed();
     }
+  },
+
+  /** Convenience wrapper for UDP IN/OUT node settings (port, mode, target/multicast). */
+  setUdpSettings(nodeId: string, port: number, mode: 0 | 1 | 2, targetHost = '', multicastAddr = '') {
+    sendToJuce({
+      type: 'setNodeParam', nodeId, key: 'udpSettings',
+      value: JSON.stringify({ port, mode, targetHost, multicastAddr }),
+    });
   },
 
   /** Subscribe to claimed-device changes.

@@ -18,7 +18,14 @@ const BUILTIN_GROUPS = [
     nodes: [
       { type: 3 as const, label: 'Audio In Device',  desc: 'Receive from audio device', icon: '◀' },
       { type: 4 as const, label: 'Audio Out Device', desc: 'Send to audio device',       icon: '▶' },
-      { type: 6 as const, label: 'Audio Monitor',    desc: 'Waveform display',        icon: '◎' },
+      { type: 6 as const, label: 'Audio Monitor',    desc: 'Waveform display',           icon: '◎' },
+    ],
+  },
+  {
+    label: 'UDP', accent: 'var(--udp)', dim: 'var(--udp-dim)',
+    nodes: [
+      { type: 8 as const, label: 'UDP In Device',  desc: 'Listen on a UDP port', icon: '⊲' },
+      { type: 9 as const, label: 'UDP Out Device', desc: 'Send to a UDP target', icon: '⊳' },
     ],
   },
 ] as const;

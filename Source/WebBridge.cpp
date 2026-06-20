@@ -538,6 +538,19 @@ void WebBridge::handleMessage (const juce::String& json)
             if (auto* nd = graph.findNode (nodeId))
                 pushSettingsToUI (nodeId, nd->settingsJson);
         }
+        else if (key == "oscSettings" && onSetOscSettings)
+        {
+            // value is a JSON object: { port, targetHost, oscAddress }
+            auto parsed = juce::JSON::parse (value);
+            int port                  = (int) parsed["port"];
+            juce::String targetHost   = parsed["targetHost"].toString();
+            juce::String oscAddress   = parsed["oscAddress"].toString();
+
+            onSetOscSettings (nodeId, port, targetHost, oscAddress);
+
+            if (auto* nd = graph.findNode (nodeId))
+                pushSettingsToUI (nodeId, nd->settingsJson);
+        }
         // Push updated graph so React reflects the new selectedDeviceId / settings
         pushGraphToUI();
         pushUndoState();

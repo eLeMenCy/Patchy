@@ -18,6 +18,8 @@ class AudioInDeviceNode;
 class AudioMonitorNode;
 class UdpInDeviceNode;
 class UdpOutDeviceNode;
+class OscInDeviceNode;
+class OscOutDeviceNode;
 
 class ProcessingGraph
 {
@@ -71,6 +73,8 @@ public:
     AudioInDeviceNode*  findAudioInNode  (const juce::String& nodeId);
     UdpInDeviceNode*    findUdpInNode    (const juce::String& nodeId);
     UdpOutDeviceNode*   findUdpOutNode   (const juce::String& nodeId);
+    OscInDeviceNode*    findOscInNode    (const juce::String& nodeId);
+    OscOutDeviceNode*   findOscOutNode   (const juce::String& nodeId);
 
     // ── Monitor ───────────────────────────────────────────────────────────
     void closeAllAudioDevices();

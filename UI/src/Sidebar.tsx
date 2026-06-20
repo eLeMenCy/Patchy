@@ -28,6 +28,13 @@ const BUILTIN_GROUPS = [
       { type: 9 as const, label: 'UDP Out Device', desc: 'Send to a UDP target', icon: '⊳' },
     ],
   },
+  {
+    label: 'OSC', accent: 'var(--osc)', dim: 'var(--osc-dim)',
+    nodes: [
+      { type: 10 as const, label: 'OSC In Device',  desc: 'Receive OSC messages on a UDP port', icon: '⊲' },
+      { type: 11 as const, label: 'OSC Out Device', desc: 'Send OSC messages to a target',       icon: '⊳' },
+    ],
+  },
 ] as const;
 
 const PLUGIN_GROUPS = [

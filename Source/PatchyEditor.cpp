@@ -32,6 +32,9 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
     bridge.onSetUdpSettings          = [&p](const juce::String& nid, int port, int mode,
                                             const juce::String& targetHost, const juce::String& multicastAddr)
                                        { p.setUdpSettings (nid, port, mode, targetHost, multicastAddr); };
+    bridge.onSetOscSettings          = [&p](const juce::String& nid, int port,
+                                            const juce::String& targetHost, const juce::String& oscAddress)
+                                       { p.setOscSettings (nid, port, targetHost, oscAddress); };
     addAndMakeVisible (bridge);
     setSize (640, 400);
     setResizable (true, false);

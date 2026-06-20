@@ -91,6 +91,8 @@ export const NODE_HINTS: Record<string, { title: string; body: string }> = {
   'MIDI KEYBOARD':    { title: 'MIDI Keyboard',    body: 'On-screen MIDI keyboard. Click or drag to play notes. Supports pitch bend, mod wheel and configurable velocity.' },
   'UDP IN DEVICE':    { title: 'UDP In Device',    body: 'Listens for UDP datagrams on a configured port. Supports unicast, multicast and broadcast. Set the port in the node settings to activate.' },
   'UDP OUT DEVICE':   { title: 'UDP Out Device',   body: 'Sends incoming graph values as UDP datagrams to a configured target. Supports unicast (host:port), multicast and broadcast.' },
+  'OSC IN DEVICE':    { title: 'OSC In Device',    body: 'Listens for OSC 1.0 messages on a UDP port. Parses address pattern and typed arguments (f, i, s, b, T, F). Set the port in the node settings to activate.' },
+  'OSC OUT DEVICE':   { title: 'OSC Out Device',   body: 'Sends incoming graph values as OSC messages to a configured host:port. The OSC address is configurable (default /patchy).' },
   // Pax
   'AudioLevel':  { title: 'Audio Level',    body: 'Controls signal level from -60dB (silence) to +6dB. Use before outputs or between processing nodes.' },
   'Level':       { title: 'Audio Level',    body: 'Controls signal level from -60dB (silence) to +6dB. Use before outputs or between processing nodes.' },

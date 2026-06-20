@@ -73,6 +73,7 @@ void PatchyProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 midiDeviceManager.applyDeviceSelections  (processingGraph);
     audioDeviceManager.applyDeviceSelections (processingGraph);
     udpDeviceManager.applyAllSettings        (processingGraph);
+    oscDeviceManager.applyAllSettings        (processingGraph);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -214,6 +215,25 @@ void PatchyProcessor::rebuildProcessingGraph()
                 catch (...) {}
             }
         }
+        else if (n.nodeType == 10 || n.nodeType == 11)
+        {
+            // Restore OSC settings from settingsJson (undo/redo safe)
+            if (n.settingsJson.isNotEmpty())
+            {
+                try
+                {
+                    auto parsed = juce::JSON::parse (n.settingsJson);
+                    OscDeviceManager::Settings s;
+                    s.port       = (int) parsed["oscPort"];
+                    s.targetHost = parsed["oscTargetHost"].toString();
+                    s.oscAddress = parsed["oscAddress"].toString();
+                    if (s.oscAddress.isEmpty()) s.oscAddress = "/patchy";
+                    if (s.port > 0)
+                        oscDeviceManager.storeSettings (n.id, s);
+                }
+                catch (...) {}
+            }
+        }
     }
 
     // If selections changed (e.g. after undo), close all transferred devices
@@ -226,6 +246,7 @@ void PatchyProcessor::rebuildProcessingGraph()
     audioDeviceManager.applyDeviceSelections (*newGraph);
     audioDeviceManager.applyAllChannelSelections (*newGraph);
     udpDeviceManager.applyAllSettings            (*newGraph);
+    oscDeviceManager.applyAllSettings            (*newGraph);
 
     pendingGraph = std::move (newGraph);
     graphPending.store (true);

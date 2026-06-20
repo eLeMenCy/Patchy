@@ -63,6 +63,16 @@ std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
         // UdpOutDeviceNode: 1 Value input (receives from upstream graph nodes)
         mk ("Value In",  PortType::Value, PortDirection::Input);
     }
+    else if (t == 10)
+    {
+        // OscInDeviceNode: 1 OSC output (parsed OSC messages as PAX_Value)
+        mk ("OSC Out", PortType::OSC, PortDirection::Output);
+    }
+    else if (t == 11)
+    {
+        // OscOutDeviceNode: 1 OSC input (serialises PAX_Value back to OSC)
+        mk ("OSC In",  PortType::OSC, PortDirection::Input);
+    }
     else if (t >= 100)
     {
         // Dynamic addon node — ports based on NGA nodeType (t - 100)
@@ -106,6 +116,8 @@ static juce::String labelForType (int t, const juce::String& paxName)
         case 7:  return "MIDI Keyboard";
         case 8:  return "UDP In";
         case 9:  return "UDP Out";
+        case 10: return "OSC In";
+        case 11: return "OSC Out";
         default: return "Addon Node";
     }
 }

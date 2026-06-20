@@ -546,6 +546,14 @@ export const Bridge = {
     });
   },
 
+  /** Convenience wrapper for OSC IN/OUT node settings (port, targetHost, oscAddress). */
+  setOscSettings(nodeId: string, port: number, targetHost = '', oscAddress = '/patchy') {
+    sendToJuce({
+      type: 'setNodeParam', nodeId, key: 'oscSettings',
+      value: JSON.stringify({ port, targetHost, oscAddress }),
+    });
+  },
+
   /** Subscribe to claimed-device changes.
    *  Callback receives a Map<nodeId, deviceId> of all current claims.
    *  Returns an unsubscribe function. */

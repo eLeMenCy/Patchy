@@ -46,8 +46,8 @@
 - **Fragment export/import** — select any nodes, export as a reusable `.patchy` fragment, reimport with ghost-placement UX
 - **50-step undo/redo** — full graph snapshot history via `⌘Z` / `⌘⇧Z`
 - **Parameter persistence** — Pax parameters (sliders, steps) survive graph rebuilds, file loads and app restarts
-- **Built-in nodes** — MIDI In/Out, Audio In/Out, MIDI Monitor, Audio Monitor (oscilloscope), MIDI Keyboard, UDP In/Out
-- **UDP device nodes** — first Phase 3 protocol nodes; receive and send raw UDP datagrams; Unicast, Multicast and Broadcast modes; live byte-rate label; activity flash
+- **Built-in nodes** — MIDI In/Out, Audio In/Out, MIDI Monitor, Audio Monitor (oscilloscope), MIDI Keyboard, UDP In/Out, OSC In/Out
+- **Protocol device nodes** — Phase 3 built-in nodes for network protocols; UDP (raw datagrams, Unicast/Multicast/Broadcast) and OSC 1.0 (f/i/s/b/T/F types, configurable address); live byte-rate label; activity flash
 - **Pax system** — drop a `.dylib/.so/.dll` into the Pax folder; new node type appears in the sidebar on next launch
 - **Dynamic port counts** — Pax can change their output port count at runtime (e.g. Spectrumyser band count) without audio interruption
 - **Restructured burger menu** — `☰` top-right opens File and Edit flyout submenus with keyboard shortcuts
@@ -133,6 +133,8 @@ Patchy/
 | 7 | MIDI Keyboard | MIDI In + Out | Virtual keyboard; pitch/mod wheels; upstream note display |
 | 8 | UDP In Device | Value Out | Listens on a UDP port; Unicast · Multicast · Broadcast; live byte-rate |
 | 9 | UDP Out Device | Value In | Sends datagrams to a configured host:port; Unicast · Multicast · Broadcast |
+| 10 | OSC In Device | OSC Out | Listens on a UDP port; parses OSC 1.0 messages; live byte-rate |
+| 11 | OSC Out Device | OSC In | Sends PAX_Value events as OSC messages to a configured host:port; configurable OSC address |
 | 100+ | Pax nodes | Per descriptor | Dynamically loaded from `.dylib/.so/.dll` |
 
 ---
@@ -144,6 +146,8 @@ All ports and edges animate live at 30fps:
 **MIDI activity** — flashes bright cyan-white (80ms) on OUT port, edge and downstream IN port
 
 **UDP activity** — flashes steel blue (80ms) on Value Out port, edge and downstream IN port; live byte-rate label (B/s or kB/s) displayed inline on UDP In nodes while packets are flowing
+
+**OSC activity** — flashes cyan/teal (80ms) on OSC Out port, edge and downstream IN port; live byte-rate label displayed inline on OSC In nodes while messages are arriving
 
 **Audio level** — continuously reflects RMS level via colour:
 - Silence → dim base colour

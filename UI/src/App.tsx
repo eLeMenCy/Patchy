@@ -67,11 +67,11 @@ function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>)
 function rawToFlowEdge(raw: RawConnection): Edge {
   const src = raw.sourcePortId.toLowerCase();
   const cls = src.includes('audio') ? 'edge-audio'
-            : src.includes('_osc_')  ? 'edge-osc'
-            : src.includes('_dmx_')  ? 'edge-dmx'
-            : src.includes('_mqtt_') ? 'edge-mqtt'
-            : src.includes('_udp_')  ? 'edge-udp'
-            : src.includes('value')  ? 'edge-udp'
+            : src.includes('osc')   ? 'edge-osc'
+            : src.includes('_dmx_') ? 'edge-dmx'
+            : src.includes('mqtt')  ? 'edge-mqtt'
+            : src.includes('_udp_') ? 'edge-udp'
+            : src.includes('value') ? 'edge-udp'
             : 'edge-midi';
   return {
     id:           raw.id,
@@ -116,6 +116,7 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
   const styleRef      = useRef<HTMLStyleElement | null>(null);
   const midiTimers    = useRef<Map<string, number>>(new Map());
   const udpTimers     = useRef<Map<string, number>>(new Map());
+  const oscTimers     = useRef<Map<string, number>>(new Map());
   const audioLevels   = useRef<Map<string, number>>(new Map());
   const portRmsLevels = useRef<Map<string, number[]>>(new Map());
   const edgeList      = useRef(edges);
@@ -141,6 +142,8 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
           const nodeType = (nodesRef.current.find((n: any) => n.id === entry.id)?.data as any)?.nodeType;
           if (nodeType === 8 || nodeType === 9) {
             udpTimers.current.set(entry.id, now + 80);
+          } else if (nodeType === 10 || nodeType === 11) {
+            oscTimers.current.set(entry.id, now + 80);
           } else {
             midiTimers.current.set(entry.id, now + 80);
           }
@@ -176,14 +179,16 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
       const audioEdges = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('audio'));
       const midiEdges  = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('midi'));
       const udpEdges   = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('value'));
+      const oscEdges   = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('osc'));
       const audioSources = new Set<string>(audioEdges.map(e => e.source));
       audioLevels.current.forEach((rms, id) => { if (rms > 0.01) audioSources.add(id); });
       const midiSources  = new Set<string>(midiEdges.map(e => e.source));
-      // Add unconnected MIDI sources that have recent activity
       midiTimers.current.forEach((expiry, id) => { if (expiry > now) midiSources.add(id); });
       const udpSources   = new Set<string>(udpEdges.map(e => e.source));
       udpTimers.current.forEach((expiry, id) => { if (expiry > now) udpSources.add(id); });
-      const allSources   = new Set([...audioSources, ...midiSources, ...udpSources]);
+      const oscSources   = new Set<string>(oscEdges.map(e => e.source));
+      oscTimers.current.forEach((expiry, id) => { if (expiry > now) oscSources.add(id); });
+      const allSources   = new Set([...audioSources, ...midiSources, ...udpSources, ...oscSources]);
 
       let css = '';
 
@@ -229,9 +234,21 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
         const isUdpFlash = (udpTimers.current.get(id) ?? 0) > now;
         if (isUdpFlash) {
           const nodeUdpEdges = udpEdges.filter(e => e.source === id);
-          const fc = '#93c5fd'; // lighter blue flash, distinct from the base --udp colour
+          const fc = '#93c5fd';
           css += `[data-handleid="${id}_Value Out_out"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
           nodeUdpEdges.forEach(e => {
+            css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${fc}!important;filter:drop-shadow(0 0 4px ${fc});transition:none}`;
+            if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
+          });
+        }
+
+        // OSC flash
+        const isOscFlash = (oscTimers.current.get(id) ?? 0) > now;
+        if (isOscFlash) {
+          const nodeOscEdges = oscEdges.filter(e => e.source === id);
+          const fc = '#67e8f9'; // lighter cyan flash, distinct from base --osc colour
+          css += `[data-handleid="${id}_OSC Out_out"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
+          nodeOscEdges.forEach(e => {
             css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${fc}!important;filter:drop-shadow(0 0 4px ${fc});transition:none}`;
             if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
           });

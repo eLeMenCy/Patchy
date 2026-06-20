@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include "AudioDeviceNodes.h"
 #include "UdpDeviceNodes.h"
+#include "OscDeviceNodes.h"
 #include "WebBridge.h"
 #include "../Pax/PaxRegistry.h"
 #include "../Pax/PaxScanner.h"
@@ -201,6 +202,37 @@ public:
         }
     }
 
+    /** Apply OSC settings (port, targetHost, oscAddress) to a live node and persist them. */
+    void setOscSettings (const juce::String& nodeId,
+                         int port,
+                         const juce::String& targetHost,
+                         const juce::String& oscAddress)
+    {
+        OscDeviceManager::Settings s;
+        s.port       = port;
+        s.targetHost = targetHost;
+        s.oscAddress = oscAddress.isNotEmpty() ? oscAddress : "/patchy";
+
+        oscDeviceManager.storeSettings (nodeId, s);
+        oscDeviceManager.applyToGraph (nodeId, processingGraph);
+        if (pendingGraph != nullptr)
+            oscDeviceManager.applyToGraph (nodeId, *pendingGraph);
+
+        // Persist in settingsJson for save/restore
+        if (auto* node = graphModel.findNode (nodeId))
+        {
+            juce::var existing;
+            try { existing = juce::JSON::parse (node->settingsJson); } catch (...) {}
+            if (existing.getDynamicObject() == nullptr)
+                existing = new juce::DynamicObject();
+            auto* obj = existing.getDynamicObject();
+            obj->setProperty ("oscPort",       port);
+            obj->setProperty ("oscTargetHost", targetHost);
+            obj->setProperty ("oscAddress",    oscAddress.isNotEmpty() ? oscAddress : "/patchy");
+            node->settingsJson = juce::JSON::toString (existing, true);
+        }
+    }
+
     void setPaxParameter (const juce::String& nodeId, int index, float value)
     {
         for (auto& node : processingGraph.getNodes())
@@ -297,6 +329,10 @@ public:
             // Byte-rate for UDP In nodes
             if (auto* udpIn = dynamic_cast<UdpInDeviceNode*> (node.get()))
                 a.udpBytes = udpIn->drainByteActivity();
+
+            // Byte-rate for OSC In nodes (reuses udpBytes field — same UI display)
+            if (auto* oscIn = dynamic_cast<OscInDeviceNode*> (node.get()))
+                a.udpBytes = oscIn->drainByteActivity();
 
             // Audio RMS from AudioMonitorBuffer (for AudioMonitorNode)
             auto it = audioMonitorBuffers.find (node->id);
@@ -470,6 +506,7 @@ private:
     MidiDeviceManager   midiDeviceManager;
     AudioDeviceManager  audioDeviceManager;
     UdpDeviceManager    udpDeviceManager;
+    OscDeviceManager    oscDeviceManager;
     std::unordered_map<juce::String, std::unique_ptr<MidiMonitorBuffer>>  monitorBuffers;
     std::unordered_map<juce::String, std::unique_ptr<MidiMonitorBuffer>>  keyboardMonitorBuffers;
     std::unordered_map<juce::String, std::unique_ptr<AudioMonitorBuffer>> audioMonitorBuffers;

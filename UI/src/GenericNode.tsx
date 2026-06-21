@@ -31,8 +31,10 @@ const THEME: Record<number, { accent: string; dim: string; glow: string; tag: st
   4:  { accent: 'var(--audio)', dim: 'var(--audio-dim)', glow: 'var(--audio-glow)', tag: 'AUDIO OUT DEVICE' },
   8:  { accent: 'var(--udp)',   dim: 'var(--udp-dim)',   glow: 'var(--udp-glow)',   tag: 'UDP IN DEVICE'    },
   9:  { accent: 'var(--udp)',   dim: 'var(--udp-dim)',   glow: 'var(--udp-glow)',   tag: 'UDP OUT DEVICE'   },
-  10: { accent: 'var(--osc)',   dim: 'var(--osc-dim)',   glow: 'var(--osc-glow)',   tag: 'OSC IN DEVICE'    },
-  11: { accent: 'var(--osc)',   dim: 'var(--osc-dim)',   glow: 'var(--osc-glow)',   tag: 'OSC OUT DEVICE'   },
+  10: { accent: 'var(--osc)',    dim: 'var(--osc-dim)',    glow: 'var(--osc-glow)',    tag: 'OSC IN DEVICE'     },
+  11: { accent: 'var(--osc)',    dim: 'var(--osc-dim)',    glow: 'var(--osc-glow)',    tag: 'OSC OUT DEVICE'    },
+  12: { accent: 'var(--artnet)', dim: 'var(--artnet-dim)', glow: 'var(--artnet-glow)', tag: 'ARTNET IN DEVICE'  },
+  13: { accent: 'var(--artnet)', dim: 'var(--artnet-dim)', glow: 'var(--artnet-glow)', tag: 'ARTNET OUT DEVICE' },
 };
 // Default theme for Pax nodes
 const PAX_THEME = { accent: 'var(--av)', dim: 'var(--av-dim)', glow: 'var(--av-glow)', tag: 'PAX' };
@@ -488,6 +490,136 @@ function OscPortSummary ({ port, oscAddress, byteRate, onClick }: {
   );
 }
 
+// ── ArtNet settings panel ─────────────────────────────────────────────────────
+function ArtNetDeviceSettingsPanel ({ nodeId, nodeType, universe, targetHost, onClose }: {
+  nodeId:     string;
+  nodeType:   12 | 13;
+  universe:   number;
+  targetHost: string;
+  onClose:    () => void;
+}) {
+  const isOut  = nodeType === 13;
+  const title  = isOut ? 'ARTNET OUT Settings' : 'ARTNET IN Settings';
+  const accent = 'var(--artnet)';
+
+  const commit = (next: { universe?: number; targetHost?: string }) => {
+    Bridge.setArtNetSettings(
+      nodeId,
+      next.universe    ?? universe,
+      next.targetHost  ?? targetHost,
+    );
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', fontSize: 10, padding: '3px 6px', marginTop: 2,
+    background: 'var(--surface)', border: '1px solid var(--border)',
+    borderRadius: 3, color: 'var(--text-dim)',
+    fontFamily: "'JetBrains Mono', monospace",
+  };
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em',
+    textTransform: 'uppercase', marginTop: 8, marginBottom: 4,
+  };
+
+  return (
+    <div
+      className="nodrag"
+      onMouseDown={e => e.stopPropagation()}
+      onMouseUp={e => e.stopPropagation()}
+      onPointerDown={e => e.stopPropagation()}
+      onPointerUp={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+      style={{
+        position: 'absolute', top: 0, left: '100%', marginLeft: 6,
+        width: 200, background: 'var(--surface2)',
+        border: '1px solid var(--border-hi)', borderRadius: 'var(--radius)',
+        padding: '10px 12px', zIndex: 1000,
+        boxShadow: '0 8px 32px rgba(0,0,0,.6)',
+        fontFamily: "'JetBrains Mono', monospace",
+        userSelect: 'none',
+      }}>
+      <SettingsPanelHeader
+        title={title}
+        onReset={() => commit({ universe: 0, targetHost: '' })}
+        onClose={onClose}
+      />
+
+      <div style={labelStyle}>Universe</div>
+      <input
+        type="number" min={0} max={32767} value={universe || ''}
+        placeholder="0"
+        onChange={e => commit({ universe: parseInt(e.target.value, 10) || 0 })}
+        style={inputStyle}
+      />
+      <div style={{ fontSize: 9, color: accent, marginTop: 4, opacity: 0.7 }}>
+        Port fixed at 6454 (Art-Net spec)
+      </div>
+
+      {isOut && (<>
+        <div style={labelStyle}>Target Host</div>
+        <input
+          type="text" value={targetHost} placeholder="192.168.1.255"
+          onChange={e => commit({ targetHost: e.target.value })}
+          style={inputStyle}
+        />
+        <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 4, opacity: 0.7 }}>
+          Use 255.255.255.255 for broadcast
+        </div>
+      </>)}
+
+      {isOut && !targetHost && (
+        <div style={{ fontSize: 9, color: '#ef5350', marginTop: 6 }}>
+          Set a target host to activate
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── ArtNet port summary label ─────────────────────────────────────────────────
+function ArtNetPortSummary ({ universe, targetHost, byteRate, onClick }: {
+  universe:   number;
+  targetHost: string;
+  byteRate:   string;
+  onClick:    () => void;
+}) {
+  const baseStyle: React.CSSProperties = {
+    fontSize: 9, marginBottom: 3, letterSpacing: '0.05em',
+    cursor: 'pointer', borderRadius: 3, padding: '2px 4px',
+    transition: 'background .12s',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+  };
+  // For Out nodes targetHost is the indicator; for In nodes universe alone is enough
+  const isConfigured = universe >= 0;
+  if (!isConfigured) {
+    return (
+      <div
+        className="nodrag"
+        onClick={onClick}
+        style={{ ...baseStyle, color: '#ef5350', justifyContent: 'center' }}
+        onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(239,83,80,.12)'; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+      >
+        Not configured
+      </div>
+    );
+  }
+  const label = `uni ${universe}${targetHost ? ` · ${targetHost}` : ''}`;
+  return (
+    <div
+      className="nodrag"
+      onClick={onClick}
+      style={{ ...baseStyle, color: 'var(--text-muted)' }}
+      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--surface)'; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+    >
+      <span style={{ flex: 1, textAlign: 'center' }}>{label}</span>
+      {byteRate && <span style={{ color: 'var(--artnet)', opacity: 0.85 }}>{byteRate}</span>}
+    </div>
+  );
+}
+
 // ── Port colour by type ───────────────────────────────────────────────────────
 function portColour (type: string): string {
   switch (type) {
@@ -528,8 +660,9 @@ function GenericNode({ id, data, selected }: NodeProps) {
   const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
   const isPax = ngaType !== null;
   const isAudioDevice = nodeData.nodeType === 3 || nodeData.nodeType === 4;
-  const isUdpDevice   = nodeData.nodeType === 8 || nodeData.nodeType === 9;
-  const isOscDevice   = nodeData.nodeType === 10 || nodeData.nodeType === 11;
+  const isUdpDevice    = nodeData.nodeType === 8  || nodeData.nodeType === 9;
+  const isOscDevice    = nodeData.nodeType === 10 || nodeData.nodeType === 11;
+  const isArtNetDevice = nodeData.nodeType === 12 || nodeData.nodeType === 13;
   const { setHint } = useContext(HintContext);
   const portBodyRef = useRef<HTMLDivElement>(null);
 
@@ -627,6 +760,35 @@ function GenericNode({ id, data, selected }: NodeProps) {
     return unsub;
   }, [id, nodeData.nodeType]);
 
+  // ArtNet state
+  const [artNetUniverse,   setArtNetUniverse]   = useState<number>(0);
+  const [artNetTargetHost, setArtNetTargetHost] = useState('');
+
+  useEffect(() => {
+    if (!isArtNetDevice) return;
+    try {
+      const parsed = nodeData.settingsJson ? JSON.parse(nodeData.settingsJson as string) : null;
+      setArtNetUniverse(parsed?.artNetUniverse ?? 0);
+      setArtNetTargetHost(parsed?.artNetTargetHost ?? '');
+    } catch {}
+  }, [nodeData.settingsJson, isArtNetDevice]);
+
+  // Byte-rate label for ArtNet In nodes
+  const [artNetByteRate, setArtNetByteRate] = useState<string>('');
+  useEffect(() => {
+    if (nodeData.nodeType !== 12) return;  // ArtNet In only
+    const unsub = Bridge.onPortActivity((entries) => {
+      const entry = entries.find(e => e.id === id);
+      if (!entry) return;
+      const bps = (entry.bytes ?? 0) * 30;
+      if (bps === 0) { setArtNetByteRate(''); return; }
+      setArtNetByteRate(bps >= 1024
+        ? `${(bps / 1024).toFixed(1)} kB/s`
+        : `${bps} B/s`);
+    });
+    return unsub;
+  }, [id, nodeData.nodeType]);
+
   // Track device channel count from the device list (fallback)
   const selectedDeviceIdRef = useRef(nodeData.selectedDeviceId);
   selectedDeviceIdRef.current = nodeData.selectedDeviceId;
@@ -706,7 +868,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
   return (
     <div
       style={{
-        minWidth:   (isUdpDevice || isOscDevice) ? 310 : Math.max(theme.tag.length * 10 + 80, 220),
+        minWidth:   (isUdpDevice || isOscDevice || isArtNetDevice) ? 310 : Math.max(theme.tag.length * 10 + 80, 220),
         userSelect: 'none',
         ...nodeContainerStyle(theme.accent, !!selected, { bg: 'var(--surface)', glow: theme.glow }),
       }}
@@ -839,6 +1001,28 @@ function GenericNode({ id, data, selected }: NodeProps) {
           </div>
         )}
 
+        {/* ArtNet device settings button */}
+        {isArtNetDevice && (
+          <div style={{ position: 'relative', display: 'inline-flex' }}>
+            <NodeHeaderButton
+              onClick={toggleSettings}
+              active={showSettings}
+              activeAccent="var(--artnet)"
+              onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.settings), onMouseLeave: () => setHint(null) }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </NodeHeaderButton>
+            {!artNetTargetHost && nodeData.nodeType === 13 && !showSettings && (
+              <div style={{
+                position: 'absolute', top: -3, right: -3,
+                width: 7, height: 7, borderRadius: '50%',
+                background: '#ef5350', pointerEvents: 'none',
+              }} />
+            )}
+          </div>
+        )}
+
         {/* Delete button */}
         <NodeHeaderButton onClick={handleDelete} danger
           onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.deleteNode), onMouseLeave: () => setHint(null) }}><X size={14} /></NodeHeaderButton>
@@ -898,6 +1082,18 @@ function GenericNode({ id, data, selected }: NodeProps) {
               port={oscPort}
               targetHost={oscTargetHost}
               oscAddress={oscAddress}
+              onClose={closeSettings}
+            />
+          )}
+        </>)}
+        {isArtNetDevice && (<>
+          <ArtNetPortSummary universe={artNetUniverse} targetHost={artNetTargetHost} byteRate={artNetByteRate} onClick={toggleSettings} />
+          {showSettings && (
+            <ArtNetDeviceSettingsPanel
+              nodeId={id}
+              nodeType={nodeData.nodeType as 12 | 13}
+              universe={artNetUniverse}
+              targetHost={artNetTargetHost}
               onClose={closeSettings}
             />
           )}
@@ -1011,7 +1207,7 @@ Double-click to reset to default (${p.defaultValue}).` })}
       {inputs.map((p, i) => (
         <NodeHandle key={p.id}
           nodeId={id} label={p.label} direction="in"
-          colour={isUdpDevice ? 'var(--udp)' : isOscDevice ? 'var(--osc)' : portColour(p.type)}
+          colour={isUdpDevice ? 'var(--udp)' : isOscDevice ? 'var(--osc)' : isArtNetDevice ? 'var(--artnet)' : portColour(p.type)}
           index={i} total={inputs.length}
           offset={isPax ? 6 : 8}
           portBodyRef={portBodyRef}
@@ -1023,7 +1219,7 @@ Double-click to reset to default (${p.defaultValue}).` })}
       {outputs.map((p, i) => (
         <NodeHandle key={p.id}
           nodeId={id} label={p.label} direction="out"
-          colour={isUdpDevice ? 'var(--udp)' : isOscDevice ? 'var(--osc)' : portColour(p.type)}
+          colour={isUdpDevice ? 'var(--udp)' : isOscDevice ? 'var(--osc)' : isArtNetDevice ? 'var(--artnet)' : portColour(p.type)}
           index={i} total={outputs.length}
           offset={isPax ? 6 : 8}
           portBodyRef={portBodyRef}

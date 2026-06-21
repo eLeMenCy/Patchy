@@ -73,6 +73,16 @@ std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
         // OscOutDeviceNode: 1 OSC input (serialises PAX_Value back to OSC)
         mk ("OSC In",  PortType::OSC, PortDirection::Input);
     }
+    else if (t == 12)
+    {
+        // ArtNetInDeviceNode: 1 DMX output (parsed ArtDmx universe as PAX_Value blob)
+        mk ("ArtDMX Out", PortType::DMX, PortDirection::Output);
+    }
+    else if (t == 13)
+    {
+        // ArtNetOutDeviceNode: 1 DMX input (sends PAX_Value blob as ArtDmx)
+        mk ("ArtDMX In",  PortType::DMX, PortDirection::Input);
+    }
     else if (t >= 100)
     {
         // Dynamic addon node — ports based on NGA nodeType (t - 100)
@@ -118,6 +128,8 @@ static juce::String labelForType (int t, const juce::String& paxName)
         case 9:  return "UDP Out";
         case 10: return "OSC In";
         case 11: return "OSC Out";
+        case 12: return "ArtNet In";
+        case 13: return "ArtNet Out";
         default: return "Addon Node";
     }
 }

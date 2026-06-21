@@ -551,6 +551,18 @@ void WebBridge::handleMessage (const juce::String& json)
             if (auto* nd = graph.findNode (nodeId))
                 pushSettingsToUI (nodeId, nd->settingsJson);
         }
+        else if (key == "artNetSettings" && onSetArtNetSettings)
+        {
+            // value is a JSON object: { universe, targetHost }
+            auto parsed = juce::JSON::parse (value);
+            int          universe   = (int) parsed["universe"];
+            juce::String targetHost = parsed["targetHost"].toString();
+
+            onSetArtNetSettings (nodeId, universe, targetHost);
+
+            if (auto* nd = graph.findNode (nodeId))
+                pushSettingsToUI (nodeId, nd->settingsJson);
+        }
         // Push updated graph so React reflects the new selectedDeviceId / settings
         pushGraphToUI();
         pushUndoState();

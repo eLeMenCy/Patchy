@@ -3,6 +3,7 @@
 #include "AudioDeviceNodes.h"
 #include "UdpDeviceNodes.h"
 #include "OscDeviceNodes.h"
+#include "ArtNetDeviceNodes.h"
 #include "MidiMonitorNode.h"
 #include "AudioMonitorNode.h"
 #include <unordered_set>
@@ -68,8 +69,10 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                 case 7:  proc = std::make_unique<MidiKeyboardNode>  (id, getKeyboardBuffer ? getKeyboardBuffer(id) : nullptr); break;
                 case 8:  proc = std::make_unique<UdpInDeviceNode>   (id); break;
                 case 9:  proc = std::make_unique<UdpOutDeviceNode>  (id); break;
-                case 10: proc = std::make_unique<OscInDeviceNode>   (id); break;
-                case 11: proc = std::make_unique<OscOutDeviceNode>  (id); break;
+                case 10: proc = std::make_unique<OscInDeviceNode>    (id); break;
+                case 11: proc = std::make_unique<OscOutDeviceNode>   (id); break;
+                case 12: proc = std::make_unique<ArtNetInDeviceNode>  (id); break;
+                case 13: proc = std::make_unique<ArtNetOutDeviceNode> (id); break;
                 default:
                     juce::Logger::writeToLog ("ProcessingGraph: unknown built-in type " + juce::String (type));
                     break;
@@ -441,6 +444,20 @@ OscOutDeviceNode* ProcessingGraph::findOscOutNode (const juce::String& nodeId)
     auto it = nodeMap.find (nodeId);
     if (it == nodeMap.end()) return nullptr;
     return dynamic_cast<OscOutDeviceNode*> (it->second);
+}
+
+ArtNetInDeviceNode* ProcessingGraph::findArtNetInNode (const juce::String& nodeId)
+{
+    auto it = nodeMap.find (nodeId);
+    if (it == nodeMap.end()) return nullptr;
+    return dynamic_cast<ArtNetInDeviceNode*> (it->second);
+}
+
+ArtNetOutDeviceNode* ProcessingGraph::findArtNetOutNode (const juce::String& nodeId)
+{
+    auto it = nodeMap.find (nodeId);
+    if (it == nodeMap.end()) return nullptr;
+    return dynamic_cast<ArtNetOutDeviceNode*> (it->second);
 }
 
 void ProcessingGraph::closeAllAudioDevices()

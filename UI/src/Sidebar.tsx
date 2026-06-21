@@ -24,8 +24,15 @@ const BUILTIN_GROUPS = [
   {
     label: 'UDP', accent: 'var(--udp)', dim: 'var(--udp-dim)',
     nodes: [
-      { type: 8 as const, label: 'UDP In Device',  desc: 'Listen on a UDP port', icon: '⊲' },
-      { type: 9 as const, label: 'UDP Out Device', desc: 'Send to a UDP target', icon: '⊳' },
+      { type: 8  as const, label: 'UDP In Device',     desc: 'Listen on a UDP port',    icon: '⊲' },
+      { type: 9  as const, label: 'UDP Out Device',    desc: 'Send to a UDP target',    icon: '⊳' },
+    ],
+  },
+  {
+    label: 'Art-Net', accent: 'var(--artnet)', dim: 'var(--artnet-dim)',
+    nodes: [
+      { type: 12 as const, label: 'ArtNet In Device',  desc: 'Receive ArtDmx universe', icon: '⊲' },
+      { type: 13 as const, label: 'ArtNet Out Device', desc: 'Send ArtDmx universe',    icon: '⊳' },
     ],
   },
   {

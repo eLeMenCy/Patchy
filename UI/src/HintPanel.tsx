@@ -89,8 +89,10 @@ export const NODE_HINTS: Record<string, { title: string; body: string }> = {
   'MIDI MONITOR':     { title: 'MIDI Monitor',     body: 'Displays incoming MIDI events in real time. Filter by channel or event type. Double-click header to fold.' },
   'AUDIO MONITOR':    { title: 'Audio Monitor',    body: 'Oscilloscope view of the audio signal. Supports L/R overlay, separate channels, amplitude zoom and clip detection.' },
   'MIDI KEYBOARD':    { title: 'MIDI Keyboard',    body: 'On-screen MIDI keyboard. Click or drag to play notes. Supports pitch bend, mod wheel and configurable velocity.' },
-  'UDP IN DEVICE':    { title: 'UDP In Device',    body: 'Listens for UDP datagrams on a configured port. Supports unicast, multicast and broadcast. Set the port in the node settings to activate.' },
-  'UDP OUT DEVICE':   { title: 'UDP Out Device',   body: 'Sends incoming graph values as UDP datagrams to a configured target. Supports unicast (host:port), multicast and broadcast.' },
+  'UDP IN DEVICE':       { title: 'UDP In Device',       body: 'Listens for UDP datagrams on a configured port. Supports unicast, multicast and broadcast. Set the port in the node settings to activate.' },
+  'UDP OUT DEVICE':      { title: 'UDP Out Device',      body: 'Sends incoming graph values as UDP datagrams to a configured target. Supports unicast (host:port), multicast and broadcast.' },
+  'ARTNET IN DEVICE':   { title: 'ArtNet In Device',    body: 'Listens for Art-Net ArtDmx packets on UDP port 6454. Outputs the DMX universe blob as a PAX_Value. Configure the universe number to filter.' },
+  'ARTNET OUT DEVICE':  { title: 'ArtNet Out Device',   body: 'Sends incoming DMX blobs as Art-Net ArtDmx packets to a configured target host on port 6454. Set universe and target host in settings.' },
   'OSC IN DEVICE':    { title: 'OSC In Device',    body: 'Listens for OSC 1.0 messages on a UDP port. Parses address pattern and typed arguments (f, i, s, b, T, F). Set the port in the node settings to activate.' },
   'OSC OUT DEVICE':   { title: 'OSC Out Device',   body: 'Sends incoming graph values as OSC messages to a configured host:port. The OSC address is configurable (default /patchy).' },
   // Pax

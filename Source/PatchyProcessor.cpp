@@ -74,6 +74,7 @@ midiDeviceManager.applyDeviceSelections  (processingGraph);
     audioDeviceManager.applyDeviceSelections (processingGraph);
     udpDeviceManager.applyAllSettings        (processingGraph);
     oscDeviceManager.applyAllSettings        (processingGraph);
+    artNetDeviceManager.applyAllSettings     (processingGraph);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -234,6 +235,22 @@ void PatchyProcessor::rebuildProcessingGraph()
                 catch (...) {}
             }
         }
+        else if (n.nodeType == 12 || n.nodeType == 13)
+        {
+            // Restore ArtNet settings from settingsJson (undo/redo safe)
+            if (n.settingsJson.isNotEmpty())
+            {
+                try
+                {
+                    auto parsed = juce::JSON::parse (n.settingsJson);
+                    ArtNetDeviceManager::Settings s;
+                    s.universe   = (int) parsed["artNetUniverse"];
+                    s.targetHost = parsed["artNetTargetHost"].toString();
+                    artNetDeviceManager.storeSettings (n.id, s);
+                }
+                catch (...) {}
+            }
+        }
     }
 
     // If selections changed (e.g. after undo), close all transferred devices
@@ -247,6 +264,7 @@ void PatchyProcessor::rebuildProcessingGraph()
     audioDeviceManager.applyAllChannelSelections (*newGraph);
     udpDeviceManager.applyAllSettings            (*newGraph);
     oscDeviceManager.applyAllSettings            (*newGraph);
+    artNetDeviceManager.applyAllSettings         (*newGraph);
 
     pendingGraph = std::move (newGraph);
     graphPending.store (true);

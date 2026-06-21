@@ -554,6 +554,13 @@ export const Bridge = {
     });
   },
 
+  setArtNetSettings(nodeId: string, universe = 0, targetHost = '') {
+    sendToJuce({
+      type: 'setNodeParam', nodeId, key: 'artNetSettings',
+      value: JSON.stringify({ universe, targetHost }),
+    });
+  },
+
   /** Subscribe to claimed-device changes.
    *  Callback receives a Map<nodeId, deviceId> of all current claims.
    *  Returns an unsubscribe function. */

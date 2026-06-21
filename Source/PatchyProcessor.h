@@ -10,6 +10,7 @@
 #include "AudioDeviceNodes.h"
 #include "UdpDeviceNodes.h"
 #include "OscDeviceNodes.h"
+#include "ArtNetDeviceNodes.h"
 #include "WebBridge.h"
 #include "../Pax/PaxRegistry.h"
 #include "../Pax/PaxScanner.h"
@@ -233,6 +234,33 @@ public:
         }
     }
 
+    void setArtNetSettings (const juce::String& nodeId,
+                            int universe,
+                            const juce::String& targetHost)
+    {
+        ArtNetDeviceManager::Settings s;
+        s.universe   = universe;
+        s.targetHost = targetHost;
+
+        artNetDeviceManager.storeSettings (nodeId, s);
+        artNetDeviceManager.applyToGraph (nodeId, processingGraph);
+        if (pendingGraph != nullptr)
+            artNetDeviceManager.applyToGraph (nodeId, *pendingGraph);
+
+        // Persist in settingsJson for save/restore
+        if (auto* node = graphModel.findNode (nodeId))
+        {
+            juce::var existing;
+            try { existing = juce::JSON::parse (node->settingsJson); } catch (...) {}
+            if (existing.getDynamicObject() == nullptr)
+                existing = new juce::DynamicObject();
+            auto* obj = existing.getDynamicObject();
+            obj->setProperty ("artNetUniverse",   universe);
+            obj->setProperty ("artNetTargetHost",  targetHost);
+            node->settingsJson = juce::JSON::toString (existing, true);
+        }
+    }
+
     void setPaxParameter (const juce::String& nodeId, int index, float value)
     {
         for (auto& node : processingGraph.getNodes())
@@ -333,6 +361,10 @@ public:
             // Byte-rate for OSC In nodes (reuses udpBytes field — same UI display)
             if (auto* oscIn = dynamic_cast<OscInDeviceNode*> (node.get()))
                 a.udpBytes = oscIn->drainByteActivity();
+
+            // Byte-rate for ArtNet In nodes (reuses udpBytes field — same UI display)
+            if (auto* artIn = dynamic_cast<ArtNetInDeviceNode*> (node.get()))
+                a.udpBytes = artIn->drainByteActivity();
 
             // Audio RMS from AudioMonitorBuffer (for AudioMonitorNode)
             auto it = audioMonitorBuffers.find (node->id);
@@ -507,6 +539,7 @@ private:
     AudioDeviceManager  audioDeviceManager;
     UdpDeviceManager    udpDeviceManager;
     OscDeviceManager    oscDeviceManager;
+    ArtNetDeviceManager artNetDeviceManager;
     std::unordered_map<juce::String, std::unique_ptr<MidiMonitorBuffer>>  monitorBuffers;
     std::unordered_map<juce::String, std::unique_ptr<MidiMonitorBuffer>>  keyboardMonitorBuffers;
     std::unordered_map<juce::String, std::unique_ptr<AudioMonitorBuffer>> audioMonitorBuffers;

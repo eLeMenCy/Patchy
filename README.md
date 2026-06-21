@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.887
+> Version 0.0.889
 
 ---
 
@@ -46,8 +46,8 @@
 - **Fragment export/import** — select any nodes, export as a reusable `.patchy` fragment, reimport with ghost-placement UX
 - **50-step undo/redo** — full graph snapshot history via `⌘Z` / `⌘⇧Z`
 - **Parameter persistence** — Pax parameters (sliders, steps) survive graph rebuilds, file loads and app restarts
-- **Built-in nodes** — MIDI In/Out, Audio In/Out, MIDI Monitor, Audio Monitor (oscilloscope), MIDI Keyboard, UDP In/Out, OSC In/Out
-- **Protocol device nodes** — Phase 3 built-in nodes for network protocols; UDP (raw datagrams, Unicast/Multicast/Broadcast) and OSC 1.0 (f/i/s/b/T/F types, configurable address); live byte-rate label; activity flash
+- **Built-in nodes** — MIDI In/Out, Audio In/Out, MIDI Monitor, Audio Monitor (oscilloscope), MIDI Keyboard, UDP In/Out, OSC In/Out, ArtNet In/Out
+- **Protocol device nodes** — Phase 3 built-in nodes for network protocols; UDP (raw datagrams, Unicast/Multicast/Broadcast), OSC 1.0 (f/i/s/b/T/F types, configurable address) and Art-Net (ArtDmx, 512-channel universe, port 6454); live byte-rate label; change-driven activity flash
 - **Pax system** — drop a `.dylib/.so/.dll` into the Pax folder; new node type appears in the sidebar on next launch
 - **Dynamic port counts** — Pax can change their output port count at runtime (e.g. Spectrumyser band count) without audio interruption
 - **Restructured burger menu** — `☰` top-right opens File and Edit flyout submenus with keyboard shortcuts
@@ -73,6 +73,10 @@ Patchy/
 │   │                                Includes AudioDeviceManager + multi-channel FIFO
 │   ├── UdpDeviceNodes.h/.cpp        UDP In (type 8) + UDP Out (type 9) + UdpDeviceManager
 │   │                                Background socket thread, lock-free FIFO, byte-rate counter
+│   ├── OscDeviceNodes.h/.cpp        OSC In (type 10) + OSC Out (type 11) + OscDeviceManager
+│   │                                Manual OscCodec (no juce_osc), OSC 1.0, byte-rate counter
+│   ├── ArtNetDeviceNodes.h/.cpp     ArtNet In (type 12) + ArtNet Out (type 13) + ArtNetDeviceManager
+│   │                                Manual ArtNetCodec, ArtDmx, port 6454, change-driven flash
 │   ├── MidiMonitorNode.h/.cpp       MIDI Monitor (type 5)
 │   ├── AudioMonitorNode.h/.cpp      Audio Monitor (type 6)
 │   ├── MidiKeyboardNode.h           MIDI Keyboard (type 7)
@@ -94,8 +98,8 @@ Patchy/
 │       ├── App.tsx                  ReactFlow canvas, graph sync, port activity, menus
 │       ├── Bridge.ts                JS↔C++ typed façade + subscriber system
 │       ├── NodeUtils.tsx            Shared hooks, components + style helpers
-│       ├── GenericNode.tsx          Device nodes + Pax nodes (types 1–4, 8–9, 100+)
-│       │                            Includes channel selection + UDP settings panels
+│       ├── GenericNode.tsx          Device nodes + Pax nodes (types 1–4, 8–13, 100+)
+│       │                            Includes channel selection, UDP, OSC and ArtNet settings panels
 │       ├── MidiMonitorNode.tsx      MIDI Monitor node (type 5)
 │       ├── AudioMonitorNode.tsx     Audio Monitor node (type 6)
 │       ├── MidiKeyboardNode.tsx     MIDI Keyboard node (type 7)
@@ -108,7 +112,9 @@ Patchy/
 │       └── PreferencesPanel.tsx     Graph preferences (DAW routing, audio settings)
 │
 ├── FYI/                             Developer notes (gitignored)
-│   └── Architecture.md             Detailed technical architecture + design decisions
+│   ├── Architecture.md             Detailed technical architecture + design decisions
+│   └── Utils/
+│       └── migrate_patch_ids.py    Migrate .patchy files: legacy node IDs to current format
 │
 ├── Tools/                           Developer utilities
 │   └── migrate_patchy_v1_to_v2.py  Migrate .patchy files: addonName→paxName
@@ -135,6 +141,8 @@ Patchy/
 | 9 | UDP Out Device | Value In | Sends datagrams to a configured host:port; Unicast · Multicast · Broadcast |
 | 10 | OSC In Device | OSC Out | Listens on a UDP port; parses OSC 1.0 messages; live byte-rate |
 | 11 | OSC Out Device | OSC In | Sends PAX_Value events as OSC messages to a configured host:port; configurable OSC address |
+| 12 | ArtNet In Device | ArtDMX Out | Listens on UDP port 6454; parses ArtDmx; universe filtering; change-driven flash; live byte-rate |
+| 13 | ArtNet Out Device | ArtDMX In | Sends PAX_Value blobs as ArtDmx packets to a configured host; configurable universe |
 | 100+ | Pax nodes | Per descriptor | Dynamically loaded from `.dylib/.so/.dll` |
 
 ---
@@ -148,6 +156,8 @@ All ports and edges animate live at 30fps:
 **UDP activity** — flashes steel blue (80ms) on Value Out port, edge and downstream IN port; live byte-rate label (B/s or kB/s) displayed inline on UDP In nodes while packets are flowing
 
 **OSC activity** — flashes cyan/teal (80ms) on OSC Out port, edge and downstream IN port; live byte-rate label displayed inline on OSC In nodes while messages are arriving
+
+**ArtNet activity** — flashes pale amber (80ms) on ArtDMX Out port, edge and downstream IN port; change-driven (no flash on 44Hz heartbeat refresh, only on DMX value changes); live byte-rate label on ArtNet In nodes
 
 **Audio level** — continuously reflects RMS level via colour:
 - Silence → dim base colour
@@ -194,7 +204,7 @@ When launched as a standalone application, Patchy:
 
 ## Pax System
 
-Addons are shared libraries implementing the `NGA_Descriptor` C API in `Pax/PaxAPI.h`. Discovered at startup by `PaxScanner`, loaded by `PaxRegistry`.
+Addons are shared libraries implementing the `PAX_Descriptor` C API in `Pax/PaxAPI.h`. Discovered at startup by `PaxScanner`, loaded by `PaxRegistry`.
 
 ### Pax folder locations
 
@@ -362,7 +372,7 @@ Build the host in Debug mode with `PATCHY_DEV_MODE=ON` to connect to the Vite de
 Include only `Pax/PaxAPI.h`. No JUCE dependency required.
 
 ```cpp
-#include "AddonAPI.h"
+#include "PaxAPI.h"
 #include <cstring>
 
 struct MyAddon {};
@@ -543,4 +553,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.887 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.889 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

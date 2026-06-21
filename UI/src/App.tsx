@@ -66,12 +66,13 @@ function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>)
 
 function rawToFlowEdge(raw: RawConnection): Edge {
   const src = raw.sourcePortId.toLowerCase();
-  const cls = src.includes('audio') ? 'edge-audio'
-            : src.includes('osc')   ? 'edge-osc'
-            : src.includes('_dmx_') ? 'edge-dmx'
-            : src.includes('mqtt')  ? 'edge-mqtt'
-            : src.includes('_udp_') ? 'edge-udp'
-            : src.includes('value') ? 'edge-udp'
+  const cls = src.includes('audio')   ? 'edge-audio'
+            : src.includes('osc')     ? 'edge-osc'
+            : src.includes('artdmx')  ? 'edge-artnet'
+            : src.includes('_dmx_')   ? 'edge-dmx'
+            : src.includes('mqtt')    ? 'edge-mqtt'
+            : src.includes('_udp_')   ? 'edge-udp'
+            : src.includes('value')   ? 'edge-udp'
             : 'edge-midi';
   return {
     id:           raw.id,
@@ -117,6 +118,7 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
   const midiTimers    = useRef<Map<string, number>>(new Map());
   const udpTimers     = useRef<Map<string, number>>(new Map());
   const oscTimers     = useRef<Map<string, number>>(new Map());
+  const artNetTimers  = useRef<Map<string, number>>(new Map());
   const audioLevels   = useRef<Map<string, number>>(new Map());
   const portRmsLevels = useRef<Map<string, number[]>>(new Map());
   const edgeList      = useRef(edges);
@@ -144,6 +146,8 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
             udpTimers.current.set(entry.id, now + 80);
           } else if (nodeType === 10 || nodeType === 11) {
             oscTimers.current.set(entry.id, now + 80);
+          } else if (nodeType === 12 || nodeType === 13) {
+            artNetTimers.current.set(entry.id, now + 80);
           } else {
             midiTimers.current.set(entry.id, now + 80);
           }
@@ -180,6 +184,7 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
       const midiEdges  = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('midi'));
       const udpEdges   = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('value'));
       const oscEdges   = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('osc'));
+      const artNetEdges = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('artdmx'));
       const audioSources = new Set<string>(audioEdges.map(e => e.source));
       audioLevels.current.forEach((rms, id) => { if (rms > 0.01) audioSources.add(id); });
       const midiSources  = new Set<string>(midiEdges.map(e => e.source));
@@ -188,7 +193,9 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
       udpTimers.current.forEach((expiry, id) => { if (expiry > now) udpSources.add(id); });
       const oscSources   = new Set<string>(oscEdges.map(e => e.source));
       oscTimers.current.forEach((expiry, id) => { if (expiry > now) oscSources.add(id); });
-      const allSources   = new Set([...audioSources, ...midiSources, ...udpSources, ...oscSources]);
+      const artNetSources = new Set<string>(artNetEdges.map(e => e.source));
+      artNetTimers.current.forEach((expiry, id) => { if (expiry > now) artNetSources.add(id); });
+      const allSources   = new Set([...audioSources, ...midiSources, ...udpSources, ...oscSources, ...artNetSources]);
 
       let css = '';
 
@@ -249,6 +256,18 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
           const fc = '#67e8f9'; // lighter cyan flash, distinct from base --osc colour
           css += `[data-handleid="${id}_OSC Out_out"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
           nodeOscEdges.forEach(e => {
+            css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${fc}!important;filter:drop-shadow(0 0 4px ${fc});transition:none}`;
+            if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
+          });
+        }
+
+        // ArtNet flash
+        const isArtNetFlash = (artNetTimers.current.get(id) ?? 0) > now;
+        if (isArtNetFlash) {
+          const nodeArtNetEdges = artNetEdges.filter(e => e.source === id);
+          const fc = '#fef08a'; // lighter pale yellow flash, distinct from base --artnet
+          css += `[data-handleid="${id}_ArtDMX Out_out"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
+          nodeArtNetEdges.forEach(e => {
             css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${fc}!important;filter:drop-shadow(0 0 4px ${fc});transition:none}`;
             if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
           });
@@ -540,16 +559,17 @@ function FlowCanvas() {
     if (!sourceHandle || !targetHandle) return false;
 
     // Extract port type from handle ID — format: {nodeId}_{Label}_{in|out}
-    // We match known type keywords in the handle ID (case-insensitive segment match)
+    // Label examples: "Audio In", "OSC Out", "Value Out", "ArtDMX In", "MIDI Out"
     const getPortType = (handle: string): string => {
       const h = handle.toLowerCase();
-      if (h.includes('audio'))  return 'audio';
-      if (h.includes('_osc_'))  return 'osc';
-      if (h.includes('_dmx_'))  return 'dmx';
-      if (h.includes('_mqtt_')) return 'mqtt';
-      if (h.includes('_udp_'))  return 'udp';
-      if (h.includes('_value_')) return 'value';
-      return 'midi'; // default
+      if (h.includes('audio'))   return 'audio';
+      if (h.includes('artdmx'))  return 'artnet';  // must come before 'dmx'
+      if (h.includes('osc'))     return 'osc';
+      if (h.includes('dmx'))     return 'dmx';
+      if (h.includes('mqtt'))    return 'mqtt';
+      if (h.includes('udp'))     return 'udp';
+      if (h.includes('value'))   return 'value';
+      return 'midi';
     };
 
     const srcType  = getPortType(sourceHandle);

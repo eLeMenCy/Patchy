@@ -35,6 +35,9 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
     bridge.onSetOscSettings          = [&p](const juce::String& nid, int port,
                                             const juce::String& targetHost, const juce::String& oscAddress)
                                        { p.setOscSettings (nid, port, targetHost, oscAddress); };
+    bridge.onSetArtNetSettings       = [&p](const juce::String& nid, int universe,
+                                            const juce::String& targetHost)
+                                       { p.setArtNetSettings (nid, universe, targetHost); };
     addAndMakeVisible (bridge);
     setSize (640, 400);
     setResizable (true, false);

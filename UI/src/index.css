@@ -32,6 +32,9 @@
   --dmx:         #fbbf24;   /* amber/gold */
   --dmx-dim:     #42300a;
   --dmx-glow:    rgba(251,191,36,.35);
+  --artnet:      #fde68a;   /* pale amber — ArtNet (DMX over UDP) */
+  --artnet-dim:  #3d2e04;
+  --artnet-glow: rgba(253,230,138,.35);
 
   --mqtt:        #fb7185;   /* coral/salmon */
   --mqtt-dim:    #4a1020;
@@ -77,6 +80,7 @@ html, body, #root {
 .edge-mixed  { stroke: var(--av)    !important; }
 .edge-osc    { stroke: var(--osc)   !important; }
 .edge-dmx    { stroke: var(--dmx)   !important; }
+.edge-artnet { stroke: var(--artnet) !important; }
 .edge-mqtt   { stroke: var(--mqtt)  !important; }
 .edge-udp    { stroke: var(--udp)   !important; }
 .edge-value  { stroke: var(--value) !important; }

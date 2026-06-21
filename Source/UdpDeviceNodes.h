@@ -105,11 +105,6 @@ public:
 
             outputValues[static_cast<size_t> (outputValueCount++)] = v;
         }
-
-        if (outputValueCount > 0)
-            recordMidiActivity (outputValueCount);   // reuse activity counter for flash feedback
-
-        bytesSinceLastPoll.fetch_add (0, std::memory_order_relaxed); // no-op keeps symbol referenced
     }
 
     int  port = 0;
@@ -125,21 +120,33 @@ private:
     {
         static constexpr int kMaxPacket = 1500;
         std::array<uint8_t, kMaxPacket> buf;
+        std::array<uint8_t, 56> lastData {};
+        int lastSize = 0;
 
         while (! threadShouldExit())
         {
             if (socket == nullptr) break;
             int ready = socket->waitUntilReady (true, 100);
-            if (ready <= 0) continue; // timeout or error — loop and check threadShouldExit
+            if (ready <= 0) continue;
 
             int bytesRead = socket->read (buf.data(), kMaxPacket, false);
             if (bytesRead <= 0) continue;
+
+            bytesSinceLastPoll.fetch_add (bytesRead, std::memory_order_relaxed);
+
+            // Only flash on data change, not on every packet (handles continuous streams)
+            int cmpLen = std::min (bytesRead, (int) sizeof (lastData));
+            if (bytesRead != lastSize || std::memcmp (buf.data(), lastData.data(), (size_t) cmpLen) != 0)
+            {
+                lastSize = bytesRead;
+                std::memcpy (lastData.data(), buf.data(), (size_t) cmpLen);
+                recordMidiActivity (1);
+            }
 
             ReceivedPacket pkt;
             pkt.size = std::min (bytesRead, (int) pkt.data.size());
             std::memcpy (pkt.data.data(), buf.data(), static_cast<size_t> (pkt.size));
             fifo.push (pkt);
-            bytesSinceLastPoll.fetch_add (bytesRead, std::memory_order_relaxed);
         }
     }
 

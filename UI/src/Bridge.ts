@@ -52,6 +52,7 @@ export interface PortActivityEntry {
   portRms: number[];  // per-output-port RMS ×1000 for multi-port nodes
   notes:   string;    // "status,note status,note ..." for keyboard nodes
   bytes:   number;    // bytes received since last push (UDP In only, 0 otherwise)
+  isMk2:   boolean;  // true if Enttec Pro Mk2 detected (DMX nodes only)
 }
 type PortActivityCallback = (entries: PortActivityEntry[]) => void;
 const _portActivitySubscribers: PortActivityCallback[] = [];
@@ -209,6 +210,28 @@ function _dispatchAudioDevices(list: AudioDeviceList) {
   _audioDeviceSubscribers.forEach(cb => cb(list));
 }
 
+// ── Serial ports ──────────────────────────────────────────────────────────────
+type SerialPortsCallback = (ports: string[]) => void;
+const _serialPortSubscribers: SerialPortsCallback[] = [];
+let   _serialPortCache: string[] | null = null;
+
+function _dispatchSerialPorts(ports: string[]) {
+  _serialPortCache = ports;
+  _serialPortSubscribers.forEach(cb => cb(ports));
+}
+
+// ── DMX snapshots ─────────────────────────────────────────────────────────────
+export interface DmxSnapshotEntry {
+  id: string;       // nodeId
+  ch: number[];     // 512 channel values (0-255)
+}
+type DmxSnapshotCallback = (snaps: DmxSnapshotEntry[]) => void;
+const _dmxSnapshotSubscribers: DmxSnapshotCallback[] = [];
+
+function _dispatchDmxSnapshots(snaps: DmxSnapshotEntry[]) {
+  _dmxSnapshotSubscribers.forEach(cb => cb(snaps));
+}
+
 function _dispatchClaimed() {
   const snapshot = new Map(_claimedDevices);
   _claimedSubscribers.forEach(cb => cb(snapshot));
@@ -274,6 +297,22 @@ function _dispatchClaimed() {
       _dispatchMidiDevices(data);
     } catch (e) {
       console.error('Bridge midiDevices parse error', e);
+    }
+  },
+  onSerialPorts: (json: string) => {
+    try {
+      const ports: string[] = JSON.parse(json);
+      _dispatchSerialPorts(ports);
+    } catch (e) {
+      console.error('Bridge serialPorts parse error', e);
+    }
+  },
+  onDmxSnapshot: (json: string) => {
+    try {
+      const snaps: DmxSnapshotEntry[] = JSON.parse(json);
+      _dispatchDmxSnapshots(snaps);
+    } catch (e) {
+      console.error('Bridge dmxSnapshot parse error', e);
     }
   },
   onSpectrumSnapshots: (json: string) => {
@@ -496,6 +535,24 @@ export const Bridge = {
       if (idx !== -1) _audioDeviceSubscribers.splice(idx, 1);
     };
   },
+  onSerialPorts(cb: SerialPortsCallback) {
+    _serialPortSubscribers.push(cb);
+    if (_serialPortCache) cb(_serialPortCache);
+    return () => {
+      const idx = _serialPortSubscribers.indexOf(cb);
+      if (idx !== -1) _serialPortSubscribers.splice(idx, 1);
+    };
+  },
+  onDmxSnapshot(cb: DmxSnapshotCallback) {
+    _dmxSnapshotSubscribers.push(cb);
+    return () => {
+      const idx = _dmxSnapshotSubscribers.indexOf(cb);
+      if (idx !== -1) _dmxSnapshotSubscribers.splice(idx, 1);
+    };
+  },
+  listSerialPorts() {
+    sendToJuce({ type: 'listSerialPorts' });
+  },
   onAudioDeviceChanged(cb: AudioDeviceChangedCallback) {
     _audioDeviceChangedSubscribers.push(cb);
     return () => {
@@ -558,6 +615,27 @@ export const Bridge = {
     sendToJuce({
       type: 'setNodeParam', nodeId, key: 'artNetSettings',
       value: JSON.stringify({ universe, targetHost }),
+    });
+  },
+
+  setDmxSettings(nodeId: string, devicePath = '', universe = 0) {
+    sendToJuce({
+      type: 'setNodeParam', nodeId, key: 'dmxSettings',
+      value: JSON.stringify({ devicePath, universe }),
+    });
+  },
+
+  setDmxConsoleChannel(nodeId: string, channel: number, value: number) {
+    sendToJuce({
+      type: 'setNodeParam', nodeId, key: 'dmxConsoleChannel',
+      value: JSON.stringify({ channel, value }),
+    });
+  },
+
+  setDmxBlackout(nodeId: string, active: boolean) {
+    sendToJuce({
+      type: 'setNodeParam', nodeId, key: 'dmxBlackout',
+      value: String(active),
     });
   },
 

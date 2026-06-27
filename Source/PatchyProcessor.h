@@ -4,6 +4,7 @@
 #include "ProcessingGraph.h"
 #include "MidiDeviceNodes.h"
 #include "MidiMonitorNode.h"
+#include "DmxMonitorNode.h"
 #include "AudioMonitorNode.h"
 #include "MidiKeyboardNode.h"
 #include <unordered_map>
@@ -11,6 +12,7 @@
 #include "UdpDeviceNodes.h"
 #include "OscDeviceNodes.h"
 #include "ArtNetDeviceNodes.h"
+#include "DmxDeviceNodes.h"
 #include "WebBridge.h"
 #include "../Pax/PaxRegistry.h"
 #include "../Pax/PaxScanner.h"
@@ -59,7 +61,7 @@ public:
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
 
     //─── Graph API (called from editor / WebBridge on message thread) ──────
-    GraphModel&  getGraphModel()  { return graphModel; }
+    GraphModel&      getGraphModel()      { return graphModel; }
 
     /** Call after any structural change to the graph model. */
     void rebuildProcessingGraph();
@@ -261,6 +263,33 @@ public:
         }
     }
 
+    void setDmxSettings (const juce::String& nodeId,
+                         const juce::String& devicePath,
+                         int universe = 0)
+    {
+        DmxDeviceManager::Settings s;
+        s.devicePath = devicePath;
+        s.universe   = universe;
+
+        dmxDeviceManager.storeSettings (nodeId, s);
+        dmxDeviceManager.applyToGraph (nodeId, processingGraph);
+        if (pendingGraph != nullptr)
+            dmxDeviceManager.applyToGraph (nodeId, *pendingGraph);
+
+        // Persist in settingsJson for save/restore
+        if (auto* node = graphModel.findNode (nodeId))
+        {
+            juce::var existing;
+            try { existing = juce::JSON::parse (node->settingsJson); } catch (...) {}
+            if (existing.getDynamicObject() == nullptr)
+                existing = new juce::DynamicObject();
+            auto* obj = existing.getDynamicObject();
+            obj->setProperty ("dmxDevicePath", devicePath);
+            obj->setProperty ("dmxUniverse",   universe);
+            node->settingsJson = juce::JSON::toString (existing, true);
+        }
+    }
+
     void setPaxParameter (const juce::String& nodeId, int index, float value)
     {
         for (auto& node : processingGraph.getNodes())
@@ -365,6 +394,15 @@ public:
             // Byte-rate for ArtNet In nodes (reuses udpBytes field — same UI display)
             if (auto* artIn = dynamic_cast<ArtNetInDeviceNode*> (node.get()))
                 a.udpBytes = artIn->drainByteActivity();
+
+            // Byte-rate for DMX In nodes (reuses udpBytes field — same UI display)
+            if (auto* dmxIn = dynamic_cast<DmxInDeviceNode*> (node.get()))
+            {
+                a.udpBytes   = dmxIn->drainByteActivity();
+                a.dmxIsMk2   = dmxIn->isMk2.load (std::memory_order_relaxed);
+            }
+            if (auto* dmxOut = dynamic_cast<DmxOutDeviceNode*> (node.get()))
+                a.dmxIsMk2 = dmxOut->isMk2.load (std::memory_order_relaxed);
 
             // Audio RMS from AudioMonitorBuffer (for AudioMonitorNode)
             auto it = audioMonitorBuffers.find (node->id);
@@ -496,6 +534,33 @@ public:
         return result;
     }
 
+    /** Called by WebBridge 30fps timer — drains DMX monitor + console snapshots. */
+    std::vector<DmxSnapshot> drainAllDmxSnapshots()
+    {
+        std::vector<DmxSnapshot> result;
+        for (auto& [nodeId, buf] : dmxMonitorBuffers)
+        {
+            DmxSnapshot snap;
+            snap.nodeId = nodeId;
+            if (buf->drain (snap.channels))
+            {
+                snap.hasData = true;
+                result.push_back (std::move (snap));
+            }
+        }
+        for (auto& [nodeId, buf] : dmxConsoleBuffers)
+        {
+            DmxSnapshot snap;
+            snap.nodeId = nodeId;
+            if (buf->drain (snap.channels))
+            {
+                snap.hasData = true;
+                result.push_back (std::move (snap));
+            }
+        }
+        return result;
+    }
+
     /** Called by ProcessingGraph when creating a MidiMonitorNode — returns shared buffer. */
     // Template helper — gets or creates a monitor buffer in any of the three maps
     template <typename BufferType>
@@ -515,6 +580,8 @@ public:
     MidiMonitorBuffer*  getOrCreateMidiMonitorBuffer     (const juce::String& id) { return getOrCreateBuffer (monitorBuffers,          id); }
     MidiMonitorBuffer*  getOrCreateKeyboardMonitorBuffer (const juce::String& id) { return getOrCreateBuffer (keyboardMonitorBuffers,  id); }
     AudioMonitorBuffer* getOrCreateAudioMonitorBuffer    (const juce::String& id) { return getOrCreateBuffer (audioMonitorBuffers,     id); }
+    DmxMonitorBuffer*   getOrCreateDmxMonitorBuffer      (const juce::String& id) { return getOrCreateBuffer (dmxMonitorBuffers,       id); }
+    DmxMonitorBuffer*   getOrCreateDmxConsoleBuffer      (const juce::String& id) { return getOrCreateBuffer (dmxConsoleBuffers,       id); }
 
     void removeMonitorBuffer (const juce::String& nodeId)
     {
@@ -540,9 +607,12 @@ private:
     UdpDeviceManager    udpDeviceManager;
     OscDeviceManager    oscDeviceManager;
     ArtNetDeviceManager artNetDeviceManager;
+    DmxDeviceManager    dmxDeviceManager;
     std::unordered_map<juce::String, std::unique_ptr<MidiMonitorBuffer>>  monitorBuffers;
     std::unordered_map<juce::String, std::unique_ptr<MidiMonitorBuffer>>  keyboardMonitorBuffers;
     std::unordered_map<juce::String, std::unique_ptr<AudioMonitorBuffer>> audioMonitorBuffers;
+    std::unordered_map<juce::String, std::unique_ptr<DmxMonitorBuffer>>   dmxMonitorBuffers;
+    std::unordered_map<juce::String, std::unique_ptr<DmxMonitorBuffer>>   dmxConsoleBuffers;
     bool audioSnapshotBusy = false;
 
     // Pending graph to swap in at the start of the next processBlock

@@ -4,6 +4,8 @@
 #include "UdpDeviceNodes.h"
 #include "OscDeviceNodes.h"
 #include "ArtNetDeviceNodes.h"
+#include "DmxDeviceNodes.h"
+#include "DmxMonitorNode.h"
 #include "MidiMonitorNode.h"
 #include "AudioMonitorNode.h"
 #include <unordered_set>
@@ -16,7 +18,9 @@
 void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                                std::function<MidiMonitorBuffer*(const juce::String&)>  getMidiBuffer,
                                std::function<AudioMonitorBuffer*(const juce::String&)> getAudioBuffer,
-                               std::function<MidiMonitorBuffer*(const juce::String&)>  getKeyboardBuffer)
+                               std::function<MidiMonitorBuffer*(const juce::String&)>  getKeyboardBuffer,
+                               std::function<DmxMonitorBuffer*(const juce::String&)>   getDmxMonitorBuffer,
+                               std::function<DmxMonitorBuffer*(const juce::String&)>   getDmxConsoleBuffer)
 {
     auto snapshot = model.toVar();
     auto* root    = snapshot.getDynamicObject();
@@ -73,6 +77,10 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                 case 11: proc = std::make_unique<OscOutDeviceNode>   (id); break;
                 case 12: proc = std::make_unique<ArtNetInDeviceNode>  (id); break;
                 case 13: proc = std::make_unique<ArtNetOutDeviceNode> (id); break;
+                case 14: proc = std::make_unique<DmxInDeviceNode>     (id); break;
+                case 15: proc = std::make_unique<DmxOutDeviceNode>    (id); break;
+                case 16: proc = std::make_unique<DmxMonitorNode>      (id, getDmxMonitorBuffer ? getDmxMonitorBuffer(id) : nullptr); break;
+                case 17: proc = std::make_unique<DmxConsoleNode>      (id, getDmxConsoleBuffer ? getDmxConsoleBuffer(id) : nullptr); break;
                 default:
                     juce::Logger::writeToLog ("ProcessingGraph: unknown built-in type " + juce::String (type));
                     break;
@@ -458,6 +466,27 @@ ArtNetOutDeviceNode* ProcessingGraph::findArtNetOutNode (const juce::String& nod
     auto it = nodeMap.find (nodeId);
     if (it == nodeMap.end()) return nullptr;
     return dynamic_cast<ArtNetOutDeviceNode*> (it->second);
+}
+
+DmxInDeviceNode* ProcessingGraph::findDmxInNode (const juce::String& nodeId)
+{
+    auto it = nodeMap.find (nodeId);
+    if (it == nodeMap.end()) return nullptr;
+    return dynamic_cast<DmxInDeviceNode*> (it->second);
+}
+
+DmxOutDeviceNode* ProcessingGraph::findDmxOutNode (const juce::String& nodeId)
+{
+    auto it = nodeMap.find (nodeId);
+    if (it == nodeMap.end()) return nullptr;
+    return dynamic_cast<DmxOutDeviceNode*> (it->second);
+}
+
+DmxConsoleNode* ProcessingGraph::findDmxConsoleNode (const juce::String& nodeId)
+{
+    auto it = nodeMap.find (nodeId);
+    if (it == nodeMap.end()) return nullptr;
+    return dynamic_cast<DmxConsoleNode*> (it->second);
 }
 
 void ProcessingGraph::closeAllAudioDevices()

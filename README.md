@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.889
+> Version 0.0.891
 
 ---
 
@@ -46,8 +46,9 @@
 - **Fragment export/import** — select any nodes, export as a reusable `.patchy` fragment, reimport with ghost-placement UX
 - **50-step undo/redo** — full graph snapshot history via `⌘Z` / `⌘⇧Z`
 - **Parameter persistence** — Pax parameters (sliders, steps) survive graph rebuilds, file loads and app restarts
-- **Built-in nodes** — MIDI In/Out, Audio In/Out, MIDI Monitor, Audio Monitor (oscilloscope), MIDI Keyboard, UDP In/Out, OSC In/Out, ArtNet In/Out
-- **Protocol device nodes** — Phase 3 built-in nodes for network protocols; UDP (raw datagrams, Unicast/Multicast/Broadcast), OSC 1.0 (f/i/s/b/T/F types, configurable address) and Art-Net (ArtDmx, 512-channel universe, port 6454); live byte-rate label; change-driven activity flash
+- **Built-in nodes** — MIDI In/Out, Audio In/Out, MIDI Monitor, Audio Monitor (oscilloscope), MIDI Keyboard, UDP In/Out, OSC In/Out, ArtNet In/Out, DMX In/Out, DMX Monitor, DMX Console
+- **Protocol device nodes** — Phase 3 built-in nodes for network and hardware protocols; UDP, OSC 1.0, Art-Net (ArtDmx), DMX USB (Enttec Pro/Mk2); live byte-rate labels; change-driven activity flash
+- **DMX Monitor + Console** — vertical fader bank and bargraph display for all 512 DMX channels; configurable visible count (8/16/24/32); page navigation; dec/pct/hex format; Blackout button; Enttec Pro Mk2 auto-detection
 - **Pax system** — drop a `.dylib/.so/.dll` into the Pax folder; new node type appears in the sidebar on next launch
 - **Dynamic port counts** — Pax can change their output port count at runtime (e.g. Spectrumyser band count) without audio interruption
 - **Restructured burger menu** — `☰` top-right opens File and Edit flyout submenus with keyboard shortcuts
@@ -77,6 +78,11 @@ Patchy/
 │   │                                Manual OscCodec (no juce_osc), OSC 1.0, byte-rate counter
 │   ├── ArtNetDeviceNodes.h/.cpp     ArtNet In (type 12) + ArtNet Out (type 13) + ArtNetDeviceManager
 │   │                                Manual ArtNetCodec, ArtDmx, port 6454, change-driven flash
+│   ├── SerialPort.h                 Cross-platform serial port abstraction (POSIX + Win32, no deps)
+│   ├── DmxDeviceNodes.h/.cpp        DMX In (type 14) + DMX Out (type 15) + DmxDeviceManager
+│   │                                EnttecProCodec, Mk2 auto-detection, universe 0/1
+│   ├── DmxMonitorNode.h/.cpp        DMX Monitor (type 16) + DMX Console (type 17)
+│   │                                DmxMonitorBuffer, vertical faders, 30Hz telemetry
 │   ├── MidiMonitorNode.h/.cpp       MIDI Monitor (type 5)
 │   ├── AudioMonitorNode.h/.cpp      Audio Monitor (type 6)
 │   ├── MidiKeyboardNode.h           MIDI Keyboard (type 7)
@@ -143,6 +149,10 @@ Patchy/
 | 11 | OSC Out Device | OSC In | Sends PAX_Value events as OSC messages to a configured host:port; configurable OSC address |
 | 12 | ArtNet In Device | ArtDMX Out | Listens on UDP port 6454; parses ArtDmx; universe filtering; change-driven flash; live byte-rate |
 | 13 | ArtNet Out Device | ArtDMX In | Sends PAX_Value blobs as ArtDmx packets to a configured host; configurable universe |
+| 14 | DMX In Device | DMX Out | Receives DMX512 from an Enttec DMX USB Pro; serial port selector; Mk2 auto-detection; live byte-rate |
+| 15 | DMX Out Device | DMX In | Sends DMX512 to an Enttec DMX USB Pro; universe 0 (Pro) or 1 (Mk2 port 2) |
+| 16 | DMX Monitor | DMX In + DMX Out | Displays all 512 DMX channels as vertical bargraphs; pass-through; configurable visible count |
+| 17 | DMX Console | DMX In + DMX Out | 512-channel vertical fader bank; blackout; configurable visible count; upstream override |
 | 100+ | Pax nodes | Per descriptor | Dynamically loaded from `.dylib/.so/.dll` |
 
 ---
@@ -553,4 +563,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.889 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.891 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

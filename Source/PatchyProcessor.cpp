@@ -66,7 +66,9 @@ void PatchyProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     processingGraph.rebuild (graphModel, &registry,
                              [this](const juce::String& nid) { return getOrCreateMidiMonitorBuffer(nid); },
                              [this](const juce::String& nid) { return getOrCreateAudioMonitorBuffer(nid); },
-                             [this](const juce::String& nid) { return getOrCreateKeyboardMonitorBuffer(nid); });
+                             [this](const juce::String& nid) { return getOrCreateKeyboardMonitorBuffer(nid); },
+                             [this](const juce::String& nid) { return getOrCreateDmxMonitorBuffer(nid); },
+                             [this](const juce::String& nid) { return getOrCreateDmxConsoleBuffer(nid); });
     processingGraph.isStandaloneMode = isStandalone;
     processingGraph.graphModel        = &graphModel;
     processingGraph.prepare (sampleRate, samplesPerBlock);
@@ -75,6 +77,7 @@ midiDeviceManager.applyDeviceSelections  (processingGraph);
     udpDeviceManager.applyAllSettings        (processingGraph);
     oscDeviceManager.applyAllSettings        (processingGraph);
     artNetDeviceManager.applyAllSettings     (processingGraph);
+    dmxDeviceManager.applyAllSettings        (processingGraph);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -151,7 +154,9 @@ void PatchyProcessor::rebuildProcessingGraph()
     newGraph->rebuild (graphModel, &registry,
                        [this](const juce::String& nid) { return getOrCreateMidiMonitorBuffer(nid); },
                        [this](const juce::String& nid) { return getOrCreateAudioMonitorBuffer(nid); },
-                       [this](const juce::String& nid) { return getOrCreateKeyboardMonitorBuffer(nid); });
+                       [this](const juce::String& nid) { return getOrCreateKeyboardMonitorBuffer(nid); },
+                       [this](const juce::String& nid) { return getOrCreateDmxMonitorBuffer(nid); },
+                       [this](const juce::String& nid) { return getOrCreateDmxConsoleBuffer(nid); });
 
     // Transfer existing open audio device connections to the new graph nodes
     // rather than closing and reopening — this avoids the ~1 second audio gap.
@@ -251,6 +256,23 @@ void PatchyProcessor::rebuildProcessingGraph()
                 catch (...) {}
             }
         }
+        else if (n.nodeType == 14 || n.nodeType == 15)
+        {
+            // Restore DMX settings from settingsJson (undo/redo safe)
+            if (n.settingsJson.isNotEmpty())
+            {
+                try
+                {
+                    auto parsed = juce::JSON::parse (n.settingsJson);
+                    DmxDeviceManager::Settings s;
+                    s.devicePath = parsed["dmxDevicePath"].toString();
+                    s.universe   = (int) parsed["dmxUniverse"];
+                    if (s.devicePath.isNotEmpty())
+                        dmxDeviceManager.storeSettings (n.id, s);
+                }
+                catch (...) {}
+            }
+        }
     }
 
     // If selections changed (e.g. after undo), close all transferred devices
@@ -265,6 +287,7 @@ void PatchyProcessor::rebuildProcessingGraph()
     udpDeviceManager.applyAllSettings            (*newGraph);
     oscDeviceManager.applyAllSettings            (*newGraph);
     artNetDeviceManager.applyAllSettings         (*newGraph);
+    dmxDeviceManager.applyAllSettings            (*newGraph);
 
     pendingGraph = std::move (newGraph);
     graphPending.store (true);

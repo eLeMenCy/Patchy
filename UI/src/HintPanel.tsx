@@ -93,6 +93,10 @@ export const NODE_HINTS: Record<string, { title: string; body: string }> = {
   'UDP OUT DEVICE':      { title: 'UDP Out Device',      body: 'Sends incoming graph values as UDP datagrams to a configured target. Supports unicast (host:port), multicast and broadcast.' },
   'ARTNET IN DEVICE':   { title: 'ArtNet In Device',    body: 'Listens for Art-Net ArtDmx packets on UDP port 6454. Outputs the DMX universe blob as a PAX_Value. Configure the universe number to filter.' },
   'ARTNET OUT DEVICE':  { title: 'ArtNet Out Device',   body: 'Sends incoming DMX blobs as Art-Net ArtDmx packets to a configured target host on port 6454. Set universe and target host in settings.' },
+  'DMX IN DEVICE':      { title: 'DMX In Device',       body: 'Receives DMX512 from an Enttec DMX USB Pro interface. Select your serial port in settings. Outputs a DMX universe blob as a PAX_Value.' },
+  'DMX OUT DEVICE':     { title: 'DMX Out Device',      body: 'Sends DMX512 to an Enttec DMX USB Pro interface. Select your serial port in settings. Takes a DMX universe blob from the graph.' },
+  'DMX MONITOR':        { title: 'DMX Monitor',         body: 'Displays all 512 DMX channel values in real time. Pass-through — incoming DMX flows unchanged to the output port. Page through channels with ◀ ▶.' },
+  'DMX CONSOLE':        { title: 'DMX Console',         body: 'Control up to 512 DMX channels with interactive faders. Drag faders or click values to edit. BO = Blackout (all channels to 0). Upstream DMX overrides faders when connected.' },
   'OSC IN DEVICE':    { title: 'OSC In Device',    body: 'Listens for OSC 1.0 messages on a UDP port. Parses address pattern and typed arguments (f, i, s, b, T, F). Set the port in the node settings to activate.' },
   'OSC OUT DEVICE':   { title: 'OSC Out Device',   body: 'Sends incoming graph values as OSC messages to a configured host:port. The OSC address is configurable (default /patchy).' },
   // Pax

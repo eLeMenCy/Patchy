@@ -38,6 +38,19 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
     bridge.onSetArtNetSettings       = [&p](const juce::String& nid, int universe,
                                             const juce::String& targetHost)
                                        { p.setArtNetSettings (nid, universe, targetHost); };
+    bridge.onSetDmxSettings          = [&p](const juce::String& nid, const juce::String& devicePath, int universe)
+                                       { p.setDmxSettings (nid, devicePath, universe); };
+    bridge.drainDmxSnapshots         = [&p]() { return p.drainAllDmxSnapshots(); };
+    bridge.onSetDmxConsoleChannel    = [&p](const juce::String& nid, int channel, uint8_t value)
+                                       {
+                                           if (auto* node = p.getProcessingGraph().findDmxConsoleNode (nid))
+                                               node->setChannel (channel, value);
+                                       };
+    bridge.onSetDmxBlackout          = [&p](const juce::String& nid, bool active)
+                                       {
+                                           if (auto* node = p.getProcessingGraph().findDmxConsoleNode (nid))
+                                               node->setBlackout (active);
+                                       };
     addAndMakeVisible (bridge);
     setSize (640, 400);
     setResizable (true, false);

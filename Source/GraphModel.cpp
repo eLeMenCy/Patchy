@@ -83,6 +83,28 @@ std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
         // ArtNetOutDeviceNode: 1 DMX input (sends PAX_Value blob as ArtDmx)
         mk ("ArtDMX In",  PortType::DMX, PortDirection::Input);
     }
+    else if (t == 14)
+    {
+        // DmxInDeviceNode: 1 DMX output (received universe from Enttec Pro)
+        mk ("DMX Out", PortType::DMX, PortDirection::Output);
+    }
+    else if (t == 15)
+    {
+        // DmxOutDeviceNode: 1 DMX input (sends PAX_Value blob to Enttec Pro)
+        mk ("DMX In",  PortType::DMX, PortDirection::Input);
+    }
+    else if (t == 16)
+    {
+        // DmxMonitorNode: DMX In + DMX Out (pass-through, display only)
+        mk ("DMX In",  PortType::DMX, PortDirection::Input);
+        mk ("DMX Out", PortType::DMX, PortDirection::Output);
+    }
+    else if (t == 17)
+    {
+        // DmxConsoleNode: DMX In (optional override) + DMX Out
+        mk ("DMX In",  PortType::DMX, PortDirection::Input);
+        mk ("DMX Out", PortType::DMX, PortDirection::Output);
+    }
     else if (t >= 100)
     {
         // Dynamic addon node — ports based on NGA nodeType (t - 100)
@@ -130,6 +152,10 @@ static juce::String labelForType (int t, const juce::String& paxName)
         case 11: return "OSC Out";
         case 12: return "ArtNet In";
         case 13: return "ArtNet Out";
+        case 14: return "DMX In";
+        case 15: return "DMX Out";
+        case 16: return "DMX Monitor";
+        case 17: return "DMX Console";
         default: return "Addon Node";
     }
 }

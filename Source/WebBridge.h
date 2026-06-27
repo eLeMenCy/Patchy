@@ -7,6 +7,7 @@
 
 #include "MidiMonitorNode.h"
 #include "AudioMonitorNode.h"
+#include "DmxMonitorNode.h"
 
 /**
  * WebBridge
@@ -34,6 +35,7 @@ struct PortActivity
     // For keyboard nodes: active notes in inputMidi this frame
     std::vector<std::pair<uint8_t,uint8_t>> incomingNotes; // {status, note}
     int               udpBytes      = 0;   // bytes received since last push (UDP In nodes only)
+    bool              dmxIsMk2      = false; // true if Enttec Pro Mk2 detected
 };
 
 struct SpectrumSnapshot
@@ -104,6 +106,10 @@ public:
     std::function<void(const juce::String&, int, int, const juce::String&, const juce::String&)> onSetUdpSettings;
     std::function<void(const juce::String&, int, const juce::String&, const juce::String&)>      onSetOscSettings;
     std::function<void(const juce::String&, int, const juce::String&)>                           onSetArtNetSettings;
+    std::function<void(const juce::String&, const juce::String&, int)>                          onSetDmxSettings;
+    std::function<std::vector<DmxSnapshot>()>                                                    drainDmxSnapshots;
+    std::function<void(const juce::String&, int, uint8_t)>                                       onSetDmxConsoleChannel;
+    std::function<void(const juce::String&, bool)>                                               onSetDmxBlackout;
 
 private:
     // ── Resource provider (release) ───────────────────────────────────────
@@ -153,6 +159,7 @@ private:
     void pushAudioSnapshots();
     void pushSpectrumSnapshots();
     void pushPortActivity();
+    void pushDmxSnapshots();
 
     void pushPaxList();
 
@@ -178,6 +185,7 @@ private:
     std::function<void(const juce::String&)> onLoadGraph;
     void pushMidiDevices();
     void pushAudioDevices();
+    void pushSerialPorts();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WebBridge)
 };

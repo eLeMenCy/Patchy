@@ -36,6 +36,15 @@ const BUILTIN_GROUPS = [
     ],
   },
   {
+    label: 'DMX', accent: 'var(--dmx)', dim: 'var(--dmx-dim)',
+    nodes: [
+      { type: 14 as const, label: 'DMX In Device',  desc: 'Receive DMX via Enttec Pro', icon: '⊲' },
+      { type: 15 as const, label: 'DMX Out Device', desc: 'Send DMX via Enttec Pro',    icon: '⊳' },
+      { type: 17 as const, label: 'DMX Console',    desc: 'Control 512 DMX channels',   icon: '▤' },
+      { type: 16 as const, label: 'DMX Monitor',    desc: 'Display 512 DMX channels',   icon: '⊞' },
+    ],
+  },
+  {
     label: 'OSC', accent: 'var(--osc)', dim: 'var(--osc-dim)',
     nodes: [
       { type: 10 as const, label: 'OSC In Device',  desc: 'Receive OSC messages on a UDP port', icon: '⊲' },

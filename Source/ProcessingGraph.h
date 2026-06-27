@@ -5,6 +5,7 @@
 #include "MidiMonitorNode.h"   // for MidiMonitorEvent and MidiMonitorNode
 #include "AudioMonitorNode.h"  // for AudioMonitorBuffer and AudioMonitorNode
 #include "MidiKeyboardNode.h"
+#include "DmxMonitorNode.h"    // for DmxMonitorBuffer, DmxMonitorNode, DmxConsoleNode
 #include "GraphModel.h"
 #include "../Pax/PaxRegistry.h"
 #include <memory>
@@ -22,6 +23,10 @@ class OscInDeviceNode;
 class OscOutDeviceNode;
 class ArtNetInDeviceNode;
 class ArtNetOutDeviceNode;
+class DmxInDeviceNode;
+class DmxOutDeviceNode;
+class DmxMonitorNode;
+class DmxConsoleNode;
 
 class ProcessingGraph
 {
@@ -32,9 +37,11 @@ public:
 
     void rebuild (const GraphModel& model,
                  PaxRegistry* registry = nullptr,
-                 std::function<MidiMonitorBuffer*(const juce::String&)>  getMidiBuffer     = nullptr,
-                 std::function<AudioMonitorBuffer*(const juce::String&)> getAudioBuffer    = nullptr,
-                 std::function<MidiMonitorBuffer*(const juce::String&)>  getKeyboardBuffer = nullptr);
+                 std::function<MidiMonitorBuffer*(const juce::String&)>  getMidiBuffer        = nullptr,
+                 std::function<AudioMonitorBuffer*(const juce::String&)> getAudioBuffer       = nullptr,
+                 std::function<MidiMonitorBuffer*(const juce::String&)>  getKeyboardBuffer    = nullptr,
+                 std::function<DmxMonitorBuffer*(const juce::String&)>   getDmxMonitorBuffer  = nullptr,
+                 std::function<DmxMonitorBuffer*(const juce::String&)>   getDmxConsoleBuffer  = nullptr);
     void prepare (double sampleRate, int maxBlockSize);
     void process (juce::AudioBuffer<float>& hostAudio, juce::MidiBuffer& hostMidi);
 
@@ -79,6 +86,9 @@ public:
     OscOutDeviceNode*   findOscOutNode   (const juce::String& nodeId);
     ArtNetInDeviceNode*  findArtNetInNode  (const juce::String& nodeId);
     ArtNetOutDeviceNode* findArtNetOutNode (const juce::String& nodeId);
+    DmxInDeviceNode*     findDmxInNode      (const juce::String& nodeId);
+    DmxOutDeviceNode*    findDmxOutNode     (const juce::String& nodeId);
+    DmxConsoleNode*      findDmxConsoleNode (const juce::String& nodeId);
 
     // ── Monitor ───────────────────────────────────────────────────────────
     void closeAllAudioDevices();

@@ -3,6 +3,7 @@
 #include "AudioDeviceNodes.h"
 #include "ProcessingGraph.h"
 #include "MidiMonitorNode.h"
+#include "SerialPort.h"
 #include <unordered_map>
 
 #if HAS_BUNDLED_UI
@@ -259,6 +260,7 @@ void WebBridge::handleMessage (const juce::String& json)
         pushToUI ("onFileState", buildFileStateJson());
         pushMidiDevices();
         pushAudioDevices();
+        pushSerialPorts();
         pushGraphToUI();
         pushUndoState();
         if (!wasConnected)
@@ -563,6 +565,32 @@ void WebBridge::handleMessage (const juce::String& json)
             if (auto* nd = graph.findNode (nodeId))
                 pushSettingsToUI (nodeId, nd->settingsJson);
         }
+        else if (key == "dmxSettings" && onSetDmxSettings)
+        {
+            // value is a JSON object: { devicePath, universe }
+            auto parsed = juce::JSON::parse (value);
+            juce::String devicePath = parsed["devicePath"].toString();
+            int          universe   = (int) parsed["universe"];
+
+            onSetDmxSettings (nodeId, devicePath, universe);
+
+            if (auto* nd = graph.findNode (nodeId))
+                pushSettingsToUI (nodeId, nd->settingsJson);
+        }
+        else if (key == "dmxConsoleChannel" && onSetDmxConsoleChannel)
+        {
+            // value is a JSON object: { channel, value }
+            auto parsed  = juce::JSON::parse (value);
+            int channel  = (int) parsed["channel"];
+            int val      = (int) parsed["value"];
+            onSetDmxConsoleChannel (nodeId, channel, (uint8_t) juce::jlimit (0, 255, val));
+        }
+        else if (key == "dmxBlackout" && onSetDmxBlackout)
+        {
+            // value is "true" or "false"
+            bool active = value.trim() == "true";
+            onSetDmxBlackout (nodeId, active);
+        }
         // Push updated graph so React reflects the new selectedDeviceId / settings
         pushGraphToUI();
         pushUndoState();
@@ -610,6 +638,10 @@ void WebBridge::handleMessage (const juce::String& json)
     else if (type == "redo")
     {
         handleRedo();
+    }
+    else if (type == "listSerialPorts")
+    {
+        pushSerialPorts();
     }
     else if (type == "importFragmentNodes")
     {
@@ -751,6 +783,42 @@ void WebBridge::pushAudioDevices()
     pushToUI ("onAudioDevices", juce::JSON::toString (AudioDeviceManager::getAvailableDevicesVar (isStandalone), true));
 }
 
+void WebBridge::pushSerialPorts()
+{
+    auto ports = SerialPort::listPorts();
+    juce::Array<juce::var> arr;
+    for (const auto& p : ports)
+        arr.add (juce::String (p));
+    pushToUI ("onSerialPorts", juce::JSON::toString (juce::var (arr), true));
+}
+
+void WebBridge::pushDmxSnapshots()
+{
+    if (! connected || ! drainDmxSnapshots || webView == nullptr) return;
+
+    auto snaps = drainDmxSnapshots();
+    if (snaps.empty()) return;
+
+    static constexpr auto Q = "\"";
+    juce::MemoryOutputStream json;
+    json << "[";
+    for (size_t si = 0; si < snaps.size(); ++si)
+    {
+        const auto& snap = snaps[si];
+        if (si > 0) json << ",";
+        json << "{" << Q << "id" << Q << ":" << Q << snap.nodeId << Q << ","
+             << Q << "ch" << Q << ":[";
+        for (int i = 0; i < 512; ++i)
+        {
+            if (i > 0) json << ",";
+            json << (int) snap.channels[i];
+        }
+        json << "]}";
+    }
+    json << "]";
+    pushToUI ("onDmxSnapshot", json.toString());
+}
+
 void WebBridge::timerCallback()
 {
     // Clear old graph trash on message thread before any snapshot/drain
@@ -761,6 +829,7 @@ void WebBridge::timerCallback()
         pushAudioSnapshots();
         pushSpectrumSnapshots();
         pushPortActivity();
+        pushDmxSnapshots();
     }
 }
 
@@ -917,7 +986,8 @@ void WebBridge::pushPortActivity()
              << Q << "r"        << Q << ":" << rv                          << ","
              << Q << "portRms"  << Q << ":" << portRmsStr                  << ","
              << Q << "notes"    << Q << ":" << Q << notesStr        << Q   << ","
-             << Q << "bytes"    << Q << ":" << a.udpBytes
+             << Q << "bytes"    << Q << ":" << a.udpBytes                  << ","
+             << Q << "isMk2"    << Q << ":" << (a.dmxIsMk2 ? "true" : "false")
              << "}";
     }
     json << "]";

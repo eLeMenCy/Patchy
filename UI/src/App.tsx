@@ -26,6 +26,7 @@ import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
 import MidiKeyboardNode,  { MidiKeyboardNodeData }  from './MidiKeyboardNode';
+import { DmxMonitorNode, DmxConsoleNode, DmxMonitorNodeData } from './DmxMonitorNode';
 import PreferencesPanel, { GraphPreferences, loadPrefs, savePrefs } from './PreferencesPanel';
 import { HintProvider, HintContext, BUTTON_HINTS, PORT_HINTS, EDGE_HINTS } from './HintPanel';
 import { Menu, ChevronsDownUp, ChevronsUpDown, Settings, ChevronLeft } from 'lucide-react';
@@ -34,28 +35,38 @@ import SpectrumyserNode from './SpectrumyserNode';
 import EnvelopeNode     from './EnvelopeNode';
 
 // ── Node type registry ────────────────────────────────────────────────────────
-const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode };
+const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 // Module-level Pax params map — populated when Pax list arrives
 const _paxParamsMap = new Map<string, PaxParamInfo[]>();
 
-function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>): Node<NodeData | MidiMonitorNodeData> {
+function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>): Node<NodeData | MidiMonitorNodeData | DmxMonitorNodeData> {
   const isMidiMonitor  = raw.nodeType === 5;
   const isAudioMonitor = raw.nodeType === 6;
   const isMidiKeyboard = raw.nodeType === 7;
+  const isDmxMonitor   = raw.nodeType === 16;
+  const isDmxConsole   = raw.nodeType === 17;
   return {
     id:       raw.id,
-    type:     isMidiMonitor ? 'midiMonitor' : isAudioMonitor ? 'audioMonitor' : isMidiKeyboard ? 'midiKeyboard'
+    type:     isMidiMonitor  ? 'midiMonitor'
+            : isAudioMonitor ? 'audioMonitor'
+            : isMidiKeyboard ? 'midiKeyboard'
+            : isDmxMonitor   ? 'dmxMonitor'
+            : isDmxConsole   ? 'dmxConsole'
             : raw.paxName === 'Spectrumyser' ? 'spectrumyser'
             : raw.paxName === 'Envelope'     ? 'envelope' : 'custom',
     position: { x: raw.x, y: raw.y },
     data: isMidiMonitor
-      ? { label: raw.label, nodeType: 5, ports: raw.ports, settingsJson: raw.settingsJson } as MidiMonitorNodeData
+      ? { label: raw.label, nodeType: 5,  ports: raw.ports, settingsJson: raw.settingsJson } as MidiMonitorNodeData
       : isAudioMonitor
-      ? { label: raw.label, nodeType: 6, ports: raw.ports, settingsJson: raw.settingsJson } as AudioMonitorNodeData
+      ? { label: raw.label, nodeType: 6,  ports: raw.ports, settingsJson: raw.settingsJson } as AudioMonitorNodeData
       : isMidiKeyboard
-      ? { label: raw.label, nodeType: 7, ports: raw.ports, settingsJson: raw.settingsJson } as MidiKeyboardNodeData
+      ? { label: raw.label, nodeType: 7,  ports: raw.ports, settingsJson: raw.settingsJson } as MidiKeyboardNodeData
+      : isDmxMonitor
+      ? { label: raw.label, nodeType: 16, ports: raw.ports, settingsJson: raw.settingsJson } as DmxMonitorNodeData
+      : isDmxConsole
+      ? { label: raw.label, nodeType: 17, ports: raw.ports, settingsJson: raw.settingsJson } as DmxMonitorNodeData
       : { label: raw.label, nodeType: raw.nodeType,
           ports: raw.ports, selectedDeviceId: raw.selectedDeviceId,
           paxName: raw.paxName,
@@ -68,8 +79,8 @@ function rawToFlowEdge(raw: RawConnection): Edge {
   const src = raw.sourcePortId.toLowerCase();
   const cls = src.includes('audio')   ? 'edge-audio'
             : src.includes('osc')     ? 'edge-osc'
-            : src.includes('artdmx')  ? 'edge-artnet'
-            : src.includes('_dmx_')   ? 'edge-dmx'
+            : src.includes('artdmx')  ? 'edge-artnet'   // must come before 'dmx'
+            : src.includes('dmx')     ? 'edge-dmx'
             : src.includes('mqtt')    ? 'edge-mqtt'
             : src.includes('_udp_')   ? 'edge-udp'
             : src.includes('value')   ? 'edge-udp'
@@ -119,6 +130,7 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
   const udpTimers     = useRef<Map<string, number>>(new Map());
   const oscTimers     = useRef<Map<string, number>>(new Map());
   const artNetTimers  = useRef<Map<string, number>>(new Map());
+  const dmxTimers     = useRef<Map<string, number>>(new Map());
   const audioLevels   = useRef<Map<string, number>>(new Map());
   const portRmsLevels = useRef<Map<string, number[]>>(new Map());
   const edgeList      = useRef(edges);
@@ -148,6 +160,8 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
             oscTimers.current.set(entry.id, now + 80);
           } else if (nodeType === 12 || nodeType === 13) {
             artNetTimers.current.set(entry.id, now + 80);
+          } else if (nodeType === 14 || nodeType === 15 || nodeType === 16 || nodeType === 17) {
+            dmxTimers.current.set(entry.id, now + 80);
           } else {
             midiTimers.current.set(entry.id, now + 80);
           }
@@ -185,6 +199,10 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
       const udpEdges   = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('value'));
       const oscEdges   = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('osc'));
       const artNetEdges = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('artdmx'));
+      const dmxEdges    = edgeList.current.filter(e => {
+        const h = (e.sourceHandle ?? '').toLowerCase();
+        return h.includes('dmx') && !h.includes('artdmx');
+      });
       const audioSources = new Set<string>(audioEdges.map(e => e.source));
       audioLevels.current.forEach((rms, id) => { if (rms > 0.01) audioSources.add(id); });
       const midiSources  = new Set<string>(midiEdges.map(e => e.source));
@@ -195,7 +213,9 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
       oscTimers.current.forEach((expiry, id) => { if (expiry > now) oscSources.add(id); });
       const artNetSources = new Set<string>(artNetEdges.map(e => e.source));
       artNetTimers.current.forEach((expiry, id) => { if (expiry > now) artNetSources.add(id); });
-      const allSources   = new Set([...audioSources, ...midiSources, ...udpSources, ...oscSources, ...artNetSources]);
+      const dmxSources    = new Set<string>(dmxEdges.map(e => e.source));
+      dmxTimers.current.forEach((expiry, id) => { if (expiry > now) dmxSources.add(id); });
+      const allSources   = new Set([...audioSources, ...midiSources, ...udpSources, ...oscSources, ...artNetSources, ...dmxSources]);
 
       let css = '';
 
@@ -268,6 +288,18 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
           const fc = '#fef08a'; // lighter pale yellow flash, distinct from base --artnet
           css += `[data-handleid="${id}_ArtDMX Out_out"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
           nodeArtNetEdges.forEach(e => {
+            css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${fc}!important;filter:drop-shadow(0 0 4px ${fc});transition:none}`;
+            if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
+          });
+        }
+
+        // DMX flash
+        const isDmxFlash = (dmxTimers.current.get(id) ?? 0) > now;
+        if (isDmxFlash) {
+          const nodeDmxEdges = dmxEdges.filter(e => e.source === id);
+          const fc = '#fde68a'; // lighter amber flash, distinct from base --dmx gold
+          css += `[data-handleid="${id}_DMX Out_out"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
+          nodeDmxEdges.forEach(e => {
             css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${fc}!important;filter:drop-shadow(0 0 4px ${fc});transition:none}`;
             if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
           });

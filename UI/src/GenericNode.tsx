@@ -35,6 +35,10 @@ const THEME: Record<number, { accent: string; dim: string; glow: string; tag: st
   11: { accent: 'var(--osc)',    dim: 'var(--osc-dim)',    glow: 'var(--osc-glow)',    tag: 'OSC OUT DEVICE'    },
   12: { accent: 'var(--artnet)', dim: 'var(--artnet-dim)', glow: 'var(--artnet-glow)', tag: 'ARTNET IN DEVICE'  },
   13: { accent: 'var(--artnet)', dim: 'var(--artnet-dim)', glow: 'var(--artnet-glow)', tag: 'ARTNET OUT DEVICE' },
+  14: { accent: 'var(--dmx)',    dim: 'var(--dmx-dim)',    glow: 'var(--dmx-glow)',    tag: 'DMX IN DEVICE'     },
+  15: { accent: 'var(--dmx)',    dim: 'var(--dmx-dim)',    glow: 'var(--dmx-glow)',    tag: 'DMX OUT DEVICE'    },
+  16: { accent: 'var(--dmx)',    dim: 'var(--dmx-dim)',    glow: 'var(--dmx-glow)',    tag: 'DMX MONITOR'       },
+  17: { accent: 'var(--dmx)',    dim: 'var(--dmx-dim)',    glow: 'var(--dmx-glow)',    tag: 'DMX CONSOLE'       },
 };
 // Default theme for Pax nodes
 const PAX_THEME = { accent: 'var(--av)', dim: 'var(--av-dim)', glow: 'var(--av-glow)', tag: 'PAX' };
@@ -620,6 +624,269 @@ function ArtNetPortSummary ({ universe, targetHost, byteRate, onClick }: {
   );
 }
 
+// ── DMX settings panel ────────────────────────────────────────────────────────
+function DmxDeviceSettingsPanel ({ nodeId, nodeType, devicePath, serialPorts, onClose }: {
+  nodeId:      string;
+  nodeType:    14 | 15;
+  devicePath:  string;
+  serialPorts: string[];
+  onClose:     () => void;
+}) {
+  const isOut  = nodeType === 15;
+  const title  = isOut ? 'DMX OUT Settings' : 'DMX IN Settings';
+  const accent = 'var(--dmx)';
+
+  const commit = (path: string) => Bridge.setDmxSettings(nodeId, path);
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', fontSize: 10, padding: '3px 6px', marginTop: 2,
+    background: 'var(--surface)', border: '1px solid var(--border)',
+    borderRadius: 3, color: 'var(--text-dim)',
+    fontFamily: "'JetBrains Mono', monospace",
+  };
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em',
+    textTransform: 'uppercase', marginTop: 8, marginBottom: 4,
+  };
+
+  return (
+    <div
+      className="nodrag"
+      onMouseDown={e => e.stopPropagation()}
+      onMouseUp={e => e.stopPropagation()}
+      onPointerDown={e => e.stopPropagation()}
+      onPointerUp={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+      style={{
+        position: 'absolute', top: 0, left: '100%', marginLeft: 6,
+        width: 220, background: 'var(--surface2)',
+        border: '1px solid var(--border-hi)', borderRadius: 'var(--radius)',
+        padding: '10px 12px', zIndex: 1000,
+        boxShadow: '0 8px 32px rgba(0,0,0,.6)',
+        fontFamily: "'JetBrains Mono', monospace",
+        userSelect: 'none',
+      }}>
+      <SettingsPanelHeader
+        title={title}
+        onReset={() => commit('')}
+        onClose={onClose}
+      />
+
+      <div style={labelStyle}>Serial Port</div>
+
+      {serialPorts.length === 0 ? (
+        <div style={{ fontSize: 9, color: '#ef5350', marginTop: 4 }}>
+          No serial ports found.<br />
+          Plug in your Enttec Pro and{' '}
+          <span
+            className="nodrag"
+            onClick={() => Bridge.listSerialPorts()}
+            style={{ color: accent, cursor: 'pointer', textDecoration: 'underline' }}>
+            refresh
+          </span>
+        </div>
+      ) : (
+        <select
+          value={devicePath}
+          onChange={e => commit(e.target.value)}
+          className="nodrag"
+          style={{ ...inputStyle, cursor: 'pointer' }}>
+          <option value="">— select port —</option>
+          {serialPorts.map(p => (
+            <option key={p} value={p}>{p.replace('/dev/cu.', '').replace('/dev/', '')}</option>
+          ))}
+        </select>
+      )}
+
+      <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 6, opacity: 0.7 }}>
+        Enttec DMX USB Pro · 57600 8N2
+      </div>
+
+      <div
+        onClick={() => Bridge.listSerialPorts()}
+        className="nodrag"
+        style={{
+          fontSize: 9, color: accent, marginTop: 6,
+          cursor: 'pointer', opacity: 0.8,
+        }}>
+        ↺ Refresh port list
+      </div>
+
+      {!devicePath && (
+        <div style={{ fontSize: 9, color: '#ef5350', marginTop: 6 }}>
+          Select a port to activate
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── DMX port summary label ────────────────────────────────────────────────────
+function DmxPortSummary ({ devicePath, byteRate, onClick }: {
+  devicePath: string;
+  byteRate:   string;
+  onClick:    () => void;
+}) {
+  const baseStyle: React.CSSProperties = {
+    fontSize: 9, marginBottom: 3, letterSpacing: '0.05em',
+    cursor: 'pointer', borderRadius: 3, padding: '2px 4px',
+    transition: 'background .12s',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+  };
+  if (!devicePath) {
+    return (
+      <div
+        className="nodrag"
+        onClick={onClick}
+        style={{ ...baseStyle, color: '#ef5350', justifyContent: 'center' }}
+        onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(239,83,80,.12)'; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+      >
+        No port selected
+      </div>
+    );
+  }
+  // Show just the device name without the full /dev/cu. prefix
+  const shortName = devicePath.replace('/dev/cu.', '').replace('/dev/', '').replace('COM', 'COM');
+  return (
+    <div
+      className="nodrag"
+      onClick={onClick}
+      style={{ ...baseStyle, color: 'var(--text-muted)' }}
+      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--surface)'; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+    >
+      <span style={{ flex: 1, textAlign: 'center' }}>{shortName}</span>
+      {byteRate && <span style={{ color: 'var(--dmx)', opacity: 0.85 }}>{byteRate}</span>}
+    </div>
+  );
+}
+
+// ── DMX device selector — inline on node face, same pattern as DeviceSelector ──
+function DmxDeviceSelector ({ nodeId, devicePath, universe, serialPorts }: {
+  nodeId:      string;
+  devicePath:  string;
+  universe:    number;
+  serialPorts: string[];
+}) {
+  const { setHint } = useContext(HintContext);
+  const accent = 'var(--dmx)';
+
+  const opts = serialPorts.map(p => ({
+    id:   p,
+    name: p.replace('/dev/cu.', '').replace('/dev/', ''),
+  }));
+
+  return (
+    <NodeSelect
+      value={devicePath}
+      onChange={v => Bridge.setDmxSettings(nodeId, v, universe)}
+      options={opts}
+      disabled={serialPorts.length === 0}
+      accent={accent}
+      onOptionHover={h => setHint(h)}
+    />
+  );
+}
+
+// ── DMX settings panel (gear) — universe selection ───────────────────────────
+function DmxSettingsPanel ({ nodeId, nodeType, devicePath, universe, isMk2, onClose }: {
+  nodeId:     string;
+  nodeType:   14 | 15;
+  devicePath: string;
+  universe:   number;
+  isMk2:      boolean;
+  onClose:    () => void;
+}) {
+  const isOut = nodeType === 15;
+  const accent = 'var(--dmx)';
+
+  const commit = (u: number) => Bridge.setDmxSettings(nodeId, devicePath, u);
+
+  return (
+    <div
+      className="nodrag"
+      onMouseDown={e => e.stopPropagation()}
+      onMouseUp={e => e.stopPropagation()}
+      onPointerDown={e => e.stopPropagation()}
+      onPointerUp={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+      style={{
+        position: 'absolute', top: 0, left: '100%', marginLeft: 6,
+        width: 200, background: 'var(--surface2)',
+        border: '1px solid var(--border-hi)', borderRadius: 'var(--radius)',
+        padding: '10px 12px', zIndex: 1000,
+        boxShadow: '0 8px 32px rgba(0,0,0,.6)',
+        fontFamily: "'JetBrains Mono', monospace",
+        userSelect: 'none',
+      }}>
+      <SettingsPanelHeader
+        title={isOut ? 'DMX OUT Settings' : 'DMX IN Settings'}
+        onReset={() => commit(0)}
+        onClose={onClose}
+      />
+
+      <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 8, marginBottom: 6 }}>
+        Universe
+      </div>
+
+      <div style={{ display: 'flex', gap: 6 }}>
+        {[0, 1].map(u => {
+          const noDevice = !devicePath;
+          const disabled = noDevice || (u === 1 && !isMk2);
+          const active   = universe === u && !disabled;
+          return (
+            <div
+              key={u}
+              className="nodrag"
+              onClick={() => { if (!disabled) commit(u); }}
+              title={noDevice ? 'Select a port first' : disabled ? 'Requires Enttec Pro Mk2' : undefined}
+              style={{
+                flex: 1, textAlign: 'center', padding: '4px 0',
+                fontSize: 10, borderRadius: 3,
+                cursor: disabled ? 'not-allowed' : 'pointer',
+                border: `1px solid ${active ? accent : 'var(--border)'}`,
+                background: active ? `${accent}22` : 'transparent',
+                color: disabled ? 'var(--text-muted)' : active ? accent : 'var(--text-muted)',
+                opacity: disabled ? 0.35 : 1,
+                transition: 'all .12s',
+              }}>
+              {u === 0 ? 'Uni 0' : 'Uni 1'}
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 6, opacity: 0.7 }}>
+        {!devicePath ? 'Select a port to activate'
+          : isMk2 ? 'Enttec Pro Mk2 detected ✓'
+          : 'Uni 1 requires Pro Mk2'}
+      </div>
+
+      <div
+        onClick={() => Bridge.listSerialPorts()}
+        className="nodrag"
+        style={{ fontSize: 9, color: accent, marginTop: 8, cursor: 'pointer', opacity: 0.8 }}>
+        ↺ Refresh port list
+      </div>
+    </div>
+  );
+}
+
+// ── DMX port summary label (byte-rate only, shown above selector) ─────────────
+function DmxByteRateLabel ({ byteRate }: { byteRate: string }) {
+  if (!byteRate) return null;
+  return (
+    <div style={{
+      fontSize: 9, color: 'var(--dmx)', textAlign: 'right',
+      marginBottom: 2, letterSpacing: '0.05em', opacity: 0.85,
+    }}>
+      {byteRate}
+    </div>
+  );
+}
+
 // ── Port colour by type ───────────────────────────────────────────────────────
 function portColour (type: string): string {
   switch (type) {
@@ -663,6 +930,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
   const isUdpDevice    = nodeData.nodeType === 8  || nodeData.nodeType === 9;
   const isOscDevice    = nodeData.nodeType === 10 || nodeData.nodeType === 11;
   const isArtNetDevice = nodeData.nodeType === 12 || nodeData.nodeType === 13;
+  const isDmxDevice    = nodeData.nodeType === 14 || nodeData.nodeType === 15;
   const { setHint } = useContext(HintContext);
   const portBodyRef = useRef<HTMLDivElement>(null);
 
@@ -789,6 +1057,47 @@ function GenericNode({ id, data, selected }: NodeProps) {
     return unsub;
   }, [id, nodeData.nodeType]);
 
+  // DMX state
+  const [dmxDevicePath, setDmxDevicePath] = useState('');
+  const [dmxUniverse,   setDmxUniverse]   = useState(0);
+  const [serialPorts,   setSerialPorts]   = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!isDmxDevice) return;
+    try {
+      const parsed = nodeData.settingsJson ? JSON.parse(nodeData.settingsJson as string) : null;
+      setDmxDevicePath(parsed?.dmxDevicePath ?? '');
+      setDmxUniverse(parsed?.dmxUniverse ?? 0);
+    } catch {}
+  }, [nodeData.settingsJson, isDmxDevice]);
+
+  // Subscribe to serial port list (shared across all DMX nodes)
+  useEffect(() => {
+    if (!isDmxDevice) return;
+    const unsub = Bridge.onSerialPorts(setSerialPorts);
+    return unsub;
+  }, [isDmxDevice]);
+
+  // Byte-rate label for DMX In nodes
+  const [dmxByteRate, setDmxByteRate] = useState<string>('');
+  const [dmxIsMk2,    setDmxIsMk2]    = useState(false);
+  useEffect(() => {
+    if (!isDmxDevice) return;
+    const unsub = Bridge.onPortActivity((entries) => {
+      const entry = entries.find(e => e.id === id);
+      if (!entry) return;
+      // isMk2 reported by both In and Out nodes
+      if (entry.isMk2 !== undefined) setDmxIsMk2(entry.isMk2);
+      if (nodeData.nodeType !== 14) return;  // byte-rate for In only
+      const bps = (entry.bytes ?? 0) * 30;
+      if (bps === 0) { setDmxByteRate(''); return; }
+      setDmxByteRate(bps >= 1024
+        ? `${(bps / 1024).toFixed(1)} kB/s`
+        : `${bps} B/s`);
+    });
+    return unsub;
+  }, [id, nodeData.nodeType, isDmxDevice]);
+
   // Track device channel count from the device list (fallback)
   const selectedDeviceIdRef = useRef(nodeData.selectedDeviceId);
   selectedDeviceIdRef.current = nodeData.selectedDeviceId;
@@ -868,7 +1177,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
   return (
     <div
       style={{
-        minWidth:   (isUdpDevice || isOscDevice || isArtNetDevice) ? 310 : Math.max(theme.tag.length * 10 + 80, 220),
+        minWidth:   (isUdpDevice || isOscDevice || isArtNetDevice || isDmxDevice) ? 310 : Math.max(theme.tag.length * 10 + 80, 220),
         userSelect: 'none',
         ...nodeContainerStyle(theme.accent, !!selected, { bg: 'var(--surface)', glow: theme.glow }),
       }}
@@ -1023,6 +1332,21 @@ function GenericNode({ id, data, selected }: NodeProps) {
           </div>
         )}
 
+        {/* DMX device settings button */}
+        {isDmxDevice && (
+          <div style={{ position: 'relative', display: 'inline-flex' }}>
+            <NodeHeaderButton
+              onClick={toggleSettings}
+              active={showSettings}
+              activeAccent="var(--dmx)"
+              onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.settings), onMouseLeave: () => setHint(null) }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </NodeHeaderButton>
+          </div>
+        )}
+
         {/* Delete button */}
         <NodeHeaderButton onClick={handleDelete} danger
           onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.deleteNode), onMouseLeave: () => setHint(null) }}><X size={14} /></NodeHeaderButton>
@@ -1094,6 +1418,39 @@ function GenericNode({ id, data, selected }: NodeProps) {
               nodeType={nodeData.nodeType as 12 | 13}
               universe={artNetUniverse}
               targetHost={artNetTargetHost}
+              onClose={closeSettings}
+            />
+          )}
+        </>)}
+        {isDmxDevice && (<>
+          <DmxByteRateLabel byteRate={dmxByteRate} />
+          <DmxDeviceSelector
+            nodeId={id}
+            devicePath={dmxDevicePath}
+            universe={dmxUniverse}
+            serialPorts={serialPorts}
+          />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 3 }}>
+            <span style={{ fontSize: 9, color: 'var(--text-muted)', opacity: 0.6 }}>
+              uni {dmxUniverse}
+            </span>
+            <span
+              onClick={() => Bridge.listSerialPorts()}
+              className="nodrag"
+              style={{ fontSize: 9, color: 'var(--text-muted)', cursor: 'pointer', opacity: 0.6 }}
+              onMouseEnter={e => { (e.currentTarget as HTMLSpanElement).style.opacity = '1'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLSpanElement).style.opacity = '0.6'; }}
+            >
+              ↺ refresh
+            </span>
+          </div>
+          {showSettings && (
+            <DmxSettingsPanel
+              nodeId={id}
+              nodeType={nodeData.nodeType as 14 | 15}
+              devicePath={dmxDevicePath}
+              universe={dmxUniverse}
+              isMk2={dmxIsMk2}
               onClose={closeSettings}
             />
           )}
@@ -1207,7 +1564,7 @@ Double-click to reset to default (${p.defaultValue}).` })}
       {inputs.map((p, i) => (
         <NodeHandle key={p.id}
           nodeId={id} label={p.label} direction="in"
-          colour={isUdpDevice ? 'var(--udp)' : isOscDevice ? 'var(--osc)' : isArtNetDevice ? 'var(--artnet)' : portColour(p.type)}
+          colour={isUdpDevice ? 'var(--udp)' : isOscDevice ? 'var(--osc)' : isArtNetDevice ? 'var(--artnet)' : isDmxDevice ? 'var(--dmx)' : portColour(p.type)}
           index={i} total={inputs.length}
           offset={isPax ? 6 : 8}
           portBodyRef={portBodyRef}
@@ -1219,7 +1576,7 @@ Double-click to reset to default (${p.defaultValue}).` })}
       {outputs.map((p, i) => (
         <NodeHandle key={p.id}
           nodeId={id} label={p.label} direction="out"
-          colour={isUdpDevice ? 'var(--udp)' : isOscDevice ? 'var(--osc)' : isArtNetDevice ? 'var(--artnet)' : portColour(p.type)}
+          colour={isUdpDevice ? 'var(--udp)' : isOscDevice ? 'var(--osc)' : isArtNetDevice ? 'var(--artnet)' : isDmxDevice ? 'var(--dmx)' : portColour(p.type)}
           index={i} total={outputs.length}
           offset={isPax ? 6 : 8}
           portBodyRef={portBodyRef}

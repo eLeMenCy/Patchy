@@ -309,7 +309,25 @@ function _dispatchClaimed() {
   },
   onDmxSnapshot: (json: string) => {
     try {
-      const snaps: DmxSnapshotEntry[] = JSON.parse(json);
+      const raw = JSON.parse(json) as { id: string; b64?: string; ch?: number[] }[];
+      (window as any).__dmxSnapshots = (window as any).__dmxSnapshots ?? {};
+      for (const s of raw) {
+        if (s.b64) {
+          const bin = atob(s.b64);
+          const ch  = new Uint8Array(512);
+          for (let i = 0; i < 512; i++) ch[i] = bin.charCodeAt(i);
+          (window as any).__dmxSnapshots[s.id] = ch;
+        } else if (s.ch) {
+          (window as any).__dmxSnapshots[s.id] = new Uint8Array(s.ch);
+        }
+      }
+      // Also dispatch for Console fader sync (needs React state)
+      const snaps: DmxSnapshotEntry[] = raw.map(s => ({
+        id: s.id,
+        ch: s.b64
+          ? Array.from((window as any).__dmxSnapshots[s.id] as Uint8Array)
+          : (s.ch ?? []),
+      }));
       _dispatchDmxSnapshots(snaps);
     } catch (e) {
       console.error('Bridge dmxSnapshot parse error', e);

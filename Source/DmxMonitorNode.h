@@ -66,7 +66,6 @@ public:
             // Push universe snapshot to monitor buffer
             if (buffer != nullptr)
             {
-                // Reconstruct 512-byte universe from the incoming PAX_Value blob
                 std::array<uint8_t, 512> ch {};
                 const auto& v = inputValues[0];
                 if (v.dataType == PAX_DATA_BLOB && v.dataSize > 0)
@@ -76,7 +75,6 @@ public:
                 }
                 else if (v.dataType == PAX_DATA_FLOAT)
                 {
-                    // Single float value — map to channel 1
                     ch[0] = (uint8_t) juce::jlimit (0, 255, (int) (v.value * 255.f));
                 }
                 buffer->push (ch);

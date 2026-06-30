@@ -17,7 +17,7 @@ export interface DmxMonitorNodeData {
 
 interface DmxNodeSettings {
   visibleCount: 8 | 16 | 24 | 32;
-  startChannel: number;     // 0-based, multiple of visibleCount
+  startChannel: number;
   valueFormat:  'dec' | 'pct' | 'hex';
 }
 
@@ -27,11 +27,11 @@ const DEFAULT_SETTINGS: DmxNodeSettings = {
   valueFormat:  'dec',
 };
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-const ACCENT      = 'var(--dmx)';
-const FADER_H     = 80;    // px — fader/bargraph height, matching WheelSlider feel
-const COL_W       = 24;    // px — channel column width
-const CHANNELS    = 512;
+const ACCENT   = 'var(--dmx)';
+const ACCENT_C = '#fbbf24';   // resolved colour for canvas drawing
+const CHANNELS = 512;
+const COL_W    = 24;
+const FADER_H  = 80;
 
 function formatVal(v: number, fmt: DmxNodeSettings['valueFormat']): string {
   if (fmt === 'pct') return `${Math.round(v / 255 * 100)}`;
@@ -39,46 +39,89 @@ function formatVal(v: number, fmt: DmxNodeSettings['valueFormat']): string {
   return String(v);
 }
 
-// ── Vertical bargraph (Monitor — read-only) ───────────────────────────────────
-const DmxBargraph = memo(function DmxBargraph ({ ch, value, format }: {
-  ch:     number;
-  value:  number;
-  format: DmxNodeSettings['valueFormat'];
+// ── Canvas bargraph panel (Monitor — 60fps RAF, reads window.__dmxSnapshots) ──
+function DmxCanvasBargraph ({ nodeId, settingsRef, collapsed }: {
+  nodeId:      string;
+  settingsRef: React.MutableRefObject<DmxNodeSettings>;
+  collapsed:   boolean;
 }) {
-  const pct = value / 255;
-  const fillH = Math.round(pct * FADER_H);
-  const color = value === 0   ? 'var(--border)'
-              : value === 255 ? ACCENT
-              : `color-mix(in srgb, ${ACCENT} ${Math.round(pct * 100)}%, var(--border))`;
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rafRef    = useRef<number>(0);
+
+  useEffect(() => {
+    if (collapsed) return;
+
+    const render = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const { startChannel, visibleCount, valueFormat } = settingsRef.current;
+      // Read directly from global — set by Bridge.onDmxSnapshot, no React overhead
+      const snap: Uint8Array | undefined = (window as any).__dmxSnapshots?.[nodeId];
+
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      const colW   = w / visibleCount;
+      const barW   = Math.max(4, colW * 0.4);
+      const barX   = (colW - barW) / 2;
+      const trackH = FADER_H;
+      const labelH = 12;
+      const valH   = 12;
+
+      for (let i = 0; i < visibleCount; i++) {
+        const ch  = startChannel + i;
+        const val = snap ? snap[ch] : 0;
+        const pct = val / 255;
+        const x   = i * colW;
+
+        ctx.fillStyle = '#6b7280';
+        ctx.font = '7px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(String(ch + 1), x + colW / 2, labelH - 1);
+
+        const trackY = labelH;
+        ctx.fillStyle = '#1f2937';
+        ctx.fillRect(x + barX, trackY, barW, trackH);
+
+        if (val > 0) {
+          const fillH2 = Math.round(pct * trackH);
+          const alpha  = 0.4 + pct * 0.6;
+          ctx.fillStyle = val === 255 ? ACCENT_C : `rgba(251,191,36,${alpha.toFixed(2)})`;
+          ctx.fillRect(x + barX, trackY + trackH - fillH2, barW, fillH2);
+        }
+
+        ctx.fillStyle = val === 0 ? '#4b5563' : '#9ca3af';
+        ctx.font = '7px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(formatVal(val, valueFormat), x + colW / 2, labelH + trackH + valH - 1);
+      }
+
+      rafRef.current = requestAnimationFrame(render);
+    };
+
+    rafRef.current = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [collapsed, nodeId, settingsRef]);
+
+  const { visibleCount } = settingsRef.current;
+  const canvasW = visibleCount * COL_W;
+  const canvasH = 12 + FADER_H + 12;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
-                  gap: 2, width: COL_W }}>
-      {/* Channel number */}
-      <div style={{ fontSize: 7, color: 'var(--text-muted)', textAlign: 'center',
-                    fontFamily: "'JetBrains Mono', monospace", lineHeight: 1 }}>
-        {ch}
-      </div>
-      {/* Bargraph track */}
-      <div style={{ width: 10, height: FADER_H, background: 'var(--surface)',
-                    borderRadius: 3, position: 'relative', overflow: 'hidden' }}>
-        <div style={{
-          position: 'absolute', bottom: 0, left: 0, right: 0,
-          height: fillH, background: color,
-          borderRadius: 3,
-        }} />
-      </div>
-      {/* Value */}
-      <div style={{ fontSize: 7, color: value === 0 ? 'var(--text-muted)' : 'var(--text-dim)',
-                    textAlign: 'center', fontFamily: "'JetBrains Mono', monospace",
-                    lineHeight: 1, minWidth: COL_W }}>
-        {formatVal(value, format)}
-      </div>
-    </div>
+    <canvas
+      ref={canvasRef}
+      width={canvasW}
+      height={canvasH}
+      style={{ display: 'block' }}
+    />
   );
-});
+}
 
-// ── Vertical fader (Console — interactive) ────────────────────────────────────
+// ── Vertical fader (Console — interactive DOM element) ────────────────────────
 function DmxFader ({ ch, value, format, onChange, readOnly }: {
   ch:       number;
   value:    number;
@@ -109,13 +152,10 @@ function DmxFader ({ ch, value, format, onChange, readOnly }: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
                   gap: 2, width: COL_W }}>
-      {/* Channel number */}
       <div style={{ fontSize: 7, color: 'var(--text-muted)', textAlign: 'center',
                     fontFamily: "'JetBrains Mono', monospace", lineHeight: 1 }}>
         {ch}
       </div>
-
-      {/* Vertical range slider — same pattern as WheelSlider */}
       <input
         type="range" min={0} max={255} value={value}
         disabled={readOnly}
@@ -123,8 +163,7 @@ function DmxFader ({ ch, value, format, onChange, readOnly }: {
         style={{
           writingMode: 'vertical-lr' as const,
           direction: 'rtl' as const,
-          height: FADER_H,
-          width: COL_W,
+          height: FADER_H, width: COL_W,
           cursor: readOnly ? 'default' : 'pointer',
           accentColor: ACCENT,
           opacity: readOnly ? 0.4 : 1,
@@ -133,8 +172,6 @@ function DmxFader ({ ch, value, format, onChange, readOnly }: {
         onMouseDown={e => e.stopPropagation()}
         onPointerDown={e => e.stopPropagation()}
       />
-
-      {/* Value — click to edit */}
       {editing ? (
         <input
           ref={inputRef}
@@ -173,7 +210,6 @@ function DmxSettingsPanel ({ settings, isConsole, onChange, onClose }: {
   onChange:  (s: Partial<DmxNodeSettings>) => void;
   onClose:   () => void;
 }) {
-  const { setHint } = useContext(HintContext);
   const accent = ACCENT;
 
   const row = (label: string, child: React.ReactNode) => (
@@ -183,7 +219,6 @@ function DmxSettingsPanel ({ settings, isConsole, onChange, onClose }: {
     </div>
   );
 
-  // Channel start options — multiples of visibleCount up to 512
   const startOptions = [];
   for (let i = 0; i < CHANNELS; i += settings.visibleCount)
     startOptions.push({ id: String(i), name: `Ch ${i + 1}–${Math.min(i + settings.visibleCount, CHANNELS)}` });
@@ -210,10 +245,8 @@ function DmxSettingsPanel ({ settings, isConsole, onChange, onClose }: {
         onReset={() => onChange({ ...DEFAULT_SETTINGS })}
         onClose={onClose}
       />
-
       {row('Channels', (
-        <NodeSelect
-          value={String(settings.visibleCount)} showEmpty={false} accent={accent}
+        <NodeSelect value={String(settings.visibleCount)} showEmpty={false} accent={accent}
           onChange={v => onChange({ visibleCount: Number(v) as 8|16|24|32, startChannel: 0 })}
           options={[
             { id: '8',  name: '8 channels'  },
@@ -221,44 +254,47 @@ function DmxSettingsPanel ({ settings, isConsole, onChange, onClose }: {
             { id: '24', name: '24 channels' },
             { id: '32', name: '32 channels' },
           ]}
-          onOptionHover={() => {}}
-        />
+          onOptionHover={() => {}} />
       ))}
-
       {row('Start at', (
-        <NodeSelect
-          value={String(settings.startChannel)} showEmpty={false} accent={accent}
+        <NodeSelect value={String(settings.startChannel)} showEmpty={false} accent={accent}
           onChange={v => onChange({ startChannel: Number(v) })}
           options={startOptions}
-          onOptionHover={() => {}}
-        />
+          onOptionHover={() => {}} />
       ))}
-
       {row('Format', (
-        <NodeSelect
-          value={settings.valueFormat} showEmpty={false} accent={accent}
+        <NodeSelect value={settings.valueFormat} showEmpty={false} accent={accent}
           onChange={v => onChange({ valueFormat: v as DmxNodeSettings['valueFormat'] })}
           options={[
             { id: 'dec', name: '0–255 (decimal)' },
             { id: 'pct', name: '0–100 (percent)' },
             { id: 'hex', name: '00–FF (hex)'     },
           ]}
-          onOptionHover={() => {}}
-        />
+          onOptionHover={() => {}} />
       ))}
     </div>
   );
 }
 
-// ── DMX Monitor (nodeType 16) ─────────────────────────────────────────────────
+// ── Nav button style ──────────────────────────────────────────────────────────
+function navBtnStyle(disabled: boolean): React.CSSProperties {
+  return {
+    background: 'transparent', border: '1px solid var(--border)',
+    color: disabled ? 'var(--text-muted)' : ACCENT,
+    borderRadius: 3, padding: '1px 5px', fontSize: 8,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.4 : 1,
+    fontFamily: "'JetBrains Mono', monospace",
+  };
+}
+
+// ── DMX Monitor (nodeType 16) — canvas-based, 60fps RAF ──────────────────────
 export const DmxMonitorNode = memo(function DmxMonitorNode ({ id, data, selected }: NodeProps) {
   const nodeData = data as DmxMonitorNodeData;
   const { showSettings, toggleSettings, closeSettings } = useNodeSettings(id);
-  const { handleDelete }                 = useNodeDelete(id);
-  const { collapsed, toggleCollapsed }   = useNodeCollapsed(id);
-  const [channels, setChannels]          = useState<number[]>(new Array(512).fill(0));
-  const channelsRef                      = useRef<number[]>(new Array(512).fill(0));
-  const portBodyRef                      = useRef<HTMLDivElement>(null);
+  const { handleDelete }               = useNodeDelete(id);
+  const { collapsed, toggleCollapsed } = useNodeCollapsed(id);
+  const portBodyRef                    = useRef<HTMLDivElement>(null);
 
   const [settings, setSettings] = useState<DmxNodeSettings>(() => ({
     ...DEFAULT_SETTINGS,
@@ -271,27 +307,9 @@ export const DmxMonitorNode = memo(function DmxMonitorNode ({ id, data, selected
     setSettings(prev => ({ ...prev, ...patch }));
   }, []);
 
-  const lastRender = useRef(0);
+  // Canvas RAF reads window.__dmxSnapshots[id] directly — no state needed here
 
-  useEffect(() => {
-    const unsub = Bridge.onDmxSnapshot((snaps: DmxSnapshotEntry[]) => {
-      const snap = snaps.find(s => s.id === id);
-      if (!snap) return;
-      const now = performance.now();
-      if (now - lastRender.current < 66) return;  // ~15Hz max render rate
-      const { startChannel, visibleCount } = settingsRef.current;
-      let changed = false;
-      for (let i = startChannel; i < startChannel + visibleCount && i < 512; i++) {
-        if (channelsRef.current[i] !== snap.ch[i]) { changed = true; break; }
-      }
-      channelsRef.current = snap.ch;
-      if (changed) { lastRender.current = now; setChannels([...snap.ch]); }
-    });
-    return unsub;
-  }, [id]);
-
-  const { visibleCount, startChannel, valueFormat } = settings;
-  const visibleChannels = channels.slice(startChannel, startChannel + visibleCount);
+  const { visibleCount, startChannel } = settings;
   const nodeW = visibleCount * COL_W + 16;
 
   const inputs  = nodeData.ports.filter(p => p.direction === 'input');
@@ -310,21 +328,16 @@ export const DmxMonitorNode = memo(function DmxMonitorNode ({ id, data, selected
         showSettings={showSettings} onToggleSettings={toggleSettings}
         onDelete={handleDelete} collapsed={collapsed} onToggleCollapsed={toggleCollapsed}
       />
-
       {showSettings && (
-        <DmxSettingsPanel
-          settings={settings} isConsole={false}
-          onChange={patchSettings} onClose={closeSettings}
-        />
+        <DmxSettingsPanel settings={settings} isConsole={false}
+          onChange={patchSettings} onClose={closeSettings} />
       )}
-
       {!collapsed && (
         <div ref={portBodyRef} className="nodrag"
           onMouseDown={e => e.stopPropagation()}
           onPointerDown={e => e.stopPropagation()}
           style={{ padding: '6px 8px' }}>
-
-          {/* Page navigation */}
+          {/* Page nav */}
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4, gap: 4 }}>
             <button className="nodrag"
               onClick={() => patchSettings({ startChannel: Math.max(0, startChannel - visibleCount) })}
@@ -338,21 +351,14 @@ export const DmxMonitorNode = memo(function DmxMonitorNode ({ id, data, selected
               disabled={startChannel + visibleCount >= CHANNELS}
               style={navBtnStyle(startChannel + visibleCount >= CHANNELS)}>▶</button>
           </div>
-
-          {/* Bargraphs */}
-          <div style={{ display: 'flex', gap: 0 }}>
-            {visibleChannels.map((val, i) => (
-              <DmxBargraph
-                key={startChannel + i}
-                ch={startChannel + i + 1}
-                value={val}
-                format={valueFormat}
-              />
-            ))}
-          </div>
+          {/* Canvas bargraph — 60fps, reads window.__dmxSnapshots directly */}
+          <DmxCanvasBargraph
+            nodeId={id}
+            settingsRef={settingsRef}
+            collapsed={collapsed}
+          />
         </div>
       )}
-
       {inputs.map((p, i) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="in"
           colour={ACCENT} index={i} total={inputs.length} offset={8}
@@ -446,21 +452,15 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
           <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.05em' }}>BO</span>
         </NodeHeaderButton>
       </NodeHeader>
-
       {showSettings && (
-        <DmxSettingsPanel
-          settings={settings} isConsole={true}
-          onChange={patchSettings} onClose={closeSettings}
-        />
+        <DmxSettingsPanel settings={settings} isConsole={true}
+          onChange={patchSettings} onClose={closeSettings} />
       )}
-
       {!collapsed && (
         <div ref={portBodyRef} className="nodrag"
           onMouseDown={e => e.stopPropagation()}
           onPointerDown={e => e.stopPropagation()}
           style={{ padding: '6px 8px' }}>
-
-          {/* Page navigation */}
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4, gap: 4 }}>
             <button className="nodrag"
               onClick={() => patchSettings({ startChannel: Math.max(0, startChannel - visibleCount) })}
@@ -475,8 +475,6 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
               disabled={startChannel + visibleCount >= CHANNELS}
               style={navBtnStyle(startChannel + visibleCount >= CHANNELS)}>▶</button>
           </div>
-
-          {/* Faders */}
           <div style={{ display: 'flex', gap: 0 }}>
             {visibleChannels.map((val, i) => (
               <DmxFader
@@ -491,7 +489,6 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
           </div>
         </div>
       )}
-
       {inputs.map((p, i) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="in"
           colour={ACCENT} index={i} total={inputs.length} offset={8}
@@ -505,15 +502,3 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
     </div>
   );
 });
-
-// ── Nav button style ──────────────────────────────────────────────────────────
-function navBtnStyle(disabled: boolean): React.CSSProperties {
-  return {
-    background: 'transparent', border: '1px solid var(--border)',
-    color: disabled ? 'var(--text-muted)' : ACCENT,
-    borderRadius: 3, padding: '1px 5px', fontSize: 8,
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    opacity: disabled ? 0.4 : 1,
-    fontFamily: "'JetBrains Mono', monospace",
-  };
-}

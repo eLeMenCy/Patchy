@@ -799,21 +799,38 @@ void WebBridge::pushDmxSnapshots()
     auto snaps = drainDmxSnapshots();
     if (snaps.empty()) return;
 
+    // Encode channel data as standard base64 (RFC 4648, compatible with JS atob())
+    // 512 bytes → 684 chars, vs JSON integer array ~1500 chars — 2x smaller payload
     static constexpr auto Q = "\"";
+    static const char* kB64Chars =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
     juce::MemoryOutputStream json;
     json << "[";
     for (size_t si = 0; si < snaps.size(); ++si)
     {
         const auto& snap = snaps[si];
         if (si > 0) json << ",";
-        json << "{" << Q << "id" << Q << ":" << Q << snap.nodeId << Q << ","
-             << Q << "ch" << Q << ":[";
-        for (int i = 0; i < 512; ++i)
+
+        // Standard base64 encode 512 bytes
+        const uint8_t* src = snap.channels.data();
+        const int srcLen   = 512;
+        juce::String b64;
+        b64.preallocateBytes (684 + 4);
+        for (int i = 0; i < srcLen; i += 3)
         {
-            if (i > 0) json << ",";
-            json << (int) snap.channels[i];
+            uint32_t b  = (uint32_t) src[i] << 16;
+            if (i + 1 < srcLen) b |= (uint32_t) src[i + 1] << 8;
+            if (i + 2 < srcLen) b |= (uint32_t) src[i + 2];
+
+            b64 += kB64Chars[(b >> 18) & 0x3F];
+            b64 += kB64Chars[(b >> 12) & 0x3F];
+            b64 += (i + 1 < srcLen) ? kB64Chars[(b >>  6) & 0x3F] : '=';
+            b64 += (i + 2 < srcLen) ? kB64Chars[(b >>  0) & 0x3F] : '=';
         }
-        json << "]}";
+
+        json << "{" << Q << "id"  << Q << ":" << Q << snap.nodeId << Q << ","
+             << Q << "b64" << Q << ":" << Q << b64 << Q << "}";
     }
     json << "]";
     pushToUI ("onDmxSnapshot", json.toString());

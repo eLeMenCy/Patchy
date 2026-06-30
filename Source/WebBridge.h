@@ -2,6 +2,7 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <functional>
 #include <vector>
+#include <atomic>
 #include "GraphModel.h"
 #include "../Pax/PaxRegistry.h"
 

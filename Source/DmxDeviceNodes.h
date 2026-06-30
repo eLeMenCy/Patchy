@@ -237,29 +237,50 @@ public:
 
     void process (int /*numSamples*/) override
     {
-        outputValueCount = 0;
+        // Drain the entire FIFO but only keep the latest frame —
+        // serial arrives in bursts; we want the most recent value,
+        // not a queue of stale ones that cause jump artifacts.
         ReceivedUniverse u;
-        while (outputValueCount < kMaxValueEvents && fifo.pop (u))
+        bool gotNew = false;
+        while (fifo.pop (u))
         {
+            std::memcpy (lastReceived.data(), u.dmx, 512);
+            gotNew = true;
+        }
+
+        if (gotNew) recordMidiActivity (1);
+
+        // Always emit the last known frame at audio-block rate —
+        // gives downstream Monitor a steady ~86Hz supply instead
+        // of bursty serial packets (44Hz with USB jitter).
+        if (hasReceived || gotNew)
+        {
+            hasReceived = true;
             PAX_Value v {};
             v.type     = PAX_TYPE_DMX;
             v.dataType = PAX_DATA_BLOB;
-            v.key      = 0;   // universe 0
-            v.value    = u.dmx[0] / 255.f;
+            v.key      = 0;
+            v.value    = lastReceived[0] / 255.f;
             v.dataSize = static_cast<uint16_t> (std::min (512, (int) sizeof (v.data)));
-            std::memcpy (v.data, u.dmx, v.dataSize);
-            outputValues[outputValueCount++] = v;
+            std::memcpy (v.data, lastReceived.data(), v.dataSize);
+            outputValues[0]  = v;
+            outputValueCount = 1;
+        }
+        else
+        {
+            outputValueCount = 0;
         }
     }
 
-    std::atomic<int> bytesSinceLastPoll { 0 };
+    std::atomic<int>  bytesSinceLastPoll { 0 };
     int drainByteActivity() { return bytesSinceLastPoll.exchange (0, std::memory_order_relaxed); }
 
     std::atomic<bool> isMk2 { false };
-
-    juce::String devicePath;
+    juce::String      devicePath;
 
 private:
+    std::array<uint8_t, 512> lastReceived {};
+    bool                     hasReceived = false;
     void run() override
     {
         static constexpr int kBufSize = 600;
@@ -273,7 +294,7 @@ private:
             if (! serial.isOpen()) break;
 
             uint8_t tmp[64];
-            int n = serial.read (tmp, sizeof (tmp), 50);
+            int n = serial.read (tmp, sizeof (tmp), 5);  // 5ms timeout — DMX frame = 22ms
             if (n <= 0) continue;
 
             bytesSinceLastPoll.fetch_add (n, std::memory_order_relaxed);
@@ -294,8 +315,8 @@ private:
                 if (std::memcmp (dmxOut.data(), lastDmx.data(), 512) != 0)
                 {
                     std::memcpy (lastDmx.data(), dmxOut.data(), 512);
-                    recordMidiActivity (1);
-
+                    // Don't call recordMidiActivity here — process() handles it
+                    // at a regular audio-block rate to avoid bursty flash jitter
                     ReceivedUniverse u;
                     std::memcpy (u.dmx, dmxOut.data(), 512);
                     fifo.push (u);

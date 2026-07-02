@@ -297,9 +297,8 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
         const isDmxFlash = (dmxTimers.current.get(id) ?? 0) > now;
         if (isDmxFlash) {
           const nodeDmxEdges = dmxEdges.filter(e => e.source === id);
-          const fc = '#fde68a'; // lighter amber flash, distinct from base --dmx gold
+          const fc = '#fde68a';
           css += `[data-handleid="${id}_DMX Out_out"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
-          css += `[data-handleid="${id}_DMX In_in"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
           nodeDmxEdges.forEach(e => {
             css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${fc}!important;filter:drop-shadow(0 0 4px ${fc});transition:none}`;
             if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;

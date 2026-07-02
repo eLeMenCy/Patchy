@@ -111,6 +111,9 @@ public:
     std::function<std::vector<DmxSnapshot>()>                                                    drainDmxSnapshots;
     std::function<void(const juce::String&, int, uint8_t)>                                       onSetDmxConsoleChannel;
     std::function<void(const juce::String&, bool)>                                               onSetDmxBlackout;
+    std::function<void(const juce::String&, bool)>                                               onRestoreDmxBlackout;
+    std::function<void(const juce::String&, const juce::String&)>                                onRestoreDmxConsoleChannels;
+    std::function<void(const juce::String&)>                                                     onResetDmxConsoleChannels;
 
 private:
     // ── Resource provider (release) ───────────────────────────────────────

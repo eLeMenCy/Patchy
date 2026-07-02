@@ -251,6 +251,14 @@ function _dispatchClaimed() {
           _claimedDevices.set(node.id, { deviceId: node.selectedDeviceId, nodeType: node.nodeType });
         }
       }
+      // Clear stale DMX snapshots — remove entries whose node no longer exists
+      // Prevents Monitor showing bargraph data from a previous session's node
+      if ((window as any).__dmxSnapshots) {
+        const activeIds = new Set(state.nodes.map((n: any) => n.id));
+        for (const key of Object.keys((window as any).__dmxSnapshots)) {
+          if (!activeIds.has(key)) delete (window as any).__dmxSnapshots[key];
+        }
+      }
       _graphUpdateSubscribers.forEach(cb => cb(state));
     } catch (e) {
       console.error('Bridge parse error', e);
@@ -643,10 +651,10 @@ export const Bridge = {
     });
   },
 
-  setDmxConsoleChannel(nodeId: string, channel: number, value: number) {
+  setDmxConsoleChannel(nodeId: string, channel: number, value: number, commit = false) {
     sendToJuce({
       type: 'setNodeParam', nodeId, key: 'dmxConsoleChannel',
-      value: JSON.stringify({ channel, value }),
+      value: JSON.stringify({ channel, value, commit }),
     });
   },
 

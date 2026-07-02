@@ -48,7 +48,7 @@
 - **Parameter persistence** — Pax parameters (sliders, steps) survive graph rebuilds, file loads and app restarts
 - **Built-in nodes** — MIDI In/Out, Audio In/Out, MIDI Monitor, Audio Monitor (oscilloscope), MIDI Keyboard, UDP In/Out, OSC In/Out, ArtNet In/Out, DMX In/Out, DMX Monitor, DMX Console
 - **Protocol device nodes** — Phase 3 built-in nodes for network and hardware protocols; UDP, OSC 1.0, Art-Net (ArtDmx), DMX USB (Enttec Pro/Mk2); live byte-rate labels; change-driven activity flash
-- **DMX Monitor + Console** — vertical fader bank and bargraph display for all 512 DMX channels; configurable visible count (8/16/24/32); page navigation; dec/pct/hex format; Blackout button; Enttec Pro Mk2 auto-detection
+- **DMX Monitor + Console** — vertical fader bank and bargraph display for all 512 DMX channels; configurable visible count (8/16/24/32); page navigation; dec/pct/hex format; custom name; Blackout button; full undo/redo; Console is output-only
 - **Pax system** — drop a `.dylib/.so/.dll` into the Pax folder; new node type appears in the sidebar on next launch
 - **Dynamic port counts** — Pax can change their output port count at runtime (e.g. Spectrumyser band count) without audio interruption
 - **Restructured burger menu** — `☰` top-right opens File and Edit flyout submenus with keyboard shortcuts
@@ -152,7 +152,7 @@ Patchy/
 | 14 | DMX In Device | DMX Out | Receives DMX512 from an Enttec DMX USB Pro; serial port selector; Mk2 auto-detection; live byte-rate |
 | 15 | DMX Out Device | DMX In | Sends DMX512 to an Enttec DMX USB Pro; universe 0 (Pro) or 1 (Mk2 port 2) |
 | 16 | DMX Monitor | DMX In + DMX Out | Displays all 512 DMX channels as vertical bargraphs; pass-through; configurable visible count |
-| 17 | DMX Console | DMX In + DMX Out | 512-channel vertical fader bank; blackout; configurable visible count; upstream override |
+| 17 | DMX Console | DMX Out | 512-channel vertical fader bank; blackout; configurable visible count (8/16/24/32); page navigation; dec/pct/hex format; custom name; output-only (no input port) |
 | 100+ | Pax nodes | Per descriptor | Dynamically loaded from `.dylib/.so/.dll` |
 
 ---

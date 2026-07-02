@@ -19,12 +19,16 @@ interface DmxNodeSettings {
   visibleCount: 8 | 16 | 24 | 32;
   startChannel: number;
   valueFormat:  'dec' | 'pct' | 'hex';
+  customName:   string;
+  blackout:     boolean;
 }
 
 const DEFAULT_SETTINGS: DmxNodeSettings = {
   visibleCount: 8,
   startChannel: 0,
   valueFormat:  'dec',
+  customName:   '',
+  blackout:     false,
 };
 
 const ACCENT   = 'var(--dmx)';
@@ -122,16 +126,18 @@ function DmxCanvasBargraph ({ nodeId, settingsRef, collapsed }: {
 }
 
 // ── Vertical fader (Console — interactive DOM element) ────────────────────────
-function DmxFader ({ ch, value, format, onChange, readOnly }: {
+function DmxFader ({ ch, value, format, onChange, onCommit, readOnly }: {
   ch:       number;
   value:    number;
   format:   DmxNodeSettings['valueFormat'];
   onChange: (ch: number, val: number) => void;
+  onCommit: () => void;
   readOnly: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [editVal, setEditVal] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const isDragging = useRef(false);
 
   const startEdit = useCallback(() => {
     if (readOnly) return;
@@ -146,8 +152,9 @@ function DmxFader ({ ch, value, format, onChange, readOnly }: {
     else if (format === 'pct') v = Math.round(parseInt(editVal, 10) / 100 * 255);
     else v = parseInt(editVal, 10);
     if (!isNaN(v)) onChange(ch - 1, Math.max(0, Math.min(255, v)));
+    onCommit();
     setEditing(false);
-  }, [ch, editVal, format, onChange]);
+  }, [ch, editVal, format, onChange, onCommit]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
@@ -159,7 +166,11 @@ function DmxFader ({ ch, value, format, onChange, readOnly }: {
       <input
         type="range" min={0} max={255} value={value}
         disabled={readOnly}
+        onMouseDown={e => { e.stopPropagation(); isDragging.current = true; }}
+        onMouseUp={() => { if (isDragging.current) { isDragging.current = false; onCommit(); } }}
+        onKeyUp={() => onCommit()}
         onChange={e => onChange(ch - 1, Number(e.target.value))}
+        onPointerDown={e => e.stopPropagation()}
         style={{
           writingMode: 'vertical-lr' as const,
           direction: 'rtl' as const,
@@ -169,8 +180,6 @@ function DmxFader ({ ch, value, format, onChange, readOnly }: {
           opacity: readOnly ? 0.4 : 1,
         }}
         className="nodrag"
-        onMouseDown={e => e.stopPropagation()}
-        onPointerDown={e => e.stopPropagation()}
       />
       {editing ? (
         <input
@@ -203,12 +212,53 @@ function DmxFader ({ ch, value, format, onChange, readOnly }: {
   );
 }
 
+// ── Name input with debounced commit (500ms after last keystroke) ─────────────
+function NameInput ({ value, placeholder, onChange, onCommit }: {
+  value:       string;
+  placeholder: string;
+  onChange:    (v: string) => void;
+  onCommit:    (v: string) => void;
+}) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestRef = useRef(value);
+
+  const handleChange = (v: string) => {
+    latestRef.current = v;
+    onChange(v);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => { onCommit(latestRef.current); }, 500);
+  };
+
+  const handleBlur = () => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    onCommit(latestRef.current);
+  };
+
+  return (
+    <input
+      type="text"
+      value={value}
+      placeholder={placeholder}
+      onChange={e => handleChange(e.target.value)}
+      onBlur={handleBlur}
+      onKeyDown={e => { if (e.key === 'Enter') handleBlur(); }}
+      style={{
+        flex: 1, width: '100%', background: 'var(--surface)',
+        border: '1px solid var(--border)', color: 'var(--text)',
+        fontSize: 10, borderRadius: 3, padding: '2px 6px',
+        fontFamily: "'JetBrains Mono', monospace", outline: 'none',
+      }}
+    />
+  );
+}
+
 // ── Shared settings panel ─────────────────────────────────────────────────────
-function DmxSettingsPanel ({ settings, isConsole, onChange, onClose }: {
-  settings:  DmxNodeSettings;
-  isConsole: boolean;
-  onChange:  (s: Partial<DmxNodeSettings>) => void;
-  onClose:   () => void;
+function DmxSettingsPanel ({ settings, isConsole, onChange, onCommit, onClose }: {
+  settings:     DmxNodeSettings;
+  isConsole:    boolean;
+  onChange:     (s: Partial<DmxNodeSettings>) => void;
+  onCommit:     (s: Partial<DmxNodeSettings>) => void;
+  onClose:      () => void;
 }) {
   const accent = ACCENT;
 
@@ -242,12 +292,20 @@ function DmxSettingsPanel ({ settings, isConsole, onChange, onClose }: {
       }}>
       <SettingsPanelHeader
         title={isConsole ? 'DMX CONSOLE' : 'DMX MONITOR'}
-        onReset={() => onChange({ ...DEFAULT_SETTINGS })}
+        onReset={() => onCommit({ ...DEFAULT_SETTINGS })}
         onClose={onClose}
       />
+      {row('Name', (
+        <NameInput
+          value={settings.customName}
+          placeholder={isConsole ? 'DMX Console' : 'DMX Monitor'}
+          onChange={v => onChange({ customName: v })}
+          onCommit={v => onCommit({ customName: v })}
+        />
+      ))}
       {row('Channels', (
         <NodeSelect value={String(settings.visibleCount)} showEmpty={false} accent={accent}
-          onChange={v => onChange({ visibleCount: Number(v) as 8|16|24|32, startChannel: 0 })}
+          onChange={v => onCommit({ visibleCount: Number(v) as 8|16|24|32, startChannel: 0 })}
           options={[
             { id: '8',  name: '8 channels'  },
             { id: '16', name: '16 channels' },
@@ -258,13 +316,13 @@ function DmxSettingsPanel ({ settings, isConsole, onChange, onClose }: {
       ))}
       {row('Start at', (
         <NodeSelect value={String(settings.startChannel)} showEmpty={false} accent={accent}
-          onChange={v => onChange({ startChannel: Number(v) })}
+          onChange={v => onCommit({ startChannel: Number(v) })}
           options={startOptions}
           onOptionHover={() => {}} />
       ))}
       {row('Format', (
         <NodeSelect value={settings.valueFormat} showEmpty={false} accent={accent}
-          onChange={v => onChange({ valueFormat: v as DmxNodeSettings['valueFormat'] })}
+          onChange={v => onCommit({ valueFormat: v as DmxNodeSettings['valueFormat'] })}
           options={[
             { id: 'dec', name: '0–255 (decimal)' },
             { id: 'pct', name: '0–100 (percent)' },
@@ -307,7 +365,31 @@ export const DmxMonitorNode = memo(function DmxMonitorNode ({ id, data, selected
     setSettings(prev => ({ ...prev, ...patch }));
   }, []);
 
-  // Canvas RAF reads window.__dmxSnapshots[id] directly — no state needed here
+  const commitPatch = useCallback((patch: Partial<DmxNodeSettings>) => {
+    setSettings(prev => {
+      const next = { ...prev, ...patch };
+      const existing = nodeData.settingsJson ? JSON.parse(nodeData.settingsJson as string) : {};
+      Bridge.commitSettingsChange(id, { ...existing, ...next });
+      if ('customName' in patch) Bridge.setNodeLabel(id, patch.customName ?? '');
+      return next;
+    });
+  }, [id, nodeData.settingsJson]);
+
+  // Restore UI settings from settingsJson on undo/redo
+  useEffect(() => {
+    try {
+      const raw = nodeData.settingsJson as string | undefined;
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (!parsed) return;
+      setSettings(prev => ({
+        ...prev,
+        ...(parsed.visibleCount !== undefined && { visibleCount: parsed.visibleCount }),
+        ...(parsed.startChannel !== undefined && { startChannel: parsed.startChannel }),
+        ...(parsed.valueFormat  !== undefined && { valueFormat:  parsed.valueFormat  }),
+        ...(parsed.customName   !== undefined && { customName:   parsed.customName   }),
+      }));
+    } catch {}
+  }, [nodeData.settingsJson]);
 
   const { visibleCount, startChannel } = settings;
   const nodeW = visibleCount * COL_W + 16;
@@ -324,13 +406,15 @@ export const DmxMonitorNode = memo(function DmxMonitorNode ({ id, data, selected
       boxShadow: selected ? `0 0 0 1px ${ACCENT}, 0 8px 32px var(--dmx-glow)` : '0 4px 16px rgba(0,0,0,.5)',
       minWidth: nodeW, fontFamily: "'JetBrains Mono', monospace", position: 'relative',
     }}>
-      <NodeHeader title="DMX MONITOR" accent={ACCENT}
+      <NodeHeader title={settings.customName || 'DMX MONITOR'} accent={ACCENT}
         showSettings={showSettings} onToggleSettings={toggleSettings}
         onDelete={handleDelete} collapsed={collapsed} onToggleCollapsed={toggleCollapsed}
       />
       {showSettings && (
         <DmxSettingsPanel settings={settings} isConsole={false}
-          onChange={patchSettings} onClose={closeSettings} />
+          onChange={patchSettings} onCommit={commitPatch}
+          
+          onClose={closeSettings} />
       )}
       {!collapsed && (
         <div ref={portBodyRef} className="nodrag"
@@ -340,14 +424,14 @@ export const DmxMonitorNode = memo(function DmxMonitorNode ({ id, data, selected
           {/* Page nav */}
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4, gap: 4 }}>
             <button className="nodrag"
-              onClick={() => patchSettings({ startChannel: Math.max(0, startChannel - visibleCount) })}
+              onClick={() => commitPatch({ startChannel: Math.max(0, startChannel - visibleCount) })}
               disabled={startChannel === 0}
               style={navBtnStyle(startChannel === 0)}>◀</button>
             <div style={{ flex: 1, textAlign: 'center', fontSize: 8, color: 'var(--text-muted)' }}>
               Ch {startChannel + 1}–{Math.min(startChannel + visibleCount, CHANNELS)}
             </div>
             <button className="nodrag"
-              onClick={() => patchSettings({ startChannel: Math.min(CHANNELS - visibleCount, startChannel + visibleCount) })}
+              onClick={() => commitPatch({ startChannel: Math.min(CHANNELS - visibleCount, startChannel + visibleCount) })}
               disabled={startChannel + visibleCount >= CHANNELS}
               style={navBtnStyle(startChannel + visibleCount >= CHANNELS)}>▶</button>
           </div>
@@ -396,6 +480,69 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
     setSettings(prev => ({ ...prev, ...patch }));
   }, []);
 
+  const commitPatch = useCallback((patch: Partial<DmxNodeSettings>) => {
+    setSettings(prev => {
+      const next = { ...prev, ...patch };
+      const merged = { ...fullSettingsRef.current, ...next };
+      fullSettingsRef.current = merged;
+      Bridge.commitSettingsChange(id, merged);
+      if ('customName' in patch) Bridge.setNodeLabel(id, patch.customName ?? '');
+      return next;
+    });
+  }, [id]);
+
+  // Restore UI settings from settingsJson on undo/redo
+  useEffect(() => {
+    try {
+      const raw = nodeData.settingsJson as string | undefined;
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (!parsed) return;
+      setSettings(prev => ({
+        ...prev,
+        ...(parsed.visibleCount !== undefined && { visibleCount: parsed.visibleCount }),
+        ...(parsed.startChannel !== undefined && { startChannel: parsed.startChannel }),
+        ...(parsed.valueFormat  !== undefined && { valueFormat:  parsed.valueFormat  }),
+        ...(parsed.customName   !== undefined && { customName:   parsed.customName   }),
+      }));
+    } catch {}
+  }, [nodeData.settingsJson]);
+
+  // Restore channel values and blackout state from settingsJson — runs when settingsJson changes (undo/redo).
+  // Guard: only restore channels if current channels are all zero (fresh mount, not live update).
+  useEffect(() => {
+    try {
+      const raw = nodeData.settingsJson as string | undefined;
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (!parsed) return;
+      // Restore blackout state — only when explicitly present in settingsJson
+      if (typeof parsed.blackout === 'boolean') {
+        setBlackoutState(parsed.blackout);
+        // Don't call Bridge.setDmxBlackout here — that goes through setNodeParam
+        // which pushes a new snapshot and destroys the redo stack.
+        // C++ blackout state is restored via pushSettingsToUI → onSetDmxBlackout in pushSettingsToUI.
+      }
+      // Restore channels
+      const b64: string | undefined = parsed?.dmxChannels;
+      if (!b64) {
+        // No dmxChannels in snapshot — reset to zero (pre-fader state)
+        channelsRef.current = new Array<number>(512).fill(0);
+        setChannels(new Array<number>(512).fill(0));
+        (window as any).__dmxSnapshots = (window as any).__dmxSnapshots ?? {};
+        (window as any).__dmxSnapshots[id] = new Uint8Array(512);
+        return;
+      }
+      const isBlank = channelsRef.current.every(v => v === 0);
+      if (!isBlank) return;
+      const bin = atob(b64);
+      const ch = new Array<number>(512).fill(0);
+      for (let i = 0; i < Math.min(512, bin.length); i++) ch[i] = bin.charCodeAt(i);
+      channelsRef.current = ch;
+      setChannels([...ch]);
+      (window as any).__dmxSnapshots = (window as any).__dmxSnapshots ?? {};
+      (window as any).__dmxSnapshots[id] = new Uint8Array(ch);
+    } catch {}
+  }, [id, nodeData.settingsJson]);
+
   useEffect(() => {
     const unsub = Bridge.onDmxSnapshot((snaps: DmxSnapshotEntry[]) => {
       const snap = snaps.find(s => s.id === id);
@@ -411,16 +558,59 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
     return unsub;
   }, [id]);
 
+  // fullSettingsRef always holds the latest complete merged settingsJson
+  // Initialized eagerly from nodeData.settingsJson + defaults so it's never empty
+  const fullSettingsRef = useRef<Record<string, unknown>>((() => {
+    try {
+      const base = nodeData.settingsJson ? JSON.parse(nodeData.settingsJson as string) : {};
+      return { ...DEFAULT_SETTINGS, ...base };
+    } catch { return { ...(DEFAULT_SETTINGS as unknown as Record<string, unknown>) }; }
+  })());
+  useEffect(() => {
+    try {
+      const base = nodeData.settingsJson ? JSON.parse(nodeData.settingsJson as string) : {};
+      fullSettingsRef.current = { ...DEFAULT_SETTINGS, ...base, ...settings };
+    } catch {}
+  }, [nodeData.settingsJson, settings]);
+
   const handleChange = useCallback((ch: number, val: number) => {
-    setChannels(prev => { const next = [...prev]; next[ch] = val; return next; });
+    const next = [...channelsRef.current];
+    next[ch] = val;
+    channelsRef.current = next;
+    setChannels([...next]);
+
+    // Encode 512 channels to base64 in React — build from local ref, not stale prop
+    const bytes = new Uint8Array(512);
+    for (let i = 0; i < 512; i++) bytes[i] = next[i] ?? 0;
+    let b64 = '';
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    for (let i = 0; i < 512; i += 3) {
+      const n = (bytes[i] << 16) | (bytes[i+1] << 8) | bytes[i+2];
+      b64 += chars[(n >> 18) & 63] + chars[(n >> 12) & 63]
+           + (i+1 < 512 ? chars[(n >> 6) & 63] : '=')
+           + (i+2 < 512 ? chars[n & 63] : '=');
+    }
+
+    // Send full merged settingsJson — snapshot captures pre-drag state on first call
+    const merged = { ...fullSettingsRef.current, dmxChannels: b64 };
+    fullSettingsRef.current = merged;
+    Bridge.setNodeSettings(id, merged);
+
+    // Real-time audio update
     Bridge.setDmxConsoleChannel(id, ch, val);
+  }, [id]);
+
+  const handleCommit = useCallback(() => {
+    // Pointer up — push the single pre-drag undo snapshot
+    Bridge.commitNodeSettings(id);
   }, [id]);
 
   const handleBlackout = useCallback(() => {
     const next = !blackout;
     setBlackoutState(next);
     Bridge.setDmxBlackout(id, next);
-  }, [id, blackout]);
+    commitPatch({ blackout: next });
+  }, [id, blackout, commitPatch]);
 
   const { visibleCount, startChannel, valueFormat } = settings;
   const visibleChannels = channels.slice(startChannel, startChannel + visibleCount);
@@ -438,7 +628,7 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
       boxShadow: selected ? `0 0 0 1px ${ACCENT}, 0 8px 32px var(--dmx-glow)` : '0 4px 16px rgba(0,0,0,.5)',
       minWidth: nodeW, fontFamily: "'JetBrains Mono', monospace", position: 'relative',
     }}>
-      <NodeHeader title="DMX CONSOLE" accent={ACCENT}
+      <NodeHeader title={settings.customName || 'DMX CONSOLE'} accent={ACCENT}
         showSettings={showSettings} onToggleSettings={toggleSettings}
         onDelete={handleDelete} collapsed={collapsed} onToggleCollapsed={toggleCollapsed}>
         <NodeHeaderButton
@@ -454,7 +644,9 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
       </NodeHeader>
       {showSettings && (
         <DmxSettingsPanel settings={settings} isConsole={true}
-          onChange={patchSettings} onClose={closeSettings} />
+          onChange={patchSettings} onCommit={commitPatch}
+          
+          onClose={closeSettings} />
       )}
       {!collapsed && (
         <div ref={portBodyRef} className="nodrag"
@@ -463,7 +655,7 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
           style={{ padding: '6px 8px' }}>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4, gap: 4 }}>
             <button className="nodrag"
-              onClick={() => patchSettings({ startChannel: Math.max(0, startChannel - visibleCount) })}
+              onClick={() => commitPatch({ startChannel: Math.max(0, startChannel - visibleCount) })}
               disabled={startChannel === 0}
               style={navBtnStyle(startChannel === 0)}>◀</button>
             <div style={{ flex: 1, textAlign: 'center', fontSize: 8, color: 'var(--text-muted)' }}>
@@ -471,7 +663,7 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
               {blackout && <span style={{ color: '#ef5350', marginLeft: 4 }}>● BO</span>}
             </div>
             <button className="nodrag"
-              onClick={() => patchSettings({ startChannel: Math.min(CHANNELS - visibleCount, startChannel + visibleCount) })}
+              onClick={() => commitPatch({ startChannel: Math.min(CHANNELS - visibleCount, startChannel + visibleCount) })}
               disabled={startChannel + visibleCount >= CHANNELS}
               style={navBtnStyle(startChannel + visibleCount >= CHANNELS)}>▶</button>
           </div>
@@ -483,6 +675,7 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
                 value={blackout ? 0 : val}
                 format={valueFormat}
                 onChange={handleChange}
+                onCommit={handleCommit}
                 readOnly={blackout}
               />
             ))}

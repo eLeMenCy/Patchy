@@ -297,6 +297,18 @@ void WebBridge::handleMessage (const juce::String& json)
             (float) obj->getProperty ("x"),
             (float) obj->getProperty ("y"),
             paxName, audioIn, audioOut, midiIn, midiOut);
+
+        // Initialize DMX Monitor/Console with default settingsJson so undo doesn't wipe settings
+        int nodeType = (int) obj->getProperty ("nodeType");
+        if (nodeType == 16 || nodeType == 17)
+        {
+            const auto& nodes = graph.getNodes();
+            if (! nodes.empty())
+            {
+                auto& newNode = const_cast<NodeData&> (nodes.back());
+                newNode.settingsJson = "{\"visibleCount\":8,\"startChannel\":0,\"valueFormat\":\"dec\",\"customName\":\"\",\"blackout\":false}";
+            }
+        }
     }
     else if (type == "setPaxParameter")
     {
@@ -336,10 +348,6 @@ void WebBridge::handleMessage (const juce::String& json)
         juce::String settingsJson = obj->getProperty ("settings").toString();
         if (nodeId.isNotEmpty())
         {
-            // Capture snapshot before FIRST change for this node interaction.
-            // For discrete controls (checkbox, combo) each sends setNodeSettings+commitNodeSettings
-            // as a pair — pendingSettingsNodeId is cleared by commitNodeSettings between clicks.
-            // For sliders, only the first tick captures the pre-drag state.
             if (pendingSettingsNodeId != nodeId)
             {
                 pendingSettingsNodeId   = nodeId;
@@ -351,8 +359,6 @@ void WebBridge::handleMessage (const juce::String& json)
     }
     else if (type == "commitNodeSettings")
     {
-        // User finished adjusting slider/stepper — push the pre-drag snapshot
-        // so undo restores the state BEFORE the slider was moved, not after.
         if (pendingSettingsSnapshot.isObject())
         {
             auto* node = graph.findNode (pendingSettingsNodeId);
@@ -472,10 +478,16 @@ void WebBridge::handleMessage (const juce::String& json)
         juce::String nodeId = obj->getProperty ("nodeId").toString();
         juce::String key    = obj->getProperty ("key").toString();
         juce::String value  = obj->getProperty ("value").toString();
-        // Clear any pending settings snapshot — device change is a new action
-        pendingSettingsSnapshot = juce::var();
-        pendingSettingsNodeId.clear();
-        graph.pushSnapshot();
+
+        // dmxConsoleChannel is a real-time audio update during a drag —
+        // preserve the pending snapshot captured by the preceding setNodeSettings
+        if (key != "dmxConsoleChannel")
+        {
+            // Clear any pending settings snapshot — device change is a new action
+            pendingSettingsSnapshot = juce::var();
+            pendingSettingsNodeId.clear();
+            graph.pushSnapshot();
+        }
         if (key == "midiDeviceId" && onSetMidiDevice)
             onSetMidiDevice (nodeId, value);
         else if (key == "audioDeviceId" && onSetAudioDevice)
@@ -579,17 +591,22 @@ void WebBridge::handleMessage (const juce::String& json)
         }
         else if (key == "dmxConsoleChannel" && onSetDmxConsoleChannel)
         {
-            // value is a JSON object: { channel, value }
             auto parsed  = juce::JSON::parse (value);
             int channel  = (int) parsed["channel"];
             int val      = (int) parsed["value"];
+            // Update audio node + save updated dmxChannels to graphModel settingsJson
+            // Snapshot capture is handled by the preceding setNodeSettings message
             onSetDmxConsoleChannel (nodeId, channel, (uint8_t) juce::jlimit (0, 255, val));
+            return;  // no pushGraphToUI/pushUndoState during drag
         }
         else if (key == "dmxBlackout" && onSetDmxBlackout)
         {
             // value is "true" or "false"
             bool active = value.trim() == "true";
             onSetDmxBlackout (nodeId, active);
+            // Undo is handled by the accompanying commitSettingsChange — skip here
+            pushGraphToUI();
+            return;
         }
         // Push updated graph so React reflects the new selectedDeviceId / settings
         pushGraphToUI();
@@ -1022,6 +1039,22 @@ void WebBridge::pushSettingsToUI (const juce::String& nodeId, const juce::String
     obj->setProperty ("nodeId",       nodeId);
     obj->setProperty ("settingsJson", settingsJson);
     pushToUI ("onNodeSettings", juce::JSON::toString (juce::var (obj.release()), false));
+
+    // If this settingsJson contains dmxChannels, restore C++ fader state (undo/redo)
+    if (onRestoreDmxConsoleChannels && settingsJson.contains ("dmxChannels"))
+        onRestoreDmxConsoleChannels (nodeId, settingsJson);
+
+    // If this settingsJson contains blackout, restore C++ blackout state silently (no flash)
+    if (onRestoreDmxBlackout && settingsJson.contains ("blackout"))
+    {
+        try
+        {
+            auto parsed = juce::JSON::parse (settingsJson);
+            bool active = (bool) parsed["blackout"];
+            onRestoreDmxBlackout (nodeId, active);
+        }
+        catch (...) {}
+    }
 }
 
 // ── File operations ───────────────────────────────────────────────────────────
@@ -1172,13 +1205,37 @@ void WebBridge::handleFileSaveAs() { showSaveDialog(); }
 void WebBridge::handleUndo()
 {
     if (graph.undo())
+    {
+        for (const auto& n : graph.getNodes())
+        {
+            if (n.nodeType == 17)
+            {
+                if (n.settingsJson.isNotEmpty() && n.settingsJson.contains ("dmxChannels"))
+                    pushSettingsToUI (n.id, n.settingsJson);
+                else if (onResetDmxConsoleChannels)
+                    onResetDmxConsoleChannels (n.id);
+            }
+        }
         pushUndoState();
+    }
 }
 
 void WebBridge::handleRedo()
 {
     if (graph.redo())
+    {
+        for (const auto& n : graph.getNodes())
+        {
+            if (n.nodeType == 17)
+            {
+                if (n.settingsJson.isNotEmpty() && n.settingsJson.contains ("dmxChannels"))
+                    pushSettingsToUI (n.id, n.settingsJson);
+                else if (onResetDmxConsoleChannels)
+                    onResetDmxConsoleChannels (n.id);
+            }
+        }
         pushUndoState();
+    }
 }
 
 // ── Fragment export ───────────────────────────────────────────────────────────

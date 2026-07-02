@@ -43,13 +43,34 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
     bridge.drainDmxSnapshots         = [&p]() { return p.drainAllDmxSnapshots(); };
     bridge.onSetDmxConsoleChannel    = [&p](const juce::String& nid, int channel, uint8_t value)
                                        {
-                                           if (auto* node = p.getProcessingGraph().findDmxConsoleNode (nid))
-                                               node->setChannel (channel, value);
+                                           auto* node = p.getProcessingGraph().findDmxConsoleNode (nid);
+                                           if (!node && p.getPendingGraph())
+                                               node = p.getPendingGraph()->findDmxConsoleNode (nid);
+                                           if (node) node->setChannel (channel, value);
+                                           p.saveDmxConsoleChannels (nid);
+                                       };
+    bridge.onRestoreDmxConsoleChannels = [&p](const juce::String& nid, const juce::String& json)
+                                       { p.restoreDmxConsoleChannels (nid, json); };
+    bridge.onResetDmxConsoleChannels   = [&p](const juce::String& nid)
+                                       {
+                                           auto* node = p.getProcessingGraph().findDmxConsoleNode (nid);
+                                           if (!node && p.getPendingGraph())
+                                               node = p.getPendingGraph()->findDmxConsoleNode (nid);
+                                           if (node) node->resetChannels();
                                        };
     bridge.onSetDmxBlackout          = [&p](const juce::String& nid, bool active)
                                        {
-                                           if (auto* node = p.getProcessingGraph().findDmxConsoleNode (nid))
-                                               node->setBlackout (active);
+                                           auto* node = p.getProcessingGraph().findDmxConsoleNode (nid);
+                                           if (!node && p.getPendingGraph())
+                                               node = p.getPendingGraph()->findDmxConsoleNode (nid);
+                                           if (node) node->setBlackout (active);
+                                       };
+    bridge.onRestoreDmxBlackout      = [&p](const juce::String& nid, bool active)
+                                       {
+                                           auto* node = p.getProcessingGraph().findDmxConsoleNode (nid);
+                                           if (!node && p.getPendingGraph())
+                                               node = p.getPendingGraph()->findDmxConsoleNode (nid);
+                                           if (node) node->restoreBlackout (active);
                                        };
     addAndMakeVisible (bridge);
     setSize (640, 400);

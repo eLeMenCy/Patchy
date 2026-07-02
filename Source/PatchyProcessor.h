@@ -290,6 +290,106 @@ public:
         }
     }
 
+    /** Save all 512 DMX Console channel values into the node's settingsJson.
+     *  Called on every fader change so settingsJson is always current for undo. */
+    void saveDmxConsoleChannels (const juce::String& nodeId)
+    {
+        // Find the node in processingGraph or pendingGraph
+        auto* console = processingGraph.findDmxConsoleNode (nodeId);
+        if (console == nullptr && pendingGraph != nullptr)
+            console = pendingGraph->findDmxConsoleNode (nodeId);
+        if (console == nullptr) return;
+
+        auto channels = console->getAllChannels();
+
+        // Merge dmxChannels (base64) into existing settingsJson
+        if (auto* node = graphModel.findNode (nodeId))
+        {
+            juce::var existing;
+            try { existing = juce::JSON::parse (node->settingsJson); } catch (...) {}
+            if (existing.getDynamicObject() == nullptr)
+                existing = new juce::DynamicObject();
+            auto* obj = existing.getDynamicObject();
+
+            // Standard base64 encode 512 bytes
+            static const char* kB64 =
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            juce::String b64;
+            b64.preallocateBytes (688);
+            for (int i = 0; i < 512; i += 3)
+            {
+                uint32_t n  = (uint32_t) channels[i] << 16;
+                if (i + 1 < 512) n |= (uint32_t) channels[i + 1] << 8;
+                if (i + 2 < 512) n |= (uint32_t) channels[i + 2];
+                b64 += kB64[(n >> 18) & 0x3F];
+                b64 += kB64[(n >> 12) & 0x3F];
+                b64 += (i + 1 < 512) ? kB64[(n >> 6) & 0x3F] : '=';
+                b64 += (i + 2 < 512) ? kB64[(n >> 0) & 0x3F] : '=';
+            }
+            obj->setProperty ("dmxChannels", b64);
+            node->settingsJson = juce::JSON::toString (existing, true);
+        }
+    }
+
+    /** Restore DMX Console channel values from a settingsJson string.
+     *  Called from pushSettingsToUI on undo/redo so C++ audio state stays in sync. */
+    void restoreDmxConsoleChannels (const juce::String& nodeId, const juce::String& settingsJson)
+    {
+        restoreDmxConsoleChannels (nodeId, settingsJson, nullptr);
+    }
+
+    void restoreDmxConsoleChannels (const juce::String& nodeId, const juce::String& settingsJson,
+                                    ProcessingGraph* graph)
+    {
+        DmxConsoleNode* console = nullptr;
+        if (graph != nullptr)
+            console = graph->findDmxConsoleNode (nodeId);
+        if (console == nullptr)
+            console = processingGraph.findDmxConsoleNode (nodeId);
+        if (console == nullptr && pendingGraph != nullptr)
+            console = pendingGraph->findDmxConsoleNode (nodeId);
+        if (console == nullptr) return;
+
+        try
+        {
+            auto parsed = juce::JSON::parse (settingsJson);
+            juce::String b64 = parsed["dmxChannels"].toString();
+            if (b64.isEmpty()) return;
+
+            static const int8_t kDec[256] = {
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,62,-1,-1,-1,63,
+                52,53,54,55,56,57,58,59,60,61,-1,-1,-1,-1,-1,-1,
+                -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,
+                15,16,17,18,19,20,21,22,23,24,25,-1,-1,-1,-1,-1,
+                -1,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,
+                41,42,43,44,45,46,47,48,49,50,51,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1
+            };
+            std::array<uint8_t, 512> channels {};
+            int out = 0;
+            for (int i = 0; i + 3 < b64.length() && out < 512; i += 4)
+            {
+                int a = kDec[(uint8_t)b64[i]],  b2 = kDec[(uint8_t)b64[i+1]];
+                int c = kDec[(uint8_t)b64[i+2]], d = kDec[(uint8_t)b64[i+3]];
+                if (a < 0 || b2 < 0) break;
+                if (out < 512) channels[out++] = (uint8_t)((a << 2) | (b2 >> 4));
+                if (c >= 0 && out < 512) channels[out++] = (uint8_t)((b2 << 4) | (c >> 2));
+                if (d >= 0 && out < 512) channels[out++] = (uint8_t)((c << 6) | d);
+            }
+            console->restoreChannels (channels);
+        }
+        catch (...) {}
+    }
+
     void setPaxParameter (const juce::String& nodeId, int index, float value)
     {
         for (auto& node : processingGraph.getNodes())
@@ -588,6 +688,7 @@ public:
         monitorBuffers.erase (nodeId);
     }
     ProcessingGraph&    getProcessingGraph()     { return processingGraph; }
+    ProcessingGraph*    getPendingGraph()         { return pendingGraph.get(); }
 
     /** For telemetry: always returns the freshest graph.
      *  Before audio starts: pendingGraph has the latest rebuild.

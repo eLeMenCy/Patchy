@@ -109,11 +109,28 @@ public:
     DmxConsoleNode (const juce::String& nodeId, DmxMonitorBuffer* sharedBuffer)
         : NodeProcessor (nodeId, Type::Midi), buffer (sharedBuffer)
     {
-        for (auto& ch : faderChannels) ch.store (0,   std::memory_order_relaxed);
-        lastSent.fill (255);   // force first send
+        for (auto& ch : faderChannels) ch.store (0, std::memory_order_relaxed);
+        lastSent.fill (0);
     }
 
     // ── Called from message thread (React → C++ bridge) ──────────────────────
+
+    /** Transfer lastSent from previous node instance so restoreChannels can detect real changes. */
+    void transferLastSent (const std::array<uint8_t, 512>& prev)
+    {
+        std::memcpy (lastSent.data(), prev.data(), 512);
+        isFirstRestore = false;
+    }
+    const std::array<uint8_t, 512>& getLastSent() const { return lastSent; }
+
+    /** Get all 512 channel values (for saving to settingsJson). */
+    std::array<uint8_t, 512> getAllChannels() const
+    {
+        std::array<uint8_t, 512> out {};
+        for (int i = 0; i < 512; ++i)
+            out[i] = faderChannels[i].load (std::memory_order_relaxed);
+        return out;
+    }
 
     /** Set a single channel value from a fader move (0-based channel index). */
     void setChannel (int channel, uint8_t value)
@@ -129,6 +146,34 @@ public:
         for (int i = 0; i < 512; ++i)
             faderChannels[static_cast<size_t> (i)].store (values[i], std::memory_order_relaxed);
         pendingOutput.store (true, std::memory_order_release);
+    }
+
+    /** Restore channels — always flashes on a fresh node (first call after rebuild),
+     *  then only flashes if values actually changed vs last sent. */
+    void restoreChannels (const std::array<uint8_t, 512>& values)
+    {
+        bool changed = isFirstRestore
+                     || (std::memcmp (values.data(), lastSent.data(), 512) != 0);
+        isFirstRestore = false;
+        for (int i = 0; i < 512; ++i)
+            faderChannels[static_cast<size_t> (i)].store (values[i], std::memory_order_relaxed);
+        std::memcpy (lastSent.data(), values.data(), 512);
+        if (changed)
+            pendingOutput.store (true, std::memory_order_release);
+    }
+
+    /** Reset all channels to zero — used when undo restores to pre-fader state. */
+    void resetChannels()
+    {
+        std::array<uint8_t, 512> zeros {};
+        restoreChannels (zeros);
+    }
+    void restoreBlackout (bool active)
+    {
+        bool changed = (blackout.load (std::memory_order_relaxed) != active);
+        blackout.store (active, std::memory_order_release);
+        if (changed)
+            pendingOutput.store (true, std::memory_order_release);
     }
 
     /** Blackout toggle — when true, outputs all zeros. */
@@ -152,28 +197,10 @@ public:
         }
         else
         {
-            // If upstream DMX is connected, let it override fader state
-            if (inputValueCount > 0)
-            {
-                const auto& v = inputValues[0];
-                if (v.dataType == PAX_DATA_BLOB && v.dataSize > 0)
-                {
-                    int copyLen = std::min ((int) v.dataSize, 512);
-                    std::memcpy (current.data(), v.data, (size_t) copyLen);
-
-                    // Sync faders to incoming values
-                    for (int i = 0; i < copyLen; ++i)
-                        faderChannels[static_cast<size_t> (i)].store (current[i],
-                                                                       std::memory_order_relaxed);
-                }
-            }
-            else
-            {
-                // No upstream — use fader state
-                for (int i = 0; i < 512; ++i)
-                    current[i] = faderChannels[static_cast<size_t> (i)].load (
-                                     std::memory_order_relaxed);
-            }
+            // Console is output-only — always use fader state
+            for (int i = 0; i < 512; ++i)
+                current[i] = faderChannels[static_cast<size_t> (i)].load (
+                                 std::memory_order_relaxed);
         }
 
         // Push to monitor buffer so UI faders stay in sync
@@ -209,8 +236,9 @@ public:
 private:
     std::array<std::atomic<uint8_t>, 512> faderChannels;
     std::array<uint8_t, 512>              lastSent;
-    std::atomic<bool>                     pendingOutput { true };
-    std::atomic<bool>                     blackout      { false };
+    std::atomic<bool>                     pendingOutput  { false };
+    std::atomic<bool>                     blackout       { false };
+    bool                                  isFirstRestore { true };
     DmxMonitorBuffer*                     buffer        = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DmxConsoleNode)

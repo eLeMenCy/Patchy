@@ -168,6 +168,8 @@ void PatchyProcessor::rebuildProcessingGraph()
     // updated before rebuildProcessingGraph runs, so we always apply the
     // right selections including empty ones (which trigger closeDevice).
     bool selectionsChanged = false;
+    struct ChannelRestore { juce::String nodeId, settingsJson; };
+    std::vector<ChannelRestore> channelRestores;
     for (const auto& n : graphModel.getNodes())
     {
         if (n.nodeType == 1 || n.nodeType == 2)
@@ -273,6 +275,12 @@ void PatchyProcessor::rebuildProcessingGraph()
                 catch (...) {}
             }
         }
+        else if (n.nodeType == 17)
+        {
+            // Restore DMX Console channel values from settingsJson (undo/redo safe)
+            if (n.settingsJson.isNotEmpty() && n.settingsJson.contains ("dmxChannels"))
+                channelRestores.push_back ({ n.id, n.settingsJson });
+        }
     }
 
     // If selections changed (e.g. after undo), close all transferred devices
@@ -288,6 +296,22 @@ void PatchyProcessor::rebuildProcessingGraph()
     oscDeviceManager.applyAllSettings            (*newGraph);
     artNetDeviceManager.applyAllSettings         (*newGraph);
     dmxDeviceManager.applyAllSettings            (*newGraph);
+
+    // Transfer lastSent from most recent graph to ALL DMX Console nodes in new graph
+    // so restoreChannels/resetChannels can detect real changes (flash only when values differ)
+    for (const auto& n : graphModel.getNodes())
+    {
+        if (n.nodeType != 17) continue;
+        auto* oldNode = pendingGraph ? pendingGraph->findDmxConsoleNode (n.id)
+                                     : processingGraph.findDmxConsoleNode (n.id);
+        if (!oldNode) oldNode = processingGraph.findDmxConsoleNode (n.id);
+        if (auto* newNode = newGraph->findDmxConsoleNode (n.id))
+            if (oldNode) newNode->transferLastSent (oldNode->getLastSent());
+    }
+
+    // Restore DMX Console channel values AFTER rebuild
+    for (const auto& r : channelRestores)
+        restoreDmxConsoleChannels (r.nodeId, r.settingsJson, newGraph.get());
 
     pendingGraph = std::move (newGraph);
     graphPending.store (true);

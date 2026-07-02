@@ -101,8 +101,7 @@ std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
     }
     else if (t == 17)
     {
-        // DmxConsoleNode: DMX In (optional override) + DMX Out
-        mk ("DMX In",  PortType::DMX, PortDirection::Input);
+        // DmxConsoleNode: DMX Out only — Console is a source, not a processor
         mk ("DMX Out", PortType::DMX, PortDirection::Output);
     }
     else if (t >= 100)

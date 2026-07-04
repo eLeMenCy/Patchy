@@ -5,7 +5,7 @@
 #include "OscDeviceNodes.h"
 #include "ArtNetDeviceNodes.h"
 #include "DmxDeviceNodes.h"
-#include "DmxMonitorNode.h"
+#include "DmxConsoleNode.h"
 #include "MidiMonitorNode.h"
 #include "AudioMonitorNode.h"
 #include <unordered_set>

@@ -490,7 +490,7 @@ private:
 
         juce::AbstractFifo               fifo { kFifoSize };
         std::array<PAX_Value, kFifoSize> values;
-        juce::WaitableEvent              event { true };
+        juce::WaitableEvent              event { false };  // auto-reset: resets after each wait()
     } sendQueue;
 
     SerialPort serial;

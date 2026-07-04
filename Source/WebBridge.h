@@ -8,7 +8,7 @@
 
 #include "MidiMonitorNode.h"
 #include "AudioMonitorNode.h"
-#include "DmxMonitorNode.h"
+#include "DmxConsoleNode.h"
 
 /**
  * WebBridge

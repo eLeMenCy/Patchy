@@ -5,7 +5,7 @@
 #include "MidiMonitorNode.h"   // for MidiMonitorEvent and MidiMonitorNode
 #include "AudioMonitorNode.h"  // for AudioMonitorBuffer and AudioMonitorNode
 #include "MidiKeyboardNode.h"
-#include "DmxMonitorNode.h"    // for DmxMonitorBuffer, DmxMonitorNode, DmxConsoleNode
+#include "DmxConsoleNode.h"
 #include "GraphModel.h"
 #include "../Pax/PaxRegistry.h"
 #include <memory>

@@ -81,7 +81,8 @@ Patchy/
 │   ├── SerialPort.h                 Cross-platform serial port abstraction (POSIX + Win32, no deps)
 │   ├── DmxDeviceNodes.h/.cpp        DMX In (type 14) + DMX Out (type 15) + DmxDeviceManager
 │   │                                EnttecProCodec, Mk2 auto-detection, universe 0/1
-│   ├── DmxMonitorNode.h/.cpp        DMX Monitor (type 16) + DMX Console (type 17)
+│   ├── DmxMonitorNode.h/.cpp        DMX Monitor (type 16) + DmxMonitorBuffer
+│   ├── DmxConsoleNode.h/.cpp        DMX Console (type 17); #includes DmxMonitorNode.h
 │   │                                DmxMonitorBuffer, vertical faders, 30Hz telemetry
 │   ├── MidiMonitorNode.h/.cpp       MIDI Monitor (type 5)
 │   ├── AudioMonitorNode.h/.cpp      Audio Monitor (type 6)
@@ -109,6 +110,9 @@ Patchy/
 │       ├── MidiMonitorNode.tsx      MIDI Monitor node (type 5)
 │       ├── AudioMonitorNode.tsx     Audio Monitor node (type 6)
 │       ├── MidiKeyboardNode.tsx     MIDI Keyboard node (type 7)
+│       ├── DmxShared.tsx            Shared DMX types, constants, DmxFader, DmxSettingsPanel, NameInput
+│       ├── DmxMonitorNode.tsx       DMX Monitor node (type 16)
+│       ├── DmxConsoleNode.tsx       DMX Console node (type 17)
 │       ├── SpectrumyserNode.tsx     Spectrumyser custom node with FFT canvas
 │       ├── EnvelopeNode.tsx         Envelope custom node with live canvas
 │       ├── HintPanel.tsx            Hint context, panel, and hint dictionaries

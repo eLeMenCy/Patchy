@@ -124,6 +124,7 @@ target_sources(Patchy PRIVATE
     Source/ArtNetDeviceNodes.cpp
     Source/DmxDeviceNodes.cpp
     Source/DmxMonitorNode.cpp
+    Source/DmxConsoleNode.cpp
     Source/MidiMonitorNode.cpp
     Source/AudioMonitorNode.cpp
     Source/MidiKeyboardNode.cpp

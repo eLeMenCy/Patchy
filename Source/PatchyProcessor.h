@@ -4,7 +4,7 @@
 #include "ProcessingGraph.h"
 #include "MidiDeviceNodes.h"
 #include "MidiMonitorNode.h"
-#include "DmxMonitorNode.h"
+#include "DmxConsoleNode.h"
 #include "AudioMonitorNode.h"
 #include "MidiKeyboardNode.h"
 #include <unordered_map>

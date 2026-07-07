@@ -77,11 +77,11 @@ namespace ArtNetCodec
                           uint8_t* buf, int bufCap)
     {
         // DMX data comes from v.data[]; pad to even length, minimum 2
-        int dmxLen = v.dataSize > 0 ? (int) v.dataSize : 1;
-        if (dmxLen & 1) ++dmxLen;   // must be even
-        dmxLen = std::min (dmxLen, 512);
+        unsigned dmxLen = v.dataSize > 0 ? (unsigned) v.dataSize : 1u;
+        if (dmxLen & 1u) ++dmxLen;   // must be even
+        dmxLen = std::min (dmxLen, 512u);
 
-        if (bufCap < kHdrSize + dmxLen) return 0;
+        if ((unsigned) bufCap < (unsigned) kHdrSize + dmxLen) return 0;
 
         // ID "Art-Net\0"
         std::memcpy (buf, kArtNetId, 8);
@@ -107,13 +107,13 @@ namespace ArtNetCodec
         buf[17] = (uint8_t) (dmxLen & 0xFFu);
 
         // DMX data — copy what we have, zero-pad the rest
-        int srcLen = std::min ((int) v.dataSize, dmxLen);
+        unsigned srcLen = std::min ((unsigned) v.dataSize, dmxLen);
         if (srcLen > 0)
             std::memcpy (buf + kHdrSize, v.data, (size_t) srcLen);
         if (srcLen < dmxLen)
             std::memset (buf + kHdrSize + srcLen, 0, (size_t) (dmxLen - srcLen));
 
-        return kHdrSize + dmxLen;
+        return (int) (kHdrSize + dmxLen);
     }
 
 } // namespace ArtNetCodec
@@ -186,7 +186,7 @@ public:
             if (universe >= 0 && (int) pkt.value.key != universe)
                 continue;
 
-            outputValues[count] = pkt.value;
+            outputValues[static_cast<size_t>(count)] = pkt.value;
             ++count;
         }
         outputValueCount = count;

@@ -92,20 +92,20 @@ public:
         cfmakeraw (&tty);
 
         // Data bits
-        tty.c_cflag &= ~CSIZE;
-        tty.c_cflag |= (dataBits == 7) ? CS7 : CS8;
+        tty.c_cflag &= ~(tcflag_t)CSIZE;
+        tty.c_cflag |= (tcflag_t)((dataBits == 7) ? CS7 : CS8);
 
         // Stop bits
-        if (stopBits == 2) tty.c_cflag |=  CSTOPB;
-        else               tty.c_cflag &= ~CSTOPB;
+        if (stopBits == 2) tty.c_cflag |=  (tcflag_t)CSTOPB;
+        else               tty.c_cflag &= ~(tcflag_t)CSTOPB;
 
         // Parity
-        if (parity == 'E')      { tty.c_cflag |=  PARENB; tty.c_cflag &= ~PARODD; }
-        else if (parity == 'O') { tty.c_cflag |=  PARENB; tty.c_cflag |=  PARODD; }
-        else                    { tty.c_cflag &= ~PARENB; }
+        if (parity == 'E')      { tty.c_cflag |= (tcflag_t)PARENB; tty.c_cflag &= ~(tcflag_t)PARODD; }
+        else if (parity == 'O') { tty.c_cflag |= (tcflag_t)PARENB; tty.c_cflag |=  (tcflag_t)PARODD; }
+        else                    { tty.c_cflag &= ~(tcflag_t)PARENB; }
 
         // Enable receiver, local mode
-        tty.c_cflag |= (CLOCAL | CREAD);
+        tty.c_cflag |= (tcflag_t)(CLOCAL | CREAD);
 
         // Blocking read — return after 1 char or 100ms timeout
         tty.c_cc[VMIN]  = 0;

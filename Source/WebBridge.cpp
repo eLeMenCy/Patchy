@@ -309,6 +309,15 @@ void WebBridge::handleMessage (const juce::String& json)
                 newNode.settingsJson = "{\"visibleCount\":8,\"startChannel\":0,\"valueFormat\":\"dec\",\"customName\":\"\",\"blackout\":false}";
             }
         }
+        else if (nodeType == 18 || nodeType == 19)
+        {
+            const auto& nodes = graph.getNodes();
+            if (! nodes.empty())
+            {
+                auto& newNode = const_cast<NodeData&> (nodes.back());
+                newNode.settingsJson = "{\"visibleCount\":8,\"startChannel\":0,\"valueFormat\":\"dec\",\"customName\":\"\",\"blackout\":false,\"universe\":0,\"filterUniverse\":false,\"filterUniverseValue\":0}";
+            }
+        }
     }
     else if (type == "setPaxParameter")
     {
@@ -479,9 +488,11 @@ void WebBridge::handleMessage (const juce::String& json)
         juce::String key    = obj->getProperty ("key").toString();
         juce::String value  = obj->getProperty ("value").toString();
 
-        // dmxConsoleChannel is a real-time audio update during a drag —
-        // preserve the pending snapshot captured by the preceding setNodeSettings
-        if (key != "dmxConsoleChannel")
+        // dmxConsoleChannel / artNetConsoleChannel are real-time audio updates during drag —
+        // preserve the pending snapshot captured by the preceding setNodeSettings.
+        // dmxBlackout / artNetBlackout undo is handled by commitSettingsChange — skip pushSnapshot here.
+        if (key != "dmxConsoleChannel" && key != "artNetConsoleChannel"
+            && key != "dmxBlackout"    && key != "artNetBlackout")
         {
             // Clear any pending settings snapshot — device change is a new action
             pendingSettingsSnapshot = juce::var();
@@ -515,7 +526,7 @@ void WebBridge::handleMessage (const juce::String& json)
             std::vector<int> channels;
             auto parsed = juce::JSON::parse (value);
             if (auto* arr = parsed.getArray())
-                for (auto& v : *arr) channels.push_back ((int) v);
+                for (auto& elem : *arr) channels.push_back ((int) elem);
 
             onSetAudioDeviceChannels (nodeId, channels);
 
@@ -594,18 +605,37 @@ void WebBridge::handleMessage (const juce::String& json)
             auto parsed  = juce::JSON::parse (value);
             int channel  = (int) parsed["channel"];
             int val      = (int) parsed["value"];
-            // Update audio node + save updated dmxChannels to graphModel settingsJson
-            // Snapshot capture is handled by the preceding setNodeSettings message
             onSetDmxConsoleChannel (nodeId, channel, (uint8_t) juce::jlimit (0, 255, val));
-            return;  // no pushGraphToUI/pushUndoState during drag
+            return;
         }
         else if (key == "dmxBlackout" && onSetDmxBlackout)
         {
-            // value is "true" or "false"
             bool active = value.trim() == "true";
             onSetDmxBlackout (nodeId, active);
-            // Undo is handled by the accompanying commitSettingsChange — skip here
             pushGraphToUI();
+            return;
+        }
+        else if (key == "artNetConsoleChannel" && onSetArtNetConsoleChannel)
+        {
+            auto parsed  = juce::JSON::parse (value);
+            int channel  = (int) parsed["channel"];
+            int val      = (int) parsed["value"];
+            onSetArtNetConsoleChannel (nodeId, channel, (uint8_t) juce::jlimit (0, 255, val));
+            return;
+        }
+        else if (key == "artNetBlackout" && onSetArtNetBlackout)
+        {
+            bool active = value.trim() == "true";
+            onSetArtNetBlackout (nodeId, active);
+            pushGraphToUI();
+            return;
+        }
+        else if (key == "artNetUniverseFilter")
+        {
+            // Set universe filter on ArtNetMonitorNode (-1 = show all)
+            int filter = value.trim().getIntValue();
+            if (onSetArtNetUniverseFilter)
+                onSetArtNetUniverseFilter (nodeId, filter);
             return;
         }
         // Push updated graph so React reflects the new selectedDeviceId / settings
@@ -639,8 +669,8 @@ void WebBridge::handleMessage (const juce::String& json)
         auto suggestedName = obj->getProperty ("suggestedName").toString();
         juce::StringArray selectedNodeIds;
         if (auto* arr = nodeIdsVar.getArray())
-            for (auto& v : *arr)
-                selectedNodeIds.add (v.toString());
+            for (auto& elem : *arr)
+                selectedNodeIds.add (elem.toString());
         if (selectedNodeIds.isEmpty()) return;
         showExportDialog (selectedNodeIds, suggestedName);
     }
@@ -853,6 +883,47 @@ void WebBridge::pushDmxSnapshots()
     pushToUI ("onDmxSnapshot", json.toString());
 }
 
+void WebBridge::pushArtNetSnapshots()
+{
+    if (! connected || ! drainArtNetSnapshots || webView == nullptr) return;
+
+    auto snaps = drainArtNetSnapshots();
+    if (snaps.empty()) return;
+
+    static constexpr auto Q = "\"";
+    static const char* kB64Chars =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    juce::MemoryOutputStream json;
+    json << "[";
+    for (size_t si = 0; si < snaps.size(); ++si)
+    {
+        const auto& snap = snaps[si];
+        if (si > 0) json << ",";
+
+        const uint8_t* src = snap.channels.data();
+        const int srcLen   = 512;
+        juce::String b64;
+        b64.preallocateBytes (684 + 4);
+        for (int i = 0; i < srcLen; i += 3)
+        {
+            uint32_t b  = (uint32_t) src[i] << 16;
+            if (i + 1 < srcLen) b |= (uint32_t) src[i + 1] << 8;
+            if (i + 2 < srcLen) b |= (uint32_t) src[i + 2];
+            b64 += kB64Chars[(b >> 18) & 0x3F];
+            b64 += kB64Chars[(b >> 12) & 0x3F];
+            b64 += (i + 1 < srcLen) ? kB64Chars[(b >>  6) & 0x3F] : '=';
+            b64 += (i + 2 < srcLen) ? kB64Chars[(b >>  0) & 0x3F] : '=';
+        }
+
+        json << "{" << Q << "id"       << Q << ":" << Q << snap.nodeId  << Q << ","
+             << Q << "b64"     << Q << ":" << Q << b64          << Q << ","
+             << Q << "universe" << Q << ":" << snap.universe << "}";
+    }
+    json << "]";
+    pushToUI ("onArtNetSnapshot", json.toString());
+}
+
 void WebBridge::timerCallback()
 {
     // Clear old graph trash on message thread before any snapshot/drain
@@ -864,6 +935,7 @@ void WebBridge::timerCallback()
         pushSpectrumSnapshots();
         pushPortActivity();
         pushDmxSnapshots();
+        pushArtNetSnapshots();
     }
 }
 
@@ -1055,6 +1127,21 @@ void WebBridge::pushSettingsToUI (const juce::String& nodeId, const juce::String
         }
         catch (...) {}
     }
+
+    // ArtNet Console restore (mirrors DMX Console)
+    if (onRestoreArtNetConsoleChannels && settingsJson.contains ("artNetChannels"))
+        onRestoreArtNetConsoleChannels (nodeId, settingsJson);
+
+    if (onRestoreArtNetBlackout && settingsJson.contains ("blackout"))
+    {
+        try
+        {
+            auto parsed = juce::JSON::parse (settingsJson);
+            bool active = (bool) parsed["blackout"];
+            onRestoreArtNetBlackout (nodeId, active);
+        }
+        catch (...) {}
+    }
 }
 
 // ── File operations ───────────────────────────────────────────────────────────
@@ -1215,6 +1302,13 @@ void WebBridge::handleUndo()
                 else if (onResetDmxConsoleChannels)
                     onResetDmxConsoleChannels (n.id);
             }
+            else if (n.nodeType == 19)
+            {
+                if (n.settingsJson.isNotEmpty() && n.settingsJson.contains ("artNetChannels"))
+                    pushSettingsToUI (n.id, n.settingsJson);
+                else if (onResetArtNetConsoleChannels)
+                    onResetArtNetConsoleChannels (n.id);
+            }
         }
         pushUndoState();
     }
@@ -1232,6 +1326,13 @@ void WebBridge::handleRedo()
                     pushSettingsToUI (n.id, n.settingsJson);
                 else if (onResetDmxConsoleChannels)
                     onResetDmxConsoleChannels (n.id);
+            }
+            else if (n.nodeType == 19)
+            {
+                if (n.settingsJson.isNotEmpty() && n.settingsJson.contains ("artNetChannels"))
+                    pushSettingsToUI (n.id, n.settingsJson);
+                else if (onResetArtNetConsoleChannels)
+                    onResetArtNetConsoleChannels (n.id);
             }
         }
         pushUndoState();

@@ -72,6 +72,47 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
                                                node = p.getPendingGraph()->findDmxConsoleNode (nid);
                                            if (node) node->restoreBlackout (active);
                                        };
+
+    // ── ArtNet Console callbacks (mirrors DMX Console pattern) ────────────────
+    bridge.drainArtNetSnapshots        = [&p]() { return p.drainAllArtNetSnapshots(); };
+    bridge.onSetArtNetConsoleChannel   = [&p](const juce::String& nid, int channel, uint8_t value)
+                                       {
+                                           auto* node = p.getProcessingGraph().findArtNetConsoleNode (nid);
+                                           if (!node && p.getPendingGraph())
+                                               node = p.getPendingGraph()->findArtNetConsoleNode (nid);
+                                           if (node) node->setChannel (channel, value);
+                                           p.saveArtNetConsoleChannels (nid);
+                                       };
+    bridge.onRestoreArtNetConsoleChannels = [&p](const juce::String& nid, const juce::String& json)
+                                       { p.restoreArtNetConsoleChannels (nid, json); };
+    bridge.onResetArtNetConsoleChannels   = [&p](const juce::String& nid)
+                                       {
+                                           auto* node = p.getProcessingGraph().findArtNetConsoleNode (nid);
+                                           if (!node && p.getPendingGraph())
+                                               node = p.getPendingGraph()->findArtNetConsoleNode (nid);
+                                           if (node) node->resetChannels();
+                                       };
+    bridge.onSetArtNetBlackout         = [&p](const juce::String& nid, bool active)
+                                       {
+                                           auto* node = p.getProcessingGraph().findArtNetConsoleNode (nid);
+                                           if (!node && p.getPendingGraph())
+                                               node = p.getPendingGraph()->findArtNetConsoleNode (nid);
+                                           if (node) node->setBlackout (active);
+                                       };
+    bridge.onRestoreArtNetBlackout     = [&p](const juce::String& nid, bool active)
+                                       {
+                                           auto* node = p.getProcessingGraph().findArtNetConsoleNode (nid);
+                                           if (!node && p.getPendingGraph())
+                                               node = p.getPendingGraph()->findArtNetConsoleNode (nid);
+                                           if (node) node->restoreBlackout (active);
+                                       };
+    bridge.onSetArtNetUniverseFilter   = [&p](const juce::String& nid, int filter)
+                                       {
+                                           auto* node = p.getProcessingGraph().findArtNetMonitorNode (nid);
+                                           if (!node && p.getPendingGraph())
+                                               node = p.getPendingGraph()->findArtNetMonitorNode (nid);
+                                           if (node) node->setUniverseFilter (filter);
+                                       };
     addAndMakeVisible (bridge);
     setSize (640, 400);
     setResizable (true, false);

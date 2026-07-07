@@ -6,6 +6,7 @@
 #include "ArtNetDeviceNodes.h"
 #include "DmxDeviceNodes.h"
 #include "DmxConsoleNode.h"
+#include "ArtNetConsoleNode.h"
 #include "MidiMonitorNode.h"
 #include "AudioMonitorNode.h"
 #include <unordered_set>
@@ -16,11 +17,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
-                               std::function<MidiMonitorBuffer*(const juce::String&)>  getMidiBuffer,
-                               std::function<AudioMonitorBuffer*(const juce::String&)> getAudioBuffer,
-                               std::function<MidiMonitorBuffer*(const juce::String&)>  getKeyboardBuffer,
-                               std::function<DmxMonitorBuffer*(const juce::String&)>   getDmxMonitorBuffer,
-                               std::function<DmxMonitorBuffer*(const juce::String&)>   getDmxConsoleBuffer)
+                               std::function<MidiMonitorBuffer*(const juce::String&)>    getMidiBuffer,
+                               std::function<AudioMonitorBuffer*(const juce::String&)>   getAudioBuffer,
+                               std::function<MidiMonitorBuffer*(const juce::String&)>    getKeyboardBuffer,
+                               std::function<DmxMonitorBuffer*(const juce::String&)>     getDmxMonitorBuffer,
+                               std::function<DmxMonitorBuffer*(const juce::String&)>     getDmxConsoleBuffer,
+                               std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetMonitorBuffer,
+                               std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetConsoleBuffer)
 {
     auto snapshot = model.toVar();
     auto* root    = snapshot.getDynamicObject();
@@ -79,8 +82,10 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                 case 13: proc = std::make_unique<ArtNetOutDeviceNode> (id); break;
                 case 14: proc = std::make_unique<DmxInDeviceNode>     (id); break;
                 case 15: proc = std::make_unique<DmxOutDeviceNode>    (id); break;
-                case 16: proc = std::make_unique<DmxMonitorNode>      (id, getDmxMonitorBuffer ? getDmxMonitorBuffer(id) : nullptr); break;
-                case 17: proc = std::make_unique<DmxConsoleNode>      (id, getDmxConsoleBuffer ? getDmxConsoleBuffer(id) : nullptr); break;
+                case 16: proc = std::make_unique<DmxMonitorNode>      (id, getDmxMonitorBuffer  ? getDmxMonitorBuffer(id)  : nullptr); break;
+                case 17: proc = std::make_unique<DmxConsoleNode>      (id, getDmxConsoleBuffer  ? getDmxConsoleBuffer(id)  : nullptr); break;
+                case 18: proc = std::make_unique<ArtNetMonitorNode>   (id, getArtNetMonitorBuffer ? getArtNetMonitorBuffer(id) : nullptr); break;
+                case 19: proc = std::make_unique<ArtNetConsoleNode>   (id, getArtNetConsoleBuffer ? getArtNetConsoleBuffer(id) : nullptr); break;
                 default:
                     juce::Logger::writeToLog ("ProcessingGraph: unknown built-in type " + juce::String (type));
                     break;
@@ -487,6 +492,20 @@ DmxConsoleNode* ProcessingGraph::findDmxConsoleNode (const juce::String& nodeId)
     auto it = nodeMap.find (nodeId);
     if (it == nodeMap.end()) return nullptr;
     return dynamic_cast<DmxConsoleNode*> (it->second);
+}
+
+ArtNetConsoleNode* ProcessingGraph::findArtNetConsoleNode (const juce::String& nodeId)
+{
+    auto it = nodeMap.find (nodeId);
+    if (it == nodeMap.end()) return nullptr;
+    return dynamic_cast<ArtNetConsoleNode*> (it->second);
+}
+
+ArtNetMonitorNode* ProcessingGraph::findArtNetMonitorNode (const juce::String& nodeId)
+{
+    auto it = nodeMap.find (nodeId);
+    if (it == nodeMap.end()) return nullptr;
+    return dynamic_cast<ArtNetMonitorNode*> (it->second);
 }
 
 void ProcessingGraph::closeAllAudioDevices()

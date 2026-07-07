@@ -33,6 +33,8 @@ const BUILTIN_GROUPS = [
     nodes: [
       { type: 12 as const, label: 'ArtNet In Device',  desc: 'Receive ArtDmx universe', icon: '⊲' },
       { type: 13 as const, label: 'ArtNet Out Device', desc: 'Send ArtDmx universe',    icon: '⊳' },
+      { type: 19 as const, label: 'ArtNet Console',    desc: 'Control 512 ArtNet channels', icon: '▤' },
+      { type: 18 as const, label: 'ArtNet Monitor',    desc: 'Display ArtNet channels',     icon: '⊞' },
     ],
   },
   {

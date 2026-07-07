@@ -97,7 +97,7 @@ export const DmxMonitorNode = memo(function DmxMonitorNode ({ id, data, selected
   const nodeData = data as DmxMonitorNodeData;
   const { showSettings, toggleSettings, closeSettings } = useNodeSettings(id);
   const { handleDelete }               = useNodeDelete(id);
-  const { collapsed, toggleCollapsed } = useNodeCollapsed(id);
+  const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
   const portBodyRef                    = useRef<HTMLDivElement>(null);
 
   const [settings, setSettings] = useState<DmxNodeSettings>(() => ({

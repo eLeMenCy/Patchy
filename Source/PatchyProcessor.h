@@ -5,6 +5,7 @@
 #include "MidiDeviceNodes.h"
 #include "MidiMonitorNode.h"
 #include "DmxConsoleNode.h"
+#include "ArtNetConsoleNode.h"
 #include "AudioMonitorNode.h"
 #include "MidiKeyboardNode.h"
 #include <unordered_map>
@@ -318,9 +319,9 @@ public:
             b64.preallocateBytes (688);
             for (int i = 0; i < 512; i += 3)
             {
-                uint32_t n  = (uint32_t) channels[i] << 16;
-                if (i + 1 < 512) n |= (uint32_t) channels[i + 1] << 8;
-                if (i + 2 < 512) n |= (uint32_t) channels[i + 2];
+                uint32_t n  = (uint32_t) channels[static_cast<size_t>(i)] << 16;
+                if (i + 1 < 512) n |= (uint32_t) channels[static_cast<size_t>(i + 1)] << 8;
+                if (i + 2 < 512) n |= (uint32_t) channels[static_cast<size_t>(i + 2)];
                 b64 += kB64[(n >> 18) & 0x3F];
                 b64 += kB64[(n >> 12) & 0x3F];
                 b64 += (i + 1 < 512) ? kB64[(n >> 6) & 0x3F] : '=';
@@ -381,11 +382,15 @@ public:
                 int a = kDec[(uint8_t)b64[i]],  b2 = kDec[(uint8_t)b64[i+1]];
                 int c = kDec[(uint8_t)b64[i+2]], d = kDec[(uint8_t)b64[i+3]];
                 if (a < 0 || b2 < 0) break;
-                if (out < 512) channels[out++] = (uint8_t)((a << 2) | (b2 >> 4));
-                if (c >= 0 && out < 512) channels[out++] = (uint8_t)((b2 << 4) | (c >> 2));
-                if (d >= 0 && out < 512) channels[out++] = (uint8_t)((c << 6) | d);
+                if (out < 512) channels[static_cast<size_t>(out++)] = (uint8_t)((a << 2) | (b2 >> 4));
+                if (c >= 0 && out < 512) channels[static_cast<size_t>(out++)] = (uint8_t)((b2 << 4) | (c >> 2));
+                if (d >= 0 && out < 512) channels[static_cast<size_t>(out++)] = (uint8_t)((c << 6) | d);
             }
             console->restoreChannels (channels);
+            // Also restore blackout
+            auto blackoutVar = parsed["blackout"];
+            if (! blackoutVar.isVoid() && ! blackoutVar.isUndefined())
+                console->restoreBlackout ((bool) blackoutVar);
         }
         catch (...) {}
     }
@@ -396,6 +401,108 @@ public:
             if (node->id == nodeId)
                 if (auto* dyn = dynamic_cast<DynamicPaxProcessor*> (node.get()))
                     { dyn->setParameter (index, value); break; }
+    }
+
+    // ── ArtNet Console channel save/restore (mirrors DMX Console pattern) ────
+
+    void saveArtNetConsoleChannels (const juce::String& nodeId)
+    {
+        auto* console = processingGraph.findArtNetConsoleNode (nodeId);
+        if (console == nullptr && pendingGraph != nullptr)
+            console = pendingGraph->findArtNetConsoleNode (nodeId);
+        if (console == nullptr) return;
+
+        auto channels = console->getAllChannels();
+
+        if (auto* node = graphModel.findNode (nodeId))
+        {
+            juce::var existing;
+            try { existing = juce::JSON::parse (node->settingsJson); } catch (...) {}
+            if (existing.getDynamicObject() == nullptr)
+                existing = new juce::DynamicObject();
+            auto* obj = existing.getDynamicObject();
+
+            static const char* kB64 =
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            juce::String b64;
+            b64.preallocateBytes (688);
+            for (int i = 0; i < 512; i += 3)
+            {
+                uint32_t n  = (uint32_t) channels[static_cast<size_t>(i)] << 16;
+                if (i + 1 < 512) n |= (uint32_t) channels[static_cast<size_t>(i + 1)] << 8;
+                if (i + 2 < 512) n |= (uint32_t) channels[static_cast<size_t>(i + 2)];
+                b64 += kB64[(n >> 18) & 0x3F];
+                b64 += kB64[(n >> 12) & 0x3F];
+                b64 += (i + 1 < 512) ? kB64[(n >> 6) & 0x3F] : '=';
+                b64 += (i + 2 < 512) ? kB64[(n >> 0) & 0x3F] : '=';
+            }
+            obj->setProperty ("artNetChannels", b64);
+            node->settingsJson = juce::JSON::toString (existing, true);
+        }
+    }
+
+    void restoreArtNetConsoleChannels (const juce::String& nodeId, const juce::String& settingsJson)
+    {
+        restoreArtNetConsoleChannels (nodeId, settingsJson, nullptr);
+    }
+
+    void restoreArtNetConsoleChannels (const juce::String& nodeId, const juce::String& settingsJson,
+                                       ProcessingGraph* graph)
+    {
+        ArtNetConsoleNode* console = nullptr;
+        if (graph != nullptr)
+            console = graph->findArtNetConsoleNode (nodeId);
+        if (console == nullptr)
+            console = processingGraph.findArtNetConsoleNode (nodeId);
+        if (console == nullptr && pendingGraph != nullptr)
+            console = pendingGraph->findArtNetConsoleNode (nodeId);
+        if (console == nullptr) return;
+
+        try
+        {
+            auto parsed = juce::JSON::parse (settingsJson);
+            juce::String b64 = parsed["artNetChannels"].toString();
+            if (b64.isEmpty()) return;
+
+            static const int8_t kDec[256] = {
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,62,-1,-1,-1,63,
+                52,53,54,55,56,57,58,59,60,61,-1,-1,-1,-1,-1,-1,
+                -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,
+                15,16,17,18,19,20,21,22,23,24,25,-1,-1,-1,-1,-1,
+                -1,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,
+                41,42,43,44,45,46,47,48,49,50,51,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+                -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1
+            };
+            std::array<uint8_t, 512> channels {};
+            int out = 0;
+            for (int i = 0; i + 3 < b64.length() && out < 512; i += 4)
+            {
+                int a = kDec[(uint8_t)b64[i]],  b2 = kDec[(uint8_t)b64[i+1]];
+                int c = kDec[(uint8_t)b64[i+2]], d = kDec[(uint8_t)b64[i+3]];
+                if (a < 0 || b2 < 0) break;
+                if (out < 512) channels[static_cast<size_t>(out++)] = (uint8_t)((a << 2) | (b2 >> 4));
+                if (c >= 0 && out < 512) channels[static_cast<size_t>(out++)] = (uint8_t)((b2 << 4) | (c >> 2));
+                if (d >= 0 && out < 512) channels[static_cast<size_t>(out++)] = (uint8_t)((c << 6) | d);
+            }
+            console->restoreChannels (channels);
+
+            // Also restore universe and blackout
+            int uni = (int) parsed["universe"];
+            console->setUniverse (uni);
+            auto blackoutVar = parsed["blackout"];
+            if (! blackoutVar.isVoid() && ! blackoutVar.isUndefined())
+                console->restoreBlackout ((bool) blackoutVar);
+        }
+        catch (...) {}
     }
 
     void newGraph()
@@ -635,6 +742,32 @@ public:
     }
 
     /** Called by WebBridge 30fps timer — drains DMX monitor + console snapshots. */
+    std::vector<ArtNetSnapshot> drainAllArtNetSnapshots()
+    {
+        std::vector<ArtNetSnapshot> result;
+        for (auto& [nodeId, buf] : artNetMonitorBuffers)
+        {
+            ArtNetSnapshot snap;
+            snap.nodeId = nodeId;
+            if (buf->drain (snap.channels, snap.universe))
+            {
+                snap.hasData = true;
+                result.push_back (std::move (snap));
+            }
+        }
+        for (auto& [nodeId, buf] : artNetConsoleBuffers)
+        {
+            ArtNetSnapshot snap;
+            snap.nodeId = nodeId;
+            if (buf->drain (snap.channels, snap.universe))
+            {
+                snap.hasData = true;
+                result.push_back (std::move (snap));
+            }
+        }
+        return result;
+    }
+
     std::vector<DmxSnapshot> drainAllDmxSnapshots()
     {
         std::vector<DmxSnapshot> result;
@@ -680,8 +813,10 @@ public:
     MidiMonitorBuffer*  getOrCreateMidiMonitorBuffer     (const juce::String& id) { return getOrCreateBuffer (monitorBuffers,          id); }
     MidiMonitorBuffer*  getOrCreateKeyboardMonitorBuffer (const juce::String& id) { return getOrCreateBuffer (keyboardMonitorBuffers,  id); }
     AudioMonitorBuffer* getOrCreateAudioMonitorBuffer    (const juce::String& id) { return getOrCreateBuffer (audioMonitorBuffers,     id); }
-    DmxMonitorBuffer*   getOrCreateDmxMonitorBuffer      (const juce::String& id) { return getOrCreateBuffer (dmxMonitorBuffers,       id); }
-    DmxMonitorBuffer*   getOrCreateDmxConsoleBuffer      (const juce::String& id) { return getOrCreateBuffer (dmxConsoleBuffers,       id); }
+    DmxMonitorBuffer*      getOrCreateDmxMonitorBuffer      (const juce::String& id) { return getOrCreateBuffer (dmxMonitorBuffers,       id); }
+    DmxMonitorBuffer*      getOrCreateDmxConsoleBuffer      (const juce::String& id) { return getOrCreateBuffer (dmxConsoleBuffers,       id); }
+    ArtNetMonitorBuffer*   getOrCreateArtNetMonitorBuffer   (const juce::String& id) { return getOrCreateBuffer (artNetMonitorBuffers,    id); }
+    ArtNetMonitorBuffer*   getOrCreateArtNetConsoleBuffer   (const juce::String& id) { return getOrCreateBuffer (artNetConsoleBuffers,    id); }
 
     void removeMonitorBuffer (const juce::String& nodeId)
     {
@@ -712,8 +847,10 @@ private:
     std::unordered_map<juce::String, std::unique_ptr<MidiMonitorBuffer>>  monitorBuffers;
     std::unordered_map<juce::String, std::unique_ptr<MidiMonitorBuffer>>  keyboardMonitorBuffers;
     std::unordered_map<juce::String, std::unique_ptr<AudioMonitorBuffer>> audioMonitorBuffers;
-    std::unordered_map<juce::String, std::unique_ptr<DmxMonitorBuffer>>   dmxMonitorBuffers;
-    std::unordered_map<juce::String, std::unique_ptr<DmxMonitorBuffer>>   dmxConsoleBuffers;
+    std::unordered_map<juce::String, std::unique_ptr<DmxMonitorBuffer>>      dmxMonitorBuffers;
+    std::unordered_map<juce::String, std::unique_ptr<DmxMonitorBuffer>>      dmxConsoleBuffers;
+    std::unordered_map<juce::String, std::unique_ptr<ArtNetMonitorBuffer>>   artNetMonitorBuffers;
+    std::unordered_map<juce::String, std::unique_ptr<ArtNetMonitorBuffer>>   artNetConsoleBuffers;
     bool audioSnapshotBusy = false;
 
     // Pending graph to swap in at the start of the next processBlock

@@ -50,8 +50,8 @@ void AudioDeviceManager::applyChannelsToGraph (const juce::String& nodeId,
 {
     if (auto* n = graph.findAudioOutNode (nodeId))
         n->setSelectedChannels (channels);
-    else if (auto* n = graph.findAudioInNode (nodeId))
-        n->setSelectedChannels (channels);
+    else if (auto* nIn = graph.findAudioInNode (nodeId))
+        nIn->setSelectedChannels (channels);
 }
 
 void AudioDeviceManager::applyAllChannelSelections (ProcessingGraph& graph)

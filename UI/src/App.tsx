@@ -28,6 +28,8 @@ import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
 import MidiKeyboardNode,  { MidiKeyboardNodeData }  from './MidiKeyboardNode';
 import { DmxMonitorNode, DmxMonitorNodeData } from './DmxMonitorNode';
 import { DmxConsoleNode } from './DmxConsoleNode';
+import { ArtNetMonitorNode } from './ArtNetMonitorNode';
+import { ArtNetConsoleNode } from './ArtNetConsoleNode';
 import PreferencesPanel, { GraphPreferences, loadPrefs, savePrefs } from './PreferencesPanel';
 import { HintProvider, HintContext, BUTTON_HINTS, PORT_HINTS, EDGE_HINTS } from './HintPanel';
 import { Menu, ChevronsDownUp, ChevronsUpDown, Settings, ChevronLeft } from 'lucide-react';
@@ -36,25 +38,29 @@ import SpectrumyserNode from './SpectrumyserNode';
 import EnvelopeNode     from './EnvelopeNode';
 
 // ── Node type registry ────────────────────────────────────────────────────────
-const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode };
+const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 // Module-level Pax params map — populated when Pax list arrives
 const _paxParamsMap = new Map<string, PaxParamInfo[]>();
 
 function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>): Node<NodeData | MidiMonitorNodeData | DmxMonitorNodeData> {
-  const isMidiMonitor  = raw.nodeType === 5;
-  const isAudioMonitor = raw.nodeType === 6;
-  const isMidiKeyboard = raw.nodeType === 7;
-  const isDmxMonitor   = raw.nodeType === 16;
-  const isDmxConsole   = raw.nodeType === 17;
+  const isMidiMonitor    = raw.nodeType === 5;
+  const isAudioMonitor   = raw.nodeType === 6;
+  const isMidiKeyboard   = raw.nodeType === 7;
+  const isDmxMonitor     = raw.nodeType === 16;
+  const isDmxConsole     = raw.nodeType === 17;
+  const isArtNetMonitor  = raw.nodeType === 18;
+  const isArtNetConsole  = raw.nodeType === 19;
   return {
     id:       raw.id,
-    type:     isMidiMonitor  ? 'midiMonitor'
-            : isAudioMonitor ? 'audioMonitor'
-            : isMidiKeyboard ? 'midiKeyboard'
-            : isDmxMonitor   ? 'dmxMonitor'
-            : isDmxConsole   ? 'dmxConsole'
+    type:     isMidiMonitor    ? 'midiMonitor'
+            : isAudioMonitor   ? 'audioMonitor'
+            : isMidiKeyboard   ? 'midiKeyboard'
+            : isDmxMonitor     ? 'dmxMonitor'
+            : isDmxConsole     ? 'dmxConsole'
+            : isArtNetMonitor  ? 'artNetMonitor'
+            : isArtNetConsole  ? 'artNetConsole'
             : raw.paxName === 'Spectrumyser' ? 'spectrumyser'
             : raw.paxName === 'Envelope'     ? 'envelope' : 'custom',
     position: { x: raw.x, y: raw.y },
@@ -68,6 +74,10 @@ function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>)
       ? { label: raw.label, nodeType: 16, ports: raw.ports, settingsJson: raw.settingsJson } as DmxMonitorNodeData
       : isDmxConsole
       ? { label: raw.label, nodeType: 17, ports: raw.ports, settingsJson: raw.settingsJson } as DmxMonitorNodeData
+      : isArtNetMonitor
+      ? { label: raw.label, nodeType: 18, ports: raw.ports, settingsJson: raw.settingsJson } as DmxMonitorNodeData
+      : isArtNetConsole
+      ? { label: raw.label, nodeType: 19, ports: raw.ports, settingsJson: raw.settingsJson } as DmxMonitorNodeData
       : { label: raw.label, nodeType: raw.nodeType,
           ports: raw.ports, selectedDeviceId: raw.selectedDeviceId,
           paxName: raw.paxName,
@@ -159,7 +169,7 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
             udpTimers.current.set(entry.id, now + 80);
           } else if (nodeType === 10 || nodeType === 11) {
             oscTimers.current.set(entry.id, now + 80);
-          } else if (nodeType === 12 || nodeType === 13) {
+          } else if (nodeType === 12 || nodeType === 13 || nodeType === 18 || nodeType === 19) {
             artNetTimers.current.set(entry.id, now + 80);
           } else if (nodeType === 14 || nodeType === 15 || nodeType === 16 || nodeType === 17) {
             dmxTimers.current.set(entry.id, now + 80);

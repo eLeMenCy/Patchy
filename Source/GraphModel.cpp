@@ -104,6 +104,17 @@ std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
         // DmxConsoleNode: DMX Out only — Console is a source, not a processor
         mk ("DMX Out", PortType::DMX, PortDirection::Output);
     }
+    else if (t == 18)
+    {
+        // ArtNetMonitorNode: ArtDMX In + ArtDMX Out (pass-through, display only)
+        mk ("ArtDMX In",  PortType::DMX, PortDirection::Input);
+        mk ("ArtDMX Out", PortType::DMX, PortDirection::Output);
+    }
+    else if (t == 19)
+    {
+        // ArtNetConsoleNode: ArtDMX Out only — Console is a source, not a processor
+        mk ("ArtDMX Out", PortType::DMX, PortDirection::Output);
+    }
     else if (t >= 100)
     {
         // Dynamic addon node — ports based on NGA nodeType (t - 100)
@@ -155,6 +166,8 @@ static juce::String labelForType (int t, const juce::String& paxName)
         case 15: return "DMX Out";
         case 16: return "DMX Monitor";
         case 17: return "DMX Console";
+        case 18: return "ArtNet Monitor";
+        case 19: return "ArtNet Console";
         default: return "Addon Node";
     }
 }
@@ -275,13 +288,14 @@ juce::var GraphModel::toVar() const
             po->setProperty ("label",     p.label);
             po->setProperty ("type", [&]() -> juce::String {
                 switch (p.type) {
+                    case PortType::Midi:  return "midi";
                     case PortType::Audio: return "audio";
                     case PortType::OSC:   return "osc";
                     case PortType::DMX:   return "dmx";
                     case PortType::MQTT:  return "mqtt";
                     case PortType::UDP:   return "udp";
                     case PortType::Value: return "value";
-                    default:              return "midi";
+                    default:              return "unknown";
                 }
             }());
             po->setProperty ("direction", p.direction == PortDirection::Input ? "input" : "output");
@@ -493,9 +507,6 @@ void GraphModel::restoreSnapshot (const juce::var& snapshot)
                 cObj->getProperty ("targetPortId").toString());
         }
     }
-
-    // Notify processor to resync device managers from restored model
-    for (const auto& n : nodes)
 
     // Update device manager selections BEFORE rebuild so applyDeviceSelections
     // inside rebuildProcessingGraph picks up the correct restored values.

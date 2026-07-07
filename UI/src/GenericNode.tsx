@@ -39,6 +39,8 @@ const THEME: Record<number, { accent: string; dim: string; glow: string; tag: st
   15: { accent: 'var(--dmx)',    dim: 'var(--dmx-dim)',    glow: 'var(--dmx-glow)',    tag: 'DMX OUT DEVICE'    },
   16: { accent: 'var(--dmx)',    dim: 'var(--dmx-dim)',    glow: 'var(--dmx-glow)',    tag: 'DMX MONITOR'       },
   17: { accent: 'var(--dmx)',    dim: 'var(--dmx-dim)',    glow: 'var(--dmx-glow)',    tag: 'DMX CONSOLE'       },
+  18: { accent: 'var(--artnet)', dim: 'var(--artnet-dim)', glow: 'var(--artnet-glow)', tag: 'ARTNET MONITOR'    },
+  19: { accent: 'var(--artnet)', dim: 'var(--artnet-dim)', glow: 'var(--artnet-glow)', tag: 'ARTNET CONSOLE'    },
 };
 // Default theme for Pax nodes
 const PAX_THEME = { accent: 'var(--av)', dim: 'var(--av-dim)', glow: 'var(--av-glow)', tag: 'PAX' };

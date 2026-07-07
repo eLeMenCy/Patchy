@@ -8,7 +8,7 @@
 
 #include "MidiMonitorNode.h"
 #include "AudioMonitorNode.h"
-#include "DmxConsoleNode.h"
+#include "ArtNetConsoleNode.h"
 
 /**
  * WebBridge
@@ -115,6 +115,15 @@ public:
     std::function<void(const juce::String&, const juce::String&)>                                onRestoreDmxConsoleChannels;
     std::function<void(const juce::String&)>                                                     onResetDmxConsoleChannels;
 
+    // ArtNet Console callbacks (mirrors DMX Console pattern)
+    std::function<std::vector<ArtNetSnapshot>()>                                                 drainArtNetSnapshots;
+    std::function<void(const juce::String&, int, uint8_t)>                                       onSetArtNetConsoleChannel;
+    std::function<void(const juce::String&, bool)>                                               onSetArtNetBlackout;
+    std::function<void(const juce::String&, bool)>                                               onRestoreArtNetBlackout;
+    std::function<void(const juce::String&, const juce::String&)>                                onRestoreArtNetConsoleChannels;
+    std::function<void(const juce::String&)>                                                     onResetArtNetConsoleChannels;
+    std::function<void(const juce::String&, int)>                                                onSetArtNetUniverseFilter;
+
 private:
     // ── Resource provider (release) ───────────────────────────────────────
     std::optional<juce::WebBrowserComponent::Resource>
@@ -164,6 +173,7 @@ private:
     void pushSpectrumSnapshots();
     void pushPortActivity();
     void pushDmxSnapshots();
+    void pushArtNetSnapshots();
 
     void pushPaxList();
 

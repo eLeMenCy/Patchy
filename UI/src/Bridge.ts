@@ -232,6 +232,14 @@ function _dispatchDmxSnapshots(snaps: DmxSnapshotEntry[]) {
   _dmxSnapshotSubscribers.forEach(cb => cb(snaps));
 }
 
+export interface ArtNetSnapshotEntry {
+  id:       string;    // nodeId
+  ch:       number[];  // 512 channel values (0-255)
+  universe: number;    // universe number
+}
+type ArtNetSnapshotCallback = (snaps: ArtNetSnapshotEntry[]) => void;
+const _artNetSnapshotSubscribers: ArtNetSnapshotCallback[] = [];
+
 function _dispatchClaimed() {
   const snapshot = new Map(_claimedDevices);
   _claimedSubscribers.forEach(cb => cb(snapshot));
@@ -329,7 +337,6 @@ function _dispatchClaimed() {
           (window as any).__dmxSnapshots[s.id] = new Uint8Array(s.ch);
         }
       }
-      // Also dispatch for Console fader sync (needs React state)
       const snaps: DmxSnapshotEntry[] = raw.map(s => ({
         id: s.id,
         ch: s.b64
@@ -339,6 +346,29 @@ function _dispatchClaimed() {
       _dispatchDmxSnapshots(snaps);
     } catch (e) {
       console.error('Bridge dmxSnapshot parse error', e);
+    }
+  },
+
+  onArtNetSnapshot: (json: string) => {
+    try {
+      const raw = JSON.parse(json) as { id: string; b64?: string; universe: number }[];
+      (window as any).__artNetSnapshots = (window as any).__artNetSnapshots ?? {};
+      for (const s of raw) {
+        if (s.b64) {
+          const bin = atob(s.b64);
+          const ch  = new Uint8Array(512);
+          for (let i = 0; i < 512; i++) ch[i] = bin.charCodeAt(i);
+          (window as any).__artNetSnapshots[s.id] = ch;
+        }
+      }
+      const snaps: ArtNetSnapshotEntry[] = raw.map(s => ({
+        id:       s.id,
+        ch:       Array.from((window as any).__artNetSnapshots[s.id] as Uint8Array ?? new Uint8Array(512)),
+        universe: s.universe,
+      }));
+      _artNetSnapshotSubscribers.forEach(cb => cb(snaps));
+    } catch (e) {
+      console.error('Bridge artNetSnapshot parse error', e);
     }
   },
   onSpectrumSnapshots: (json: string) => {
@@ -576,6 +606,14 @@ export const Bridge = {
       if (idx !== -1) _dmxSnapshotSubscribers.splice(idx, 1);
     };
   },
+
+  onArtNetSnapshot(cb: ArtNetSnapshotCallback) {
+    _artNetSnapshotSubscribers.push(cb);
+    return () => {
+      const idx = _artNetSnapshotSubscribers.indexOf(cb);
+      if (idx !== -1) _artNetSnapshotSubscribers.splice(idx, 1);
+    };
+  },
   listSerialPorts() {
     sendToJuce({ type: 'listSerialPorts' });
   },
@@ -661,6 +699,20 @@ export const Bridge = {
   setDmxBlackout(nodeId: string, active: boolean) {
     sendToJuce({
       type: 'setNodeParam', nodeId, key: 'dmxBlackout',
+      value: String(active),
+    });
+  },
+
+  setArtNetConsoleChannel(nodeId: string, channel: number, value: number) {
+    sendToJuce({
+      type: 'setNodeParam', nodeId, key: 'artNetConsoleChannel',
+      value: JSON.stringify({ channel, value }),
+    });
+  },
+
+  setArtNetBlackout(nodeId: string, active: boolean) {
+    sendToJuce({
+      type: 'setNodeParam', nodeId, key: 'artNetBlackout',
       value: String(active),
     });
   },

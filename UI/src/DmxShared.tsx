@@ -5,7 +5,7 @@ import { SettingsPanelHeader } from './NodeUtils';
 // ── Types ─────────────────────────────────────────────────────────────────────
 export interface DmxMonitorNodeData {
   label:    string;
-  nodeType: 16 | 17;
+  nodeType: 16 | 17 | 18 | 19;
   ports:    { id: string; label: string; type: string; direction: 'input' | 'output' }[];
   settingsJson?: string;
   [key: string]: unknown;

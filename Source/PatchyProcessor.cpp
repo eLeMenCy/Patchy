@@ -68,7 +68,9 @@ void PatchyProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
                              [this](const juce::String& nid) { return getOrCreateAudioMonitorBuffer(nid); },
                              [this](const juce::String& nid) { return getOrCreateKeyboardMonitorBuffer(nid); },
                              [this](const juce::String& nid) { return getOrCreateDmxMonitorBuffer(nid); },
-                             [this](const juce::String& nid) { return getOrCreateDmxConsoleBuffer(nid); });
+                             [this](const juce::String& nid) { return getOrCreateDmxConsoleBuffer(nid); },
+                             [this](const juce::String& nid) { return getOrCreateArtNetMonitorBuffer(nid); },
+                             [this](const juce::String& nid) { return getOrCreateArtNetConsoleBuffer(nid); });
     processingGraph.isStandaloneMode = isStandalone;
     processingGraph.graphModel        = &graphModel;
     processingGraph.prepare (sampleRate, samplesPerBlock);
@@ -156,7 +158,9 @@ void PatchyProcessor::rebuildProcessingGraph()
                        [this](const juce::String& nid) { return getOrCreateAudioMonitorBuffer(nid); },
                        [this](const juce::String& nid) { return getOrCreateKeyboardMonitorBuffer(nid); },
                        [this](const juce::String& nid) { return getOrCreateDmxMonitorBuffer(nid); },
-                       [this](const juce::String& nid) { return getOrCreateDmxConsoleBuffer(nid); });
+                       [this](const juce::String& nid) { return getOrCreateDmxConsoleBuffer(nid); },
+                       [this](const juce::String& nid) { return getOrCreateArtNetMonitorBuffer(nid); },
+                       [this](const juce::String& nid) { return getOrCreateArtNetConsoleBuffer(nid); });
 
     // Transfer existing open audio device connections to the new graph nodes
     // rather than closing and reopening — this avoids the ~1 second audio gap.
@@ -168,7 +172,7 @@ void PatchyProcessor::rebuildProcessingGraph()
     // updated before rebuildProcessingGraph runs, so we always apply the
     // right selections including empty ones (which trigger closeDevice).
     bool selectionsChanged = false;
-    struct ChannelRestore { juce::String nodeId, settingsJson; };
+    struct ChannelRestore { juce::String nodeId, settingsJson; int nodeType = 17; };
     std::vector<ChannelRestore> channelRestores;
     for (const auto& n : graphModel.getNodes())
     {
@@ -279,7 +283,13 @@ void PatchyProcessor::rebuildProcessingGraph()
         {
             // Restore DMX Console channel values from settingsJson (undo/redo safe)
             if (n.settingsJson.isNotEmpty() && n.settingsJson.contains ("dmxChannels"))
-                channelRestores.push_back ({ n.id, n.settingsJson });
+                channelRestores.push_back ({ n.id, n.settingsJson, 17 });
+        }
+        else if (n.nodeType == 19)
+        {
+            // Restore ArtNet Console channel values from settingsJson (undo/redo safe)
+            if (n.settingsJson.isNotEmpty() && n.settingsJson.contains ("artNetChannels"))
+                channelRestores.push_back ({ n.id, n.settingsJson, 19 });
         }
     }
 
@@ -297,21 +307,48 @@ void PatchyProcessor::rebuildProcessingGraph()
     artNetDeviceManager.applyAllSettings         (*newGraph);
     dmxDeviceManager.applyAllSettings            (*newGraph);
 
-    // Transfer lastSent from most recent graph to ALL DMX Console nodes in new graph
-    // so restoreChannels/resetChannels can detect real changes (flash only when values differ)
+    // Transfer lastSent from most recent graph to ALL DMX/ArtNet Console nodes
     for (const auto& n : graphModel.getNodes())
     {
-        if (n.nodeType != 17) continue;
-        auto* oldNode = pendingGraph ? pendingGraph->findDmxConsoleNode (n.id)
-                                     : processingGraph.findDmxConsoleNode (n.id);
-        if (!oldNode) oldNode = processingGraph.findDmxConsoleNode (n.id);
-        if (auto* newNode = newGraph->findDmxConsoleNode (n.id))
-            if (oldNode) newNode->transferLastSent (oldNode->getLastSent());
+        if (n.nodeType == 17)
+        {
+            auto* oldNode = pendingGraph ? pendingGraph->findDmxConsoleNode (n.id)
+                                         : processingGraph.findDmxConsoleNode (n.id);
+            if (!oldNode) oldNode = processingGraph.findDmxConsoleNode (n.id);
+            if (auto* newNode = newGraph->findDmxConsoleNode (n.id))
+                if (oldNode)
+                {
+                    newNode->transferLastSent (oldNode->getLastSent());
+                    // Read blackout from settingsJson (always up to date) not from node atomic
+                    bool bo = false;
+                    try { bo = (bool) juce::JSON::parse (n.settingsJson)["blackout"]; } catch (...) {}
+                    newNode->transferBlackout (bo);
+                }
+        }
+        else if (n.nodeType == 19)
+        {
+            auto* oldNode = pendingGraph ? pendingGraph->findArtNetConsoleNode (n.id)
+                                         : processingGraph.findArtNetConsoleNode (n.id);
+            if (!oldNode) oldNode = processingGraph.findArtNetConsoleNode (n.id);
+            if (auto* newNode = newGraph->findArtNetConsoleNode (n.id))
+                if (oldNode)
+                {
+                    newNode->transferLastSent (oldNode->getLastSent());
+                    bool bo = false;
+                    try { bo = (bool) juce::JSON::parse (n.settingsJson)["blackout"]; } catch (...) {}
+                    newNode->transferBlackout (bo);
+                }
+        }
     }
 
-    // Restore DMX Console channel values AFTER rebuild
+    // Restore Console channel values AFTER rebuild
     for (const auto& r : channelRestores)
-        restoreDmxConsoleChannels (r.nodeId, r.settingsJson, newGraph.get());
+    {
+        if (r.nodeType == 17)
+            restoreDmxConsoleChannels (r.nodeId, r.settingsJson, newGraph.get());
+        else if (r.nodeType == 19)
+            restoreArtNetConsoleChannels (r.nodeId, r.settingsJson, newGraph.get());
+    }
 
     pendingGraph = std::move (newGraph);
     graphPending.store (true);

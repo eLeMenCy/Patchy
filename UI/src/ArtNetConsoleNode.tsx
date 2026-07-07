@@ -1,19 +1,32 @@
 import { memo, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { NodeProps } from '@xyflow/react';
-import { Bridge, DmxSnapshotEntry } from './Bridge';
+import { Bridge, ArtNetSnapshotEntry } from './Bridge';
 import { useNodeSettings, useNodeDelete, useNodeCollapsed,
-         NodeHeader, NodeHeaderButton, NodeHandle } from './NodeUtils';
+         NodeHeader, NodeHeaderButton, NodeHandle, SettingsPanelHeader } from './NodeUtils';
+import { NodeSelect } from './NodeSelect';
 import { HintContext } from './HintPanel';
 import {
   DmxMonitorNodeData, DmxNodeSettings, DEFAULT_SETTINGS,
-  ACCENT, CHANNELS, COL_W,
-  navBtnStyle, DmxFader, DmxSettingsPanel,
+  CHANNELS, COL_W,
+  navBtnStyle, DmxFader, NameInput,
 } from './DmxShared';
+
+const ACCENT = 'var(--artnet)';
 
 export type { DmxMonitorNodeData };
 
-// ── DMX Console (nodeType 17) ─────────────────────────────────────────────────
-export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected }: NodeProps) {
+// ArtNet Console settings — same as DMX Console + universe
+interface ArtNetConsoleSettings extends DmxNodeSettings {
+  universe: number;
+}
+
+const DEFAULT_ARTNET_CONSOLE_SETTINGS: ArtNetConsoleSettings = {
+  ...DEFAULT_SETTINGS,
+  universe: 0,
+};
+
+// ── ArtNet Console (nodeType 19) ──────────────────────────────────────────────
+export const ArtNetConsoleNode = memo(function ArtNetConsoleNode ({ id, data, selected }: NodeProps) {
   const nodeData = data as DmxMonitorNodeData;
   const { setHint }                              = useContext(HintContext);
   const { showSettings, toggleSettings, closeSettings } = useNodeSettings(id);
@@ -24,18 +37,18 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
   const channelsRef                              = useRef<number[]>(new Array(512).fill(0));
   const portBodyRef                              = useRef<HTMLDivElement>(null);
 
-  const [settings, setSettings] = useState<DmxNodeSettings>(() => ({
-    ...DEFAULT_SETTINGS,
-    ...(nodeData.settingsJson ? JSON.parse(nodeData.settingsJson as string) as Partial<DmxNodeSettings> : {}),
+  const [settings, setSettings] = useState<ArtNetConsoleSettings>(() => ({
+    ...DEFAULT_ARTNET_CONSOLE_SETTINGS,
+    ...(nodeData.settingsJson ? JSON.parse(nodeData.settingsJson as string) as Partial<ArtNetConsoleSettings> : {}),
   }));
   const settingsRef = useRef(settings);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
 
-  const patchSettings = useCallback((patch: Partial<DmxNodeSettings>) => {
+  const patchSettings = useCallback((patch: Partial<ArtNetConsoleSettings>) => {
     setSettings(prev => ({ ...prev, ...patch }));
   }, []);
 
-  const commitPatch = useCallback((patch: Partial<DmxNodeSettings>) => {
+  const commitPatch = useCallback((patch: Partial<ArtNetConsoleSettings>) => {
     setSettings(prev => {
       const next = { ...prev, ...patch };
       const merged = { ...fullSettingsRef.current, ...next };
@@ -58,6 +71,7 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
         ...(parsed.startChannel !== undefined && { startChannel: parsed.startChannel }),
         ...(parsed.valueFormat  !== undefined && { valueFormat:  parsed.valueFormat  }),
         ...(parsed.customName   !== undefined && { customName:   parsed.customName   }),
+        ...(parsed.universe     !== undefined && { universe:     parsed.universe     }),
       }));
     } catch {}
   }, [nodeData.settingsJson]);
@@ -71,12 +85,12 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
       if (typeof parsed.blackout === 'boolean') {
         setBlackoutState(parsed.blackout);
       }
-      const b64: string | undefined = parsed?.dmxChannels;
+      const b64: string | undefined = parsed?.artNetChannels;
       if (!b64) {
         channelsRef.current = new Array<number>(512).fill(0);
         setChannels(new Array<number>(512).fill(0));
-        (window as any).__dmxSnapshots = (window as any).__dmxSnapshots ?? {};
-        (window as any).__dmxSnapshots[id] = new Uint8Array(512);
+        (window as any).__artNetSnapshots = (window as any).__artNetSnapshots ?? {};
+        (window as any).__artNetSnapshots[id] = new Uint8Array(512);
         return;
       }
       const isBlank = channelsRef.current.every(v => v === 0);
@@ -86,13 +100,14 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
       for (let i = 0; i < Math.min(512, bin.length); i++) ch[i] = bin.charCodeAt(i);
       channelsRef.current = ch;
       setChannels([...ch]);
-      (window as any).__dmxSnapshots = (window as any).__dmxSnapshots ?? {};
-      (window as any).__dmxSnapshots[id] = new Uint8Array(ch);
+      (window as any).__artNetSnapshots = (window as any).__artNetSnapshots ?? {};
+      (window as any).__artNetSnapshots[id] = new Uint8Array(ch);
     } catch {}
   }, [id, nodeData.settingsJson]);
 
+  // Subscribe to ArtNet snapshots for fader sync
   useEffect(() => {
-    const unsub = Bridge.onDmxSnapshot((snaps: DmxSnapshotEntry[]) => {
+    const unsub = Bridge.onArtNetSnapshot((snaps: ArtNetSnapshotEntry[]) => {
       const snap = snaps.find(s => s.id === id);
       if (!snap) return;
       const { startChannel, visibleCount } = settingsRef.current;
@@ -106,19 +121,19 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
     return unsub;
   }, [id]);
 
-  // fullSettingsRef: always holds latest merged settingsJson, initialized eagerly
+  // fullSettingsRef: always holds latest merged settingsJson
   const fullSettingsRef = useRef<Record<string, unknown>>((() => {
     try {
       const base = nodeData.settingsJson ? JSON.parse(nodeData.settingsJson as string) : {};
-      return { ...DEFAULT_SETTINGS, ...base };
-    } catch { return { ...(DEFAULT_SETTINGS as unknown as Record<string, unknown>) }; }
+      return { ...DEFAULT_ARTNET_CONSOLE_SETTINGS, ...base };
+    } catch { return { ...(DEFAULT_ARTNET_CONSOLE_SETTINGS as unknown as Record<string, unknown>) }; }
   })());
   useEffect(() => {
     try {
       const base = nodeData.settingsJson ? JSON.parse(nodeData.settingsJson as string) : {};
-      fullSettingsRef.current = { ...DEFAULT_SETTINGS, ...base, ...settings, blackout };
+      fullSettingsRef.current = { ...DEFAULT_ARTNET_CONSOLE_SETTINGS, ...base, ...settings, blackout };
     } catch {}
-  }, [nodeData.settingsJson, settings, blackout]);
+  }, [nodeData.settingsJson, settings]);
 
   const handleChange = useCallback((ch: number, val: number) => {
     const next = [...channelsRef.current];
@@ -137,10 +152,10 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
            + (i+1 < 512 ? chars[(n >> 6) & 63] : '=')
            + (i+2 < 512 ? chars[n & 63] : '=');
     }
-    const merged = { ...fullSettingsRef.current, dmxChannels: b64 };
+    const merged = { ...fullSettingsRef.current, artNetChannels: b64 };
     fullSettingsRef.current = merged;
     Bridge.setNodeSettings(id, merged);
-    Bridge.setDmxConsoleChannel(id, ch, val);
+    Bridge.setArtNetConsoleChannel(id, ch, val);
   }, [id]);
 
   const handleCommit = useCallback(() => {
@@ -150,11 +165,11 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
   const handleBlackout = useCallback(() => {
     const next = !blackout;
     setBlackoutState(next);
-    Bridge.setDmxBlackout(id, next);
+    Bridge.setArtNetBlackout(id, next);
     commitPatch({ blackout: next });
   }, [id, blackout, commitPatch]);
 
-  const { visibleCount, startChannel, valueFormat } = settings;
+  const { visibleCount, startChannel, valueFormat, universe } = settings;
   const visibleChannels = channels.slice(startChannel, startChannel + visibleCount);
   const nodeW = visibleCount * COL_W + 16;
 
@@ -167,10 +182,10 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
       border: `1px solid ${selected ? ACCENT : 'var(--border)'}`,
       borderTop: `3px solid ${ACCENT}`,
       borderRadius: 'var(--radius)',
-      boxShadow: selected ? `0 0 0 1px ${ACCENT}, 0 8px 32px var(--dmx-glow)` : '0 4px 16px rgba(0,0,0,.5)',
+      boxShadow: selected ? `0 0 0 1px ${ACCENT}, 0 8px 32px var(--artnet-glow)` : '0 4px 16px rgba(0,0,0,.5)',
       minWidth: nodeW, fontFamily: "'JetBrains Mono', monospace", position: 'relative',
     }}>
-      <NodeHeader title={settings.customName || 'DMX CONSOLE'} accent={ACCENT}
+      <NodeHeader title={settings.customName || 'ARTNET CONSOLE'} accent={ACCENT}
         showSettings={showSettings} onToggleSettings={toggleSettings}
         onDelete={handleDelete} collapsed={collapsed} onToggleCollapsed={toggleCollapsed}>
         <NodeHeaderButton
@@ -178,16 +193,19 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
           active={blackout}
           activeAccent="#ef5350"
           onHint={{
-            onMouseEnter: () => setHint({ title: 'Blackout', body: 'Set all DMX channels to 0. Click again to restore.' }),
+            onMouseEnter: () => setHint({ title: 'Blackout', body: 'Set all ArtNet channels to 0. Click again to restore.' }),
             onMouseLeave: () => setHint(null),
           }}>
           <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.05em' }}>BO</span>
         </NodeHeaderButton>
       </NodeHeader>
       {showSettings && (
-        <DmxSettingsPanel settings={settings} isConsole={true}
-          onChange={patchSettings} onCommit={commitPatch}
-          onClose={closeSettings} />
+        <ArtNetConsoleSettingsPanel
+          settings={settings}
+          onChange={patchSettings}
+          onCommit={commitPatch}
+          onClose={closeSettings}
+        />
       )}
       {!collapsed && (
         <div ref={portBodyRef} className="nodrag"
@@ -201,6 +219,7 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
               style={navBtnStyle(startChannel === 0)}>◀</button>
             <div style={{ flex: 1, textAlign: 'center', fontSize: 8, color: 'var(--text-muted)' }}>
               Ch {startChannel + 1}–{Math.min(startChannel + visibleCount, CHANNELS)}
+              <span style={{ marginLeft: 4, color: ACCENT, opacity: 0.8 }}>[Uni {universe}]</span>
               {blackout && <span style={{ color: '#ef5350', marginLeft: 4 }}>● BO</span>}
             </div>
             <button className="nodrag"
@@ -236,3 +255,95 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
     </div>
   );
 });
+
+// ── ArtNet Console Settings Panel ─────────────────────────────────────────────
+function ArtNetConsoleSettingsPanel ({ settings, onChange, onCommit, onClose }: {
+  settings: ArtNetConsoleSettings;
+  onChange: (s: Partial<ArtNetConsoleSettings>) => void;
+  onCommit: (s: Partial<ArtNetConsoleSettings>) => void;
+  onClose:  () => void;
+}) {
+  const row = (label: string, child: React.ReactNode) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+      <div style={{ width: 80, fontSize: 10, color: 'var(--text-dim)', flexShrink: 0 }}>{label}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>{child}</div>
+    </div>
+  );
+
+  const startOptions = [];
+  for (let i = 0; i < CHANNELS; i += settings.visibleCount)
+    startOptions.push({ id: String(i), name: `Ch ${i + 1}–${Math.min(i + settings.visibleCount, CHANNELS)}` });
+
+  return (
+    <div
+      className="nodrag"
+      onMouseDown={e => e.stopPropagation()}
+      onMouseUp={e => e.stopPropagation()}
+      onPointerDown={e => e.stopPropagation()}
+      onPointerUp={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+      style={{
+        position: 'absolute', top: 0, left: '100%', marginLeft: 6,
+        width: 230, background: 'var(--surface2)',
+        border: '1px solid var(--border-hi)', borderRadius: 'var(--radius)',
+        padding: '10px 12px', zIndex: 1000,
+        boxShadow: '0 8px 32px rgba(0,0,0,.6)',
+        fontFamily: "'JetBrains Mono', monospace",
+        userSelect: 'none',
+      }}>
+      <SettingsPanelHeader
+        title="ARTNET CONSOLE"
+        onReset={() => onCommit({ ...DEFAULT_ARTNET_CONSOLE_SETTINGS })}
+        onClose={onClose}
+      />
+      {row('Name', (
+        <NameInput
+          value={settings.customName}
+          placeholder="ArtNet Console"
+          onChange={v => onChange({ customName: v })}
+          onCommit={v => onCommit({ customName: v })}
+        />
+      ))}
+      {row('Universe', (
+        <input type="number" min={0} max={32767}
+          value={settings.universe}
+          onChange={e => onChange({ universe: Number(e.target.value) })}
+          onBlur={e => onCommit({ universe: Number(e.target.value) })}
+          onKeyDown={e => { if (e.key === 'Enter') onCommit({ universe: Number((e.target as HTMLInputElement).value) }); }}
+          style={{
+            width: '100%', background: 'var(--surface)', border: `1px solid ${ACCENT}`,
+            color: 'var(--text)', fontSize: 10, borderRadius: 3,
+            padding: '2px 6px', fontFamily: "'JetBrains Mono', monospace", outline: 'none',
+          }}
+        />
+      ))}
+      {row('Channels', (
+        <NodeSelect value={String(settings.visibleCount)} showEmpty={false} accent={ACCENT}
+          onChange={(v: string) => onCommit({ visibleCount: Number(v) as 8|16|24|32, startChannel: 0 })}
+          options={[
+            { id: '8',  name: '8 channels'  },
+            { id: '16', name: '16 channels' },
+            { id: '24', name: '24 channels' },
+            { id: '32', name: '32 channels' },
+          ]}
+          onOptionHover={() => {}} />
+      ))}
+      {row('Start at', (
+        <NodeSelect value={String(settings.startChannel)} showEmpty={false} accent={ACCENT}
+          onChange={(v: string) => onCommit({ startChannel: Number(v) })}
+          options={startOptions}
+          onOptionHover={() => {}} />
+      ))}
+      {row('Format', (
+        <NodeSelect value={settings.valueFormat} showEmpty={false} accent={ACCENT}
+          onChange={(v: string) => onCommit({ valueFormat: v as DmxNodeSettings['valueFormat'] })}
+          options={[
+            { id: 'dec', name: '0–255 (decimal)' },
+            { id: 'pct', name: '0–100 (percent)' },
+            { id: 'hex', name: '00–FF (hex)'     },
+          ]}
+          onOptionHover={() => {}} />
+      ))}
+    </div>
+  );
+}

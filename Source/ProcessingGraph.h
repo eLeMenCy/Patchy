@@ -6,6 +6,7 @@
 #include "AudioMonitorNode.h"  // for AudioMonitorBuffer and AudioMonitorNode
 #include "MidiKeyboardNode.h"
 #include "DmxConsoleNode.h"
+#include "ArtNetConsoleNode.h"
 #include "GraphModel.h"
 #include "../Pax/PaxRegistry.h"
 #include <memory>
@@ -27,6 +28,8 @@ class DmxInDeviceNode;
 class DmxOutDeviceNode;
 class DmxMonitorNode;
 class DmxConsoleNode;
+class ArtNetMonitorNode;
+class ArtNetConsoleNode;
 
 class ProcessingGraph
 {
@@ -37,11 +40,13 @@ public:
 
     void rebuild (const GraphModel& model,
                  PaxRegistry* registry = nullptr,
-                 std::function<MidiMonitorBuffer*(const juce::String&)>  getMidiBuffer        = nullptr,
-                 std::function<AudioMonitorBuffer*(const juce::String&)> getAudioBuffer       = nullptr,
-                 std::function<MidiMonitorBuffer*(const juce::String&)>  getKeyboardBuffer    = nullptr,
-                 std::function<DmxMonitorBuffer*(const juce::String&)>   getDmxMonitorBuffer  = nullptr,
-                 std::function<DmxMonitorBuffer*(const juce::String&)>   getDmxConsoleBuffer  = nullptr);
+                 std::function<MidiMonitorBuffer*(const juce::String&)>    getMidiBuffer          = nullptr,
+                 std::function<AudioMonitorBuffer*(const juce::String&)>   getAudioBuffer         = nullptr,
+                 std::function<MidiMonitorBuffer*(const juce::String&)>    getKeyboardBuffer      = nullptr,
+                 std::function<DmxMonitorBuffer*(const juce::String&)>     getDmxMonitorBuffer    = nullptr,
+                 std::function<DmxMonitorBuffer*(const juce::String&)>     getDmxConsoleBuffer    = nullptr,
+                 std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetMonitorBuffer = nullptr,
+                 std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetConsoleBuffer = nullptr);
     void prepare (double sampleRate, int maxBlockSize);
     void process (juce::AudioBuffer<float>& hostAudio, juce::MidiBuffer& hostMidi);
 
@@ -88,7 +93,9 @@ public:
     ArtNetOutDeviceNode* findArtNetOutNode (const juce::String& nodeId);
     DmxInDeviceNode*     findDmxInNode      (const juce::String& nodeId);
     DmxOutDeviceNode*    findDmxOutNode     (const juce::String& nodeId);
-    DmxConsoleNode*      findDmxConsoleNode (const juce::String& nodeId);
+    DmxConsoleNode*      findDmxConsoleNode    (const juce::String& nodeId);
+    ArtNetMonitorNode*   findArtNetMonitorNode (const juce::String& nodeId);
+    ArtNetConsoleNode*   findArtNetConsoleNode (const juce::String& nodeId);
 
     // ── Monitor ───────────────────────────────────────────────────────────
     void closeAllAudioDevices();

@@ -115,6 +115,12 @@ std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
         // ArtNetConsoleNode: ArtDMX Out only — Console is a source, not a processor
         mk ("ArtDMX Out", PortType::DMX, PortDirection::Output);
     }
+    else if (t == 20)
+    {
+        // OscMonitorNode: OSC In + OSC Out (pass-through, display only)
+        mk ("OSC In",  PortType::OSC, PortDirection::Input);
+        mk ("OSC Out", PortType::OSC, PortDirection::Output);
+    }
     else if (t >= 100)
     {
         // Dynamic addon node — ports based on NGA nodeType (t - 100)
@@ -168,6 +174,7 @@ static juce::String labelForType (int t, const juce::String& paxName)
         case 17: return "DMX Console";
         case 18: return "ArtNet Monitor";
         case 19: return "ArtNet Console";
+        case 20: return "OSC Monitor";
         default: return "Addon Node";
     }
 }

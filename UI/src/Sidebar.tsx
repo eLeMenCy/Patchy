@@ -51,6 +51,7 @@ const BUILTIN_GROUPS = [
     nodes: [
       { type: 10 as const, label: 'OSC In Device',  desc: 'Receive OSC messages on a UDP port', icon: '⊲' },
       { type: 11 as const, label: 'OSC Out Device', desc: 'Send OSC messages to a target',       icon: '⊳' },
+      { type: 20 as const, label: 'OSC Monitor',    desc: 'Display OSC messages',                icon: '⊞' },
     ],
   },
 ] as const;

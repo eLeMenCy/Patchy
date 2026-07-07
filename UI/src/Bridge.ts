@@ -83,6 +83,22 @@ export interface MidiMonitorBatch {
 }
 type MidiMonitorCallback = (batches: MidiMonitorBatch[]) => void;
 
+// ── OSC Monitor types ──────────────────────────────────────────────────────────
+export interface RawOscMonitorEvent {
+  ts: number;   // timestamp ms
+  sn: string;   // source node label
+  ad: string;   // OSC address
+  tt: string;   // type tags (e.g. "ffi")
+  ar: string;   // formatted args display (e.g. "0.7500  42  hello")
+  by: number;   // byte count
+}
+export interface OscMonitorBatch {
+  nodeId: string;
+  events: RawOscMonitorEvent[];
+}
+type OscMonitorCallback = (batches: OscMonitorBatch[]) => void;
+const _oscMonitorSubscribers: OscMonitorCallback[] = [];
+
 type GraphUpdateCallback  = (state: GraphState)   => void;
 type MidiDevicesCallback  = (devices: MidiDeviceList) => void;
 
@@ -305,6 +321,14 @@ function _dispatchClaimed() {
       _midiMonitorSubscribers.forEach(cb => cb(batches));
     } catch (e) {
       console.error('Bridge monitorEvents parse error', e);
+    }
+  },
+  onOscMonitorEvents: (json: string) => {
+    try {
+      const batches: OscMonitorBatch[] = JSON.parse(json);
+      _oscMonitorSubscribers.forEach(cb => cb(batches));
+    } catch (e) {
+      console.error('Bridge oscMonitorEvents parse error', e);
     }
   },
   onMidiDevices: (json: string) => {
@@ -573,6 +597,13 @@ export const Bridge = {
     return () => {
       const idx = _midiMonitorSubscribers.indexOf(cb);
       if (idx !== -1) _midiMonitorSubscribers.splice(idx, 1);
+    };
+  },
+  onOscMonitorEvents(cb: OscMonitorCallback) {
+    _oscMonitorSubscribers.push(cb);
+    return () => {
+      const idx = _oscMonitorSubscribers.indexOf(cb);
+      if (idx !== -1) _oscMonitorSubscribers.splice(idx, 1);
     };
   },
   onMidiDevices(cb: MidiDevicesCallback) {

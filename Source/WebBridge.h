@@ -9,6 +9,7 @@
 #include "MidiMonitorNode.h"
 #include "AudioMonitorNode.h"
 #include "ArtNetConsoleNode.h"
+#include "OscMonitorNode.h"
 
 /**
  * WebBridge
@@ -124,6 +125,9 @@ public:
     std::function<void(const juce::String&)>                                                     onResetArtNetConsoleChannels;
     std::function<void(const juce::String&, int)>                                                onSetArtNetUniverseFilter;
 
+    // OSC Monitor
+    std::function<std::vector<OscMonitorBatch>()>                                                 drainOscMonitor;
+
 private:
     // ── Resource provider (release) ───────────────────────────────────────
     std::optional<juce::WebBrowserComponent::Resource>
@@ -174,6 +178,7 @@ private:
     void pushPortActivity();
     void pushDmxSnapshots();
     void pushArtNetSnapshots();
+    void pushOscMonitorEvents();
 
     void pushPaxList();
 

@@ -243,8 +243,68 @@ namespace OscCodec
         return pos;
     }
 
+    // ── Decode ALL arguments for display purposes (Monitor use only) ─────────
+    /** Unlike parse(), this never collapses to a single PAX_Value — every
+     *  argument is kept so the OSC Monitor can show the complete message.
+     *  Returns true if the packet is valid OSC (even with zero args). */
+    static bool decodeForMonitor (const uint8_t* buf, int len,
+                                  juce::String& outAddress,
+                                  juce::String& outTypeTags,
+                                  juce::String& outArgsDisplay)
+    {
+        if (len < 8 || buf[0] != '/') return false;
+
+        int offset = 0;
+        const char* address = readString (buf, len, offset);
+        if (address == nullptr || offset >= len) return false;
+
+        const char* typeTags = readString (buf, len, offset);
+        if (typeTags == nullptr || typeTags[0] != ',') return false;
+
+        outAddress  = juce::String (address);
+        outTypeTags = juce::String (typeTags + 1);
+
+        juce::String args;
+        const char* tag = typeTags + 1;
+        for (; *tag != '\0'; ++tag)
+        {
+            if (! args.isEmpty()) args += "  ";
+            switch (*tag)
+            {
+                case 'f': args += juce::String (readFloat (buf, len, offset), 4); break;
+                case 'i': args += juce::String (readInt32 (buf, len, offset)); break;
+                case 's':
+                {
+                    const char* s = readString (buf, len, offset);
+                    args += s != nullptr ? juce::String (s) : juce::String();
+                    break;
+                }
+                case 'b':
+                {
+                    int32_t blobLen = readInt32 (buf, len, offset);
+                    offset += alignUp4 (blobLen);
+                    args += "[blob " + juce::String (blobLen) + "B]";
+                    break;
+                }
+                case 'T': args += "true";  break;
+                case 'F': args += "false"; break;
+                default:  break;   // N, I, h, d, c, r, m, t — no payload to show
+            }
+        }
+        outArgsDisplay = args;
+        return true;
+    }
+
 } // namespace OscCodec
 
+// ── Raw decoded message — full detail, used only for OSC Monitor display ────
+struct RawOscMessage
+{
+    juce::String address;
+    juce::String typeTags;
+    juce::String argsDisplay;
+    int          byteCount = 0;
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 /**
@@ -323,12 +383,25 @@ public:
             recordMidiActivity (outputValueCount);
 
         bytesSinceLastPoll.fetch_add (0, std::memory_order_relaxed);
+
+        // Drain full-detail raw messages for the OSC Monitor (if connected).
+        // Held as a member (not consumed) so every downstream Monitor edge
+        // can read this block's messages — mirrors how outputMidi works.
+        lastRawMessages.clear();
+        RawMessage raw;
+        while (monitorFifo.pop (raw))
+            lastRawMessages.push_back (raw.msg);
     }
 
     int port = 0;
 
     std::atomic<int> bytesSinceLastPoll { 0 };
     int drainByteActivity() { return bytesSinceLastPoll.exchange (0, std::memory_order_relaxed); }
+
+    // Full-detail decoded messages from this block — read by ProcessingGraph
+    // when routing into an OscMonitorNode. Not lock-free (message-thread-safe
+    // read of a value refreshed once per process() call).
+    std::vector<RawOscMessage> lastRawMessages;
 
 private:
     void run() override
@@ -353,6 +426,18 @@ private:
                 ParsedMessage msg;
                 msg.value = v;
                 fifo.push (msg);
+            }
+
+            // Separate full-detail decode for the Monitor — independent of the
+            // collapsed PAX_Value above, never lossy on multi-arg messages.
+            RawOscMessage rawMsg;
+            if (OscCodec::decodeForMonitor (buf.data(), bytesRead,
+                                            rawMsg.address, rawMsg.typeTags, rawMsg.argsDisplay))
+            {
+                rawMsg.byteCount = bytesRead;
+                RawMessage rm;
+                rm.msg = rawMsg;
+                monitorFifo.push (rm);
             }
         }
     }
@@ -381,6 +466,33 @@ private:
         juce::AbstractFifo                             fifo { kFifoSize };
         std::array<ParsedMessage, kFifoSize>           messages;
     } fifo;
+
+    // Separate small FIFO for full-detail Monitor messages (juce::String
+    // members mean this isn't lock-free, but it's only ever touched by the
+    // socket thread (push) and the message-thread process() call (pop)).
+    struct RawMessage { RawOscMessage msg; };
+    static constexpr int kMonitorFifoSize = 64;
+    struct MonitorFifo
+    {
+        void push (const RawMessage& m)
+        {
+            int s1, n1, s2, n2;
+            fifo.prepareToWrite (1, s1, n1, s2, n2);
+            if (n1 > 0) messages[static_cast<size_t> (s1)] = m;
+            fifo.finishedWrite (n1 + n2);
+        }
+        bool pop (RawMessage& m)
+        {
+            int s1, n1, s2, n2;
+            fifo.prepareToRead (1, s1, n1, s2, n2);
+            if (n1 == 0) return false;
+            m = messages[static_cast<size_t> (s1)];
+            fifo.finishedRead (n1 + n2);
+            return true;
+        }
+        juce::AbstractFifo                          fifo { kMonitorFifoSize };
+        std::array<RawMessage, kMonitorFifoSize>    messages;
+    } monitorFifo;
 
     std::unique_ptr<juce::DatagramSocket> socket;
 

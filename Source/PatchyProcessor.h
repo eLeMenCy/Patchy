@@ -741,6 +741,19 @@ public:
         return result;
     }
 
+    /** Called by WebBridge 30fps timer — drains all OSC monitor buffers. */
+    std::vector<OscMonitorBatch> drainAllOscMonitorEvents()
+    {
+        std::vector<OscMonitorBatch> result;
+        for (auto& [nodeId, buf] : oscMonitorBuffers)
+        {
+            auto events = buf->drain();
+            if (! events.empty())
+                result.push_back ({ nodeId, std::move (events) });
+        }
+        return result;
+    }
+
     /** Called by WebBridge 30fps timer — drains DMX monitor + console snapshots. */
     std::vector<ArtNetSnapshot> drainAllArtNetSnapshots()
     {
@@ -817,6 +830,7 @@ public:
     DmxMonitorBuffer*      getOrCreateDmxConsoleBuffer      (const juce::String& id) { return getOrCreateBuffer (dmxConsoleBuffers,       id); }
     ArtNetMonitorBuffer*   getOrCreateArtNetMonitorBuffer   (const juce::String& id) { return getOrCreateBuffer (artNetMonitorBuffers,    id); }
     ArtNetMonitorBuffer*   getOrCreateArtNetConsoleBuffer   (const juce::String& id) { return getOrCreateBuffer (artNetConsoleBuffers,    id); }
+    OscMonitorBuffer*      getOrCreateOscMonitorBuffer      (const juce::String& id) { return getOrCreateBuffer (oscMonitorBuffers,       id); }
 
     void removeMonitorBuffer (const juce::String& nodeId)
     {
@@ -851,6 +865,7 @@ private:
     std::unordered_map<juce::String, std::unique_ptr<DmxMonitorBuffer>>      dmxConsoleBuffers;
     std::unordered_map<juce::String, std::unique_ptr<ArtNetMonitorBuffer>>   artNetMonitorBuffers;
     std::unordered_map<juce::String, std::unique_ptr<ArtNetMonitorBuffer>>   artNetConsoleBuffers;
+    std::unordered_map<juce::String, std::unique_ptr<OscMonitorBuffer>>      oscMonitorBuffers;
     bool audioSnapshotBusy = false;
 
     // Pending graph to swap in at the start of the next processBlock

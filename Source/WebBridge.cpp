@@ -936,6 +936,7 @@ void WebBridge::timerCallback()
         pushPortActivity();
         pushDmxSnapshots();
         pushArtNetSnapshots();
+        pushOscMonitorEvents();
     }
 }
 
@@ -987,6 +988,57 @@ void WebBridge::pushMidiMonitorEvents()
     json << "]";
 
     pushToUI ("onMidiMonitorEvents", json);
+}
+
+void WebBridge::pushOscMonitorEvents()
+{
+    if (! connected || ! drainOscMonitor || webView == nullptr) return;
+
+    auto batches = drainOscMonitor();
+
+    if (batches.empty()) return;
+
+    const juce::juce_wchar Q = '"';
+
+    juce::String json;
+    json << "[";
+
+    bool firstBatch = true;
+    for (const auto& batch : batches)
+    {
+        if (! firstBatch) json << ",";
+        firstBatch = false;
+
+        json << "{"
+             << Q << "nodeId" << Q << ":" << Q << batch.nodeId << Q << ","
+             << Q << "events" << Q << ":[";
+
+        bool firstEv = true;
+        for (const auto& ev : batch.events)
+        {
+            if (! firstEv) json << ",";
+            firstEv = false;
+
+            // Escape backslashes and quotes in string fields
+            juce::String ad = ev.address.replace    ("\\", "\\\\").replace ("\"", "\\\"");
+            juce::String tt = ev.typeTags.replace    ("\\", "\\\\").replace ("\"", "\\\"");
+            juce::String ar = ev.argsDisplay.replace ("\\", "\\\\").replace ("\"", "\\\"");
+            juce::String sn = ev.sourceNode.replace   ("\\", "\\\\").replace ("\"", "\\\"");
+
+            json << "{"
+                 << Q << "ts" << Q << ":" << ev.timestampMs << ","
+                 << Q << "sn" << Q << ":" << Q << sn << Q << ","
+                 << Q << "ad" << Q << ":" << Q << ad << Q << ","
+                 << Q << "tt" << Q << ":" << Q << tt << Q << ","
+                 << Q << "ar" << Q << ":" << Q << ar << Q << ","
+                 << Q << "by" << Q << ":" << ev.byteCount
+                 << "}";
+        }
+        json << "]}";
+    }
+    json << "]";
+
+    pushToUI ("onOscMonitorEvents", json);
 }
 
 void WebBridge::pushAudioSnapshots()

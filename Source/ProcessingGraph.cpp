@@ -9,6 +9,7 @@
 #include "ArtNetConsoleNode.h"
 #include "MidiMonitorNode.h"
 #include "AudioMonitorNode.h"
+#include "OscMonitorNode.h"
 #include <unordered_set>
 #include <algorithm>
 
@@ -23,7 +24,8 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                                std::function<DmxMonitorBuffer*(const juce::String&)>     getDmxMonitorBuffer,
                                std::function<DmxMonitorBuffer*(const juce::String&)>     getDmxConsoleBuffer,
                                std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetMonitorBuffer,
-                               std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetConsoleBuffer)
+                               std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetConsoleBuffer,
+                               std::function<OscMonitorBuffer*(const juce::String&)>     getOscMonitorBuffer)
 {
     auto snapshot = model.toVar();
     auto* root    = snapshot.getDynamicObject();
@@ -86,6 +88,7 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                 case 17: proc = std::make_unique<DmxConsoleNode>      (id, getDmxConsoleBuffer  ? getDmxConsoleBuffer(id)  : nullptr); break;
                 case 18: proc = std::make_unique<ArtNetMonitorNode>   (id, getArtNetMonitorBuffer ? getArtNetMonitorBuffer(id) : nullptr); break;
                 case 19: proc = std::make_unique<ArtNetConsoleNode>   (id, getArtNetConsoleBuffer ? getArtNetConsoleBuffer(id) : nullptr); break;
+                case 20: proc = std::make_unique<OscMonitorNode>      (id, getOscMonitorBuffer  ? getOscMonitorBuffer(id)  : nullptr); break;
                 default:
                     juce::Logger::writeToLog ("ProcessingGraph: unknown built-in type " + juce::String (type));
                     break;
@@ -335,6 +338,15 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
                     else if (auto* dyn = dynamic_cast<DynamicPaxProcessor*> (src))
                         srcName = dyn->customName;
                     mon->pushFromSource (src->outputMidi, srcLabel, srcName);
+                }
+
+                if (auto* oscMon = dynamic_cast<OscMonitorNode*> (n))
+                {
+                    juce::String srcLabel = labelMap.count (src->id) ? labelMap.at (src->id) : src->id;
+                    if (auto* oscIn = dynamic_cast<OscInDeviceNode*> (src))
+                        oscMon->pushFromSource (oscIn->lastRawMessages, srcLabel);
+                    else if (src->outputValueCount > 0)
+                        oscMon->pushFallbackValue (src->outputValues[0], srcLabel);
                 }
             }
         }

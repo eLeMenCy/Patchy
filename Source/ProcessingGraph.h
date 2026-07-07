@@ -4,6 +4,7 @@
 #include "NodeProcessor.h"
 #include "MidiMonitorNode.h"   // for MidiMonitorEvent and MidiMonitorNode
 #include "AudioMonitorNode.h"  // for AudioMonitorBuffer and AudioMonitorNode
+#include "OscMonitorNode.h"    // for OscMonitorBuffer and OscMonitorNode
 #include "MidiKeyboardNode.h"
 #include "DmxConsoleNode.h"
 #include "ArtNetConsoleNode.h"
@@ -46,7 +47,8 @@ public:
                  std::function<DmxMonitorBuffer*(const juce::String&)>     getDmxMonitorBuffer    = nullptr,
                  std::function<DmxMonitorBuffer*(const juce::String&)>     getDmxConsoleBuffer    = nullptr,
                  std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetMonitorBuffer = nullptr,
-                 std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetConsoleBuffer = nullptr);
+                 std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetConsoleBuffer = nullptr,
+                 std::function<OscMonitorBuffer*(const juce::String&)>     getOscMonitorBuffer    = nullptr);
     void prepare (double sampleRate, int maxBlockSize);
     void process (juce::AudioBuffer<float>& hostAudio, juce::MidiBuffer& hostMidi);
 

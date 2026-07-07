@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Patchy VERSION 0.0.892)
+project(Patchy VERSION 0.0.893)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -90,7 +90,7 @@ endif()
 
 # ── Plugin target ─────────────────────────────────────────────────────────────
 juce_add_plugin(Patchy
-    VERSION                  "0.0.892"
+    VERSION                  "0.0.893"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGrp"
@@ -121,6 +121,7 @@ target_sources(Patchy PRIVATE
     Source/AudioDeviceNodes.cpp
     Source/UdpDeviceNodes.cpp
     Source/OscDeviceNodes.cpp
+    Source/OscMonitorNode.cpp
     Source/ArtNetDeviceNodes.cpp
     Source/DmxDeviceNodes.cpp
     Source/DmxMonitorNode.cpp

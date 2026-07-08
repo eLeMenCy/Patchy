@@ -26,6 +26,7 @@ const BUILTIN_GROUPS = [
     nodes: [
       { type: 8  as const, label: 'UDP In Device',     desc: 'Listen on a UDP port',    icon: '⊲' },
       { type: 9  as const, label: 'UDP Out Device',    desc: 'Send to a UDP target',    icon: '⊳' },
+      { type: 21 as const, label: 'UDP Monitor',       desc: 'Display raw UDP packets', icon: '⊞' },
     ],
   },
   {

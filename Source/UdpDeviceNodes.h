@@ -13,6 +13,18 @@ class ProcessingGraph;
 // ─────────────────────────────────────────────────────────────────────────────
 enum class UdpMode { Unicast = 0, Multicast = 1, Broadcast = 2 };
 
+// ── Raw packet — full detail (sender IP/port + byte preview), used only for
+//    the UDP Monitor display; independent of the routed PAX_Value. ───────────
+struct RawUdpPacket
+{
+    juce::String             senderIp;
+    int                      senderPort = 0;
+    int                      byteCount  = 0;
+    static constexpr int     kPreviewLen = 64;
+    std::array<uint8_t, kPreviewLen> preview {};
+    int                      previewLen = 0;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 /**
  * UdpInDeviceNode  (nodeType 8)
@@ -105,6 +117,14 @@ public:
 
             outputValues[static_cast<size_t> (outputValueCount++)] = v;
         }
+
+        // Drain full-detail raw packets for the UDP Monitor (if connected).
+        // Held as a member (not consumed) so every downstream Monitor edge
+        // can read this block's packets — mirrors OscInDeviceNode's pattern.
+        lastRawPackets.clear();
+        RawPacketMsg raw;
+        while (monitorFifo.pop (raw))
+            lastRawPackets.push_back (raw.pkt);
     }
 
     int  port = 0;
@@ -115,6 +135,11 @@ public:
     std::atomic<int> bytesSinceLastPoll { 0 };
     int  drainByteActivity() { return bytesSinceLastPoll.exchange (0, std::memory_order_relaxed); }
 
+    // Full-detail packets from this block — read by ProcessingGraph when
+    // routing into a UdpMonitorNode. Not lock-free (message-thread-safe read
+    // of a value refreshed once per process() call).
+    std::vector<RawUdpPacket> lastRawPackets;
+
 private:
     void run() override
     {
@@ -122,6 +147,8 @@ private:
         std::array<uint8_t, kMaxPacket> buf;
         std::array<uint8_t, 56> lastData {};
         int lastSize = 0;
+        juce::String senderIp;
+        int senderPort = 0;
 
         while (! threadShouldExit())
         {
@@ -129,7 +156,7 @@ private:
             int ready = socket->waitUntilReady (true, 100);
             if (ready <= 0) continue;
 
-            int bytesRead = socket->read (buf.data(), kMaxPacket, false);
+            int bytesRead = socket->read (buf.data(), kMaxPacket, false, senderIp, senderPort);
             if (bytesRead <= 0) continue;
 
             bytesSinceLastPoll.fetch_add (bytesRead, std::memory_order_relaxed);
@@ -147,6 +174,18 @@ private:
             pkt.size = std::min (bytesRead, (int) pkt.data.size());
             std::memcpy (pkt.data.data(), buf.data(), static_cast<size_t> (pkt.size));
             fifo.push (pkt);
+
+            // Separate full-detail capture for the Monitor — sender IP/port
+            // + a byte preview, independent of the routed PAX_Value above.
+            RawUdpPacket rawPkt;
+            rawPkt.senderIp   = senderIp;
+            rawPkt.senderPort = senderPort;
+            rawPkt.byteCount  = bytesRead;
+            rawPkt.previewLen = std::min (bytesRead, (int) rawPkt.preview.size());
+            std::memcpy (rawPkt.preview.data(), buf.data(), static_cast<size_t> (rawPkt.previewLen));
+            RawPacketMsg rm;
+            rm.pkt = rawPkt;
+            monitorFifo.push (rm);
         }
     }
 
@@ -178,6 +217,33 @@ private:
         juce::AbstractFifo                          fifo { kFifoSize };
         std::array<ReceivedPacket, kFifoSize>        packets;
     } fifo;
+
+    // Separate small FIFO for full-detail Monitor packets (juce::String
+    // members mean this isn't lock-free, but it's only ever touched by the
+    // socket thread (push) and the message-thread process() call (pop)).
+    struct RawPacketMsg { RawUdpPacket pkt; };
+    static constexpr int kMonitorFifoSize = 64;
+    struct MonitorFifo
+    {
+        void push (const RawPacketMsg& m)
+        {
+            int s1, n1, s2, n2;
+            fifo.prepareToWrite (1, s1, n1, s2, n2);
+            if (n1 > 0) messages[static_cast<size_t> (s1)] = m;
+            fifo.finishedWrite (n1 + n2);
+        }
+        bool pop (RawPacketMsg& m)
+        {
+            int s1, n1, s2, n2;
+            fifo.prepareToRead (1, s1, n1, s2, n2);
+            if (n1 == 0) return false;
+            m = messages[static_cast<size_t> (s1)];
+            fifo.finishedRead (n1 + n2);
+            return true;
+        }
+        juce::AbstractFifo                          fifo { kMonitorFifoSize };
+        std::array<RawPacketMsg, kMonitorFifoSize>  messages;
+    } monitorFifo;
 
     std::unique_ptr<juce::DatagramSocket> socket;
 

@@ -937,6 +937,7 @@ void WebBridge::timerCallback()
         pushDmxSnapshots();
         pushArtNetSnapshots();
         pushOscMonitorEvents();
+        pushUdpMonitorEvents();
     }
 }
 
@@ -1039,6 +1040,55 @@ void WebBridge::pushOscMonitorEvents()
     json << "]";
 
     pushToUI ("onOscMonitorEvents", json);
+}
+
+void WebBridge::pushUdpMonitorEvents()
+{
+    if (! connected || ! drainUdpMonitor || webView == nullptr) return;
+
+    auto batches = drainUdpMonitor();
+
+    if (batches.empty()) return;
+
+    const juce::juce_wchar Q = '"';
+
+    juce::String json;
+    json << "[";
+
+    bool firstBatch = true;
+    for (const auto& batch : batches)
+    {
+        if (! firstBatch) json << ",";
+        firstBatch = false;
+
+        json << "{"
+             << Q << "nodeId" << Q << ":" << Q << batch.nodeId << Q << ","
+             << Q << "events" << Q << ":[";
+
+        bool firstEv = true;
+        for (const auto& ev : batch.events)
+        {
+            if (! firstEv) json << ",";
+            firstEv = false;
+
+            juce::String sn = ev.sourceNode.replace ("\\", "\\\\").replace ("\"", "\\\"");
+            juce::String ip = ev.senderIp.replace   ("\\", "\\\\").replace ("\"", "\\\"");
+            juce::String hx = ev.hexPreview;   // hex digits only — no escaping needed
+
+            json << "{"
+                 << Q << "ts" << Q << ":" << ev.timestampMs << ","
+                 << Q << "sn" << Q << ":" << Q << sn << Q << ","
+                 << Q << "ip" << Q << ":" << Q << ip << Q << ","
+                 << Q << "pt" << Q << ":" << ev.senderPort << ","
+                 << Q << "by" << Q << ":" << ev.byteCount << ","
+                 << Q << "hx" << Q << ":" << Q << hx << Q
+                 << "}";
+        }
+        json << "]}";
+    }
+    json << "]";
+
+    pushToUI ("onUdpMonitorEvents", json);
 }
 
 void WebBridge::pushAudioSnapshots()

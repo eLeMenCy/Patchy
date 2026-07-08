@@ -537,7 +537,7 @@ public:
         if (port <= 0 || targetHost.isEmpty()) return;
         socket = std::make_unique<juce::DatagramSocket> (false);
         startThread (juce::Thread::Priority::normal);
-        juce::Logger::writeToLog ("OscOutDeviceNode: ready → "
+        juce::Logger::writeToLog ("OscOutDeviceNode: ready -> "
                                   + targetHost + ":" + juce::String (port)
                                   + " " + oscAddress);
     }

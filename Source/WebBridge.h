@@ -10,6 +10,7 @@
 #include "AudioMonitorNode.h"
 #include "ArtNetConsoleNode.h"
 #include "OscMonitorNode.h"
+#include "UdpMonitorNode.h"
 
 /**
  * WebBridge
@@ -128,6 +129,9 @@ public:
     // OSC Monitor
     std::function<std::vector<OscMonitorBatch>()>                                                 drainOscMonitor;
 
+    // UDP Monitor
+    std::function<std::vector<UdpMonitorBatch>()>                                                 drainUdpMonitor;
+
 private:
     // ── Resource provider (release) ───────────────────────────────────────
     std::optional<juce::WebBrowserComponent::Resource>
@@ -179,6 +183,7 @@ private:
     void pushDmxSnapshots();
     void pushArtNetSnapshots();
     void pushOscMonitorEvents();
+    void pushUdpMonitorEvents();
 
     void pushPaxList();
 

@@ -42,6 +42,7 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
                                        { p.setDmxSettings (nid, devicePath, universe); };
     bridge.drainDmxSnapshots         = [&p]() { return p.drainAllDmxSnapshots(); };
     bridge.drainOscMonitor           = [&p]() { return p.drainAllOscMonitorEvents(); };
+    bridge.drainUdpMonitor           = [&p]() { return p.drainAllUdpMonitorEvents(); };
     bridge.onSetDmxConsoleChannel    = [&p](const juce::String& nid, int channel, uint8_t value)
                                        {
                                            auto* node = p.getProcessingGraph().findDmxConsoleNode (nid);

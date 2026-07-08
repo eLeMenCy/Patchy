@@ -71,7 +71,8 @@ void PatchyProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
                              [this](const juce::String& nid) { return getOrCreateDmxConsoleBuffer(nid); },
                              [this](const juce::String& nid) { return getOrCreateArtNetMonitorBuffer(nid); },
                              [this](const juce::String& nid) { return getOrCreateArtNetConsoleBuffer(nid); },
-                             [this](const juce::String& nid) { return getOrCreateOscMonitorBuffer(nid); });
+                             [this](const juce::String& nid) { return getOrCreateOscMonitorBuffer(nid); },
+                             [this](const juce::String& nid) { return getOrCreateUdpMonitorBuffer(nid); });
     processingGraph.isStandaloneMode = isStandalone;
     processingGraph.graphModel        = &graphModel;
     processingGraph.prepare (sampleRate, samplesPerBlock);
@@ -141,6 +142,7 @@ void PatchyProcessor::rebuildProcessingGraph()
                     if (t == 5) getOrCreateMidiMonitorBuffer      (nid);
                     if (t == 6) getOrCreateAudioMonitorBuffer (nid);
                     if (t == 20) getOrCreateOscMonitorBuffer  (nid);
+                    if (t == 21) getOrCreateUdpMonitorBuffer  (nid);
                 }
             }
         }
@@ -152,7 +154,16 @@ void PatchyProcessor::rebuildProcessingGraph()
     // Only close a pendingGraph that was never swapped in — its audio nodes
     // have open callbacks that need to be released before we replace it.
     if (pendingGraph != nullptr)
+    {
         pendingGraph->closeAllAudioDevices();
+        pendingGraph->closeAllProtocolDeviceSockets();
+    }
+
+    // Close the CURRENT graph's protocol device sockets (UDP/OSC/ArtNet/DMX)
+    // before newGraph binds its own — prevents a bind race where the new
+    // graph's socket loses to this graph's still-open one on the same port
+    // and silently goes dead. See ProcessingGraph::closeAllProtocolDeviceSockets().
+    processingGraph.closeAllProtocolDeviceSockets();
 
     auto newGraph = std::make_unique<ProcessingGraph>();
     newGraph->rebuild (graphModel, &registry,
@@ -163,7 +174,8 @@ void PatchyProcessor::rebuildProcessingGraph()
                        [this](const juce::String& nid) { return getOrCreateDmxConsoleBuffer(nid); },
                        [this](const juce::String& nid) { return getOrCreateArtNetMonitorBuffer(nid); },
                        [this](const juce::String& nid) { return getOrCreateArtNetConsoleBuffer(nid); },
-                       [this](const juce::String& nid) { return getOrCreateOscMonitorBuffer(nid); });
+                       [this](const juce::String& nid) { return getOrCreateOscMonitorBuffer(nid); },
+                       [this](const juce::String& nid) { return getOrCreateUdpMonitorBuffer(nid); });
 
     // Transfer existing open audio device connections to the new graph nodes
     // rather than closing and reopening — this avoids the ~1 second audio gap.

@@ -301,7 +301,7 @@ public:
         if (targetHost.isEmpty()) return;
         socket = std::make_unique<juce::DatagramSocket> (true);   // broadcast enabled
         startThread (juce::Thread::Priority::normal);
-        juce::Logger::writeToLog ("ArtNetOutDeviceNode: ready → "
+        juce::Logger::writeToLog ("ArtNetOutDeviceNode: ready -> "
                                   + targetHost + ":" + juce::String (ArtNetCodec::kPort)
                                   + " universe " + juce::String (universe));
     }

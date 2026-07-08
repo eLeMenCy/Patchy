@@ -5,6 +5,7 @@
 #include "MidiMonitorNode.h"   // for MidiMonitorEvent and MidiMonitorNode
 #include "AudioMonitorNode.h"  // for AudioMonitorBuffer and AudioMonitorNode
 #include "OscMonitorNode.h"    // for OscMonitorBuffer and OscMonitorNode
+#include "UdpMonitorNode.h"    // for UdpMonitorBuffer and UdpMonitorNode
 #include "MidiKeyboardNode.h"
 #include "DmxConsoleNode.h"
 #include "ArtNetConsoleNode.h"
@@ -48,7 +49,8 @@ public:
                  std::function<DmxMonitorBuffer*(const juce::String&)>     getDmxConsoleBuffer    = nullptr,
                  std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetMonitorBuffer = nullptr,
                  std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetConsoleBuffer = nullptr,
-                 std::function<OscMonitorBuffer*(const juce::String&)>     getOscMonitorBuffer    = nullptr);
+                 std::function<OscMonitorBuffer*(const juce::String&)>     getOscMonitorBuffer    = nullptr,
+                 std::function<UdpMonitorBuffer*(const juce::String&)>     getUdpMonitorBuffer    = nullptr);
     void prepare (double sampleRate, int maxBlockSize);
     void process (juce::AudioBuffer<float>& hostAudio, juce::MidiBuffer& hostMidi);
 
@@ -109,6 +111,15 @@ public:
      *  moves the callback registration instead of closing and reopening —
      *  eliminating the audio gap on graph rebuilds. */
     void transferAudioDevicesFrom (ProcessingGraph& source);
+
+    /** Closes every protocol device node's live socket/serial port (UDP, OSC,
+     *  ArtNet, DMX In/Out) synchronously on the message thread. Called on the
+     *  CURRENT graph right before a rebuild binds a new graph's sockets —
+     *  without this, the new graph's bind can race against this graph's still-
+     *  open socket on the same port and silently lose, permanently, until the
+     *  node is reconfigured or the app restarts. See Architecture.md Phase 3
+     *  known-issue note. */
+    void closeAllProtocolDeviceSockets();
 
 private:
     struct Edge

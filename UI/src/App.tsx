@@ -31,6 +31,7 @@ import { DmxConsoleNode } from './DmxConsoleNode';
 import { ArtNetMonitorNode } from './ArtNetMonitorNode';
 import { ArtNetConsoleNode } from './ArtNetConsoleNode';
 import { OscMonitorNode, OscMonitorNodeData } from './OscMonitorNode';
+import { UdpMonitorNode, UdpMonitorNodeData } from './UdpMonitorNode';
 import PreferencesPanel, { GraphPreferences, loadPrefs, savePrefs } from './PreferencesPanel';
 import { HintProvider, HintContext, BUTTON_HINTS, PORT_HINTS, EDGE_HINTS } from './HintPanel';
 import { Menu, ChevronsDownUp, ChevronsUpDown, Settings, ChevronLeft } from 'lucide-react';
@@ -39,13 +40,13 @@ import SpectrumyserNode from './SpectrumyserNode';
 import EnvelopeNode     from './EnvelopeNode';
 
 // ── Node type registry ────────────────────────────────────────────────────────
-const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode };
+const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 // Module-level Pax params map — populated when Pax list arrives
 const _paxParamsMap = new Map<string, PaxParamInfo[]>();
 
-function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>): Node<NodeData | MidiMonitorNodeData | DmxMonitorNodeData | OscMonitorNodeData> {
+function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>): Node<NodeData | MidiMonitorNodeData | DmxMonitorNodeData | OscMonitorNodeData | UdpMonitorNodeData> {
   const isMidiMonitor    = raw.nodeType === 5;
   const isAudioMonitor   = raw.nodeType === 6;
   const isMidiKeyboard   = raw.nodeType === 7;
@@ -54,6 +55,7 @@ function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>)
   const isArtNetMonitor  = raw.nodeType === 18;
   const isArtNetConsole  = raw.nodeType === 19;
   const isOscMonitor     = raw.nodeType === 20;
+  const isUdpMonitor     = raw.nodeType === 21;
   return {
     id:       raw.id,
     type:     isMidiMonitor    ? 'midiMonitor'
@@ -64,6 +66,7 @@ function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>)
             : isArtNetMonitor  ? 'artNetMonitor'
             : isArtNetConsole  ? 'artNetConsole'
             : isOscMonitor     ? 'oscMonitor'
+            : isUdpMonitor     ? 'udpMonitor'
             : raw.paxName === 'Spectrumyser' ? 'spectrumyser'
             : raw.paxName === 'Envelope'     ? 'envelope' : 'custom',
     position: { x: raw.x, y: raw.y },
@@ -83,6 +86,8 @@ function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>)
       ? { label: raw.label, nodeType: 19, ports: raw.ports, settingsJson: raw.settingsJson } as DmxMonitorNodeData
       : isOscMonitor
       ? { label: raw.label, nodeType: 20, ports: raw.ports, settingsJson: raw.settingsJson } as OscMonitorNodeData
+      : isUdpMonitor
+      ? { label: raw.label, nodeType: 21, ports: raw.ports, settingsJson: raw.settingsJson } as UdpMonitorNodeData
       : { label: raw.label, nodeType: raw.nodeType,
           ports: raw.ports, selectedDeviceId: raw.selectedDeviceId,
           paxName: raw.paxName,
@@ -170,7 +175,7 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
       entries.forEach(entry => {
         if (entry.midi > 0) {
           const nodeType = (nodesRef.current.find((n: any) => n.id === entry.id)?.data as any)?.nodeType;
-          if (nodeType === 8 || nodeType === 9) {
+          if (nodeType === 8 || nodeType === 9 || nodeType === 21) {
             udpTimers.current.set(entry.id, now + 80);
           } else if (nodeType === 10 || nodeType === 11 || nodeType === 20) {
             oscTimers.current.set(entry.id, now + 80);

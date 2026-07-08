@@ -10,6 +10,7 @@
 #include "MidiMonitorNode.h"
 #include "AudioMonitorNode.h"
 #include "OscMonitorNode.h"
+#include "UdpMonitorNode.h"
 #include <unordered_set>
 #include <algorithm>
 
@@ -25,7 +26,8 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                                std::function<DmxMonitorBuffer*(const juce::String&)>     getDmxConsoleBuffer,
                                std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetMonitorBuffer,
                                std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetConsoleBuffer,
-                               std::function<OscMonitorBuffer*(const juce::String&)>     getOscMonitorBuffer)
+                               std::function<OscMonitorBuffer*(const juce::String&)>     getOscMonitorBuffer,
+                               std::function<UdpMonitorBuffer*(const juce::String&)>     getUdpMonitorBuffer)
 {
     auto snapshot = model.toVar();
     auto* root    = snapshot.getDynamicObject();
@@ -89,6 +91,7 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                 case 18: proc = std::make_unique<ArtNetMonitorNode>   (id, getArtNetMonitorBuffer ? getArtNetMonitorBuffer(id) : nullptr); break;
                 case 19: proc = std::make_unique<ArtNetConsoleNode>   (id, getArtNetConsoleBuffer ? getArtNetConsoleBuffer(id) : nullptr); break;
                 case 20: proc = std::make_unique<OscMonitorNode>      (id, getOscMonitorBuffer  ? getOscMonitorBuffer(id)  : nullptr); break;
+                case 21: proc = std::make_unique<UdpMonitorNode>      (id, getUdpMonitorBuffer  ? getUdpMonitorBuffer(id)  : nullptr); break;
                 default:
                     juce::Logger::writeToLog ("ProcessingGraph: unknown built-in type " + juce::String (type));
                     break;
@@ -348,6 +351,15 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
                     else if (src->outputValueCount > 0)
                         oscMon->pushFallbackValue (src->outputValues[0], srcLabel);
                 }
+
+                if (auto* udpMon = dynamic_cast<UdpMonitorNode*> (n))
+                {
+                    juce::String srcLabel = labelMap.count (src->id) ? labelMap.at (src->id) : src->id;
+                    if (auto* udpIn = dynamic_cast<UdpInDeviceNode*> (src))
+                        udpMon->pushFromSource (udpIn->lastRawPackets, srcLabel);
+                    else if (src->outputValueCount > 0)
+                        udpMon->pushFallbackValue (src->outputValues[0], srcLabel);
+                }
             }
         }
 
@@ -578,5 +590,26 @@ void ProcessingGraph::transferAudioDevicesFrom (ProcessingGraph& source)
         }
     }
     source.closeAllAudioDevices();
+}
+
+void ProcessingGraph::closeAllProtocolDeviceSockets()
+{
+    // Closes every protocol device node's live socket/serial port on the
+    // message thread, synchronously, before a new graph rebinds the same
+    // port(s). Fixes a bind-race: if this graph's socket is still open when
+    // a freshly-built graph tries to bind the same port, the new bind can
+    // silently fail and that node goes dead until reconfigured or restarted.
+    // See Architecture.md Phase 3 known-issue note (found 2026-07-07).
+    for (auto& node : nodes)
+    {
+        if (auto* n = dynamic_cast<UdpInDeviceNode*>     (node.get())) n->closeSocket();
+        if (auto* n = dynamic_cast<UdpOutDeviceNode*>    (node.get())) n->closeSocket();
+        if (auto* n = dynamic_cast<OscInDeviceNode*>     (node.get())) n->closeSocket();
+        if (auto* n = dynamic_cast<OscOutDeviceNode*>    (node.get())) n->closeSocket();
+        if (auto* n = dynamic_cast<ArtNetInDeviceNode*>  (node.get())) n->closeSocket();
+        if (auto* n = dynamic_cast<ArtNetOutDeviceNode*> (node.get())) n->closeSocket();
+        if (auto* n = dynamic_cast<DmxInDeviceNode*>     (node.get())) n->closePort();
+        if (auto* n = dynamic_cast<DmxOutDeviceNode*>    (node.get())) n->closePort();
+    }
 }
 

@@ -99,6 +99,22 @@ export interface OscMonitorBatch {
 type OscMonitorCallback = (batches: OscMonitorBatch[]) => void;
 const _oscMonitorSubscribers: OscMonitorCallback[] = [];
 
+// ── UDP Monitor types ──────────────────────────────────────────────────────────
+export interface RawUdpMonitorEvent {
+  ts: number;   // timestamp ms
+  sn: string;   // source node label
+  ip: string;   // sender IP (empty if unknown — fallback path)
+  pt: number;   // sender port
+  by: number;   // byte count
+  hx: string;   // hex preview, uppercase, no spaces (e.g. "48656C6C6F")
+}
+export interface UdpMonitorBatch {
+  nodeId: string;
+  events: RawUdpMonitorEvent[];
+}
+type UdpMonitorCallback = (batches: UdpMonitorBatch[]) => void;
+const _udpMonitorSubscribers: UdpMonitorCallback[] = [];
+
 type GraphUpdateCallback  = (state: GraphState)   => void;
 type MidiDevicesCallback  = (devices: MidiDeviceList) => void;
 
@@ -329,6 +345,14 @@ function _dispatchClaimed() {
       _oscMonitorSubscribers.forEach(cb => cb(batches));
     } catch (e) {
       console.error('Bridge oscMonitorEvents parse error', e);
+    }
+  },
+  onUdpMonitorEvents: (json: string) => {
+    try {
+      const batches: UdpMonitorBatch[] = JSON.parse(json);
+      _udpMonitorSubscribers.forEach(cb => cb(batches));
+    } catch (e) {
+      console.error('Bridge udpMonitorEvents parse error', e);
     }
   },
   onMidiDevices: (json: string) => {
@@ -604,6 +628,13 @@ export const Bridge = {
     return () => {
       const idx = _oscMonitorSubscribers.indexOf(cb);
       if (idx !== -1) _oscMonitorSubscribers.splice(idx, 1);
+    };
+  },
+  onUdpMonitorEvents(cb: UdpMonitorCallback) {
+    _udpMonitorSubscribers.push(cb);
+    return () => {
+      const idx = _udpMonitorSubscribers.indexOf(cb);
+      if (idx !== -1) _udpMonitorSubscribers.splice(idx, 1);
     };
   },
   onMidiDevices(cb: MidiDevicesCallback) {

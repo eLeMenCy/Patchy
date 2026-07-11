@@ -6,6 +6,7 @@
 #include "AudioMonitorNode.h"  // for AudioMonitorBuffer and AudioMonitorNode
 #include "OscMonitorNode.h"    // for OscMonitorBuffer and OscMonitorNode
 #include "UdpMonitorNode.h"    // for UdpMonitorBuffer and UdpMonitorNode
+#include "MqttDeviceNodes.h"   // for MqttSubscribeNode and MqttDeviceManager
 #include "MidiKeyboardNode.h"
 #include "DmxConsoleNode.h"
 #include "ArtNetConsoleNode.h"
@@ -92,6 +93,7 @@ public:
     UdpInDeviceNode*    findUdpInNode    (const juce::String& nodeId);
     UdpOutDeviceNode*   findUdpOutNode   (const juce::String& nodeId);
     OscInDeviceNode*    findOscInNode    (const juce::String& nodeId);
+    MqttSubscribeNode*  findMqttSubscribeNode (const juce::String& nodeId);
     OscOutDeviceNode*   findOscOutNode   (const juce::String& nodeId);
     ArtNetInDeviceNode*  findArtNetInNode  (const juce::String& nodeId);
     ArtNetOutDeviceNode* findArtNetOutNode (const juce::String& nodeId);

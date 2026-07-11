@@ -737,6 +737,15 @@ export const Bridge = {
     });
   },
 
+  /** Convenience wrapper for MQTT Subscribe node settings. */
+  setMqttSubscribeSettings(nodeId: string, host: string, port: number, topic: string,
+                            qos: 0 | 1 | 2, username = '', password = '') {
+    sendToJuce({
+      type: 'setNodeParam', nodeId, key: 'mqttSubscribeSettings',
+      value: JSON.stringify({ host, port, topic, qos, username, password }),
+    });
+  },
+
   setArtNetSettings(nodeId: string, universe = 0, targetHost = '') {
     sendToJuce({
       type: 'setNodeParam', nodeId, key: 'artNetSettings',

@@ -108,6 +108,8 @@ public:
     std::function<void(const juce::String&, const std::vector<int>&)> onSetAudioDeviceChannels;
     std::function<void(const juce::String&, int, int, const juce::String&, const juce::String&)> onSetUdpSettings;
     std::function<void(const juce::String&, int, const juce::String&, const juce::String&)>      onSetOscSettings;
+    std::function<void(const juce::String&, const juce::String&, int, const juce::String&, int,
+                       const juce::String&, const juce::String&)>                                onSetMqttSubscribeSettings;
     std::function<void(const juce::String&, int, const juce::String&)>                           onSetArtNetSettings;
     std::function<void(const juce::String&, const juce::String&, int)>                          onSetDmxSettings;
     std::function<std::vector<DmxSnapshot>()>                                                    drainDmxSnapshots;

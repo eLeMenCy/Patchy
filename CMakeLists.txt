@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Patchy VERSION 0.0.894)
+project(Patchy VERSION 0.0.895)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -90,7 +90,7 @@ endif()
 
 # ── Plugin target ─────────────────────────────────────────────────────────────
 juce_add_plugin(Patchy
-    VERSION                  "0.0.894"
+    VERSION                  "0.0.895"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGrp"
@@ -123,6 +123,7 @@ target_sources(Patchy PRIVATE
     Source/OscDeviceNodes.cpp
     Source/OscMonitorNode.cpp
     Source/UdpMonitorNode.cpp
+    Source/MqttDeviceNodes.cpp
     Source/ArtNetDeviceNodes.cpp
     Source/DmxDeviceNodes.cpp
     Source/DmxMonitorNode.cpp
@@ -141,16 +142,42 @@ else()
     target_compile_definitions(Patchy PRIVATE HAS_BUNDLED_UI=0)
 endif()
 
+# ── libmosquitto (MQTT client library) ───────────────────────────────────────
+# Homebrew's mosquitto formula is keg-only on macOS (not symlinked into the
+# standard /opt/homebrew/lib path), so search its keg path explicitly. Covers
+# both Apple Silicon (/opt/homebrew) and Intel (/usr/local) Homebrew prefixes.
+find_path(MOSQUITTO_INCLUDE_DIR
+    NAMES mosquitto.h
+    PATHS /opt/homebrew/opt/mosquitto/include
+          /usr/local/opt/mosquitto/include
+          /opt/homebrew/include
+          /usr/local/include
+)
+find_library(MOSQUITTO_LIBRARY
+    NAMES mosquitto
+    PATHS /opt/homebrew/opt/mosquitto/lib
+          /usr/local/opt/mosquitto/lib
+          /opt/homebrew/lib
+          /usr/local/lib
+)
+if (NOT MOSQUITTO_INCLUDE_DIR OR NOT MOSQUITTO_LIBRARY)
+    message(FATAL_ERROR "libmosquitto not found. Install it with: brew install mosquitto")
+endif()
+message(STATUS "libmosquitto include: ${MOSQUITTO_INCLUDE_DIR}")
+message(STATUS "libmosquitto library: ${MOSQUITTO_LIBRARY}")
+
 target_link_libraries(Patchy
     PRIVATE
         juce::juce_audio_utils
         juce::juce_audio_devices
         juce::juce_gui_extra
         juce::juce_dsp
+        ${MOSQUITTO_LIBRARY}
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags
 )
+target_include_directories(Patchy PRIVATE ${MOSQUITTO_INCLUDE_DIR})
 
 target_compile_definitions(Patchy PRIVATE
         JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1

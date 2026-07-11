@@ -576,6 +576,22 @@ void WebBridge::handleMessage (const juce::String& json)
             if (auto* nd = graph.findNode (nodeId))
                 pushSettingsToUI (nodeId, nd->settingsJson);
         }
+        else if (key == "mqttSubscribeSettings" && onSetMqttSubscribeSettings)
+        {
+            // value is a JSON object: { host, port, topic, qos, username, password }
+            auto parsed = juce::JSON::parse (value);
+            juce::String host      = parsed["host"].toString();
+            int port               = (int) parsed["port"];
+            juce::String topic     = parsed["topic"].toString();
+            int qos                = (int) parsed["qos"];
+            juce::String username  = parsed["username"].toString();
+            juce::String password  = parsed["password"].toString();
+
+            onSetMqttSubscribeSettings (nodeId, host, port, topic, qos, username, password);
+
+            if (auto* nd = graph.findNode (nodeId))
+                pushSettingsToUI (nodeId, nd->settingsJson);
+        }
         else if (key == "artNetSettings" && onSetArtNetSettings)
         {
             // value is a JSON object: { universe, targetHost }

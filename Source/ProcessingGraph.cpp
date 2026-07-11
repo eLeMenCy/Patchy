@@ -11,6 +11,7 @@
 #include "AudioMonitorNode.h"
 #include "OscMonitorNode.h"
 #include "UdpMonitorNode.h"
+#include "MqttDeviceNodes.h"
 #include <unordered_set>
 #include <algorithm>
 
@@ -92,6 +93,7 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                 case 19: proc = std::make_unique<ArtNetConsoleNode>   (id, getArtNetConsoleBuffer ? getArtNetConsoleBuffer(id) : nullptr); break;
                 case 20: proc = std::make_unique<OscMonitorNode>      (id, getOscMonitorBuffer  ? getOscMonitorBuffer(id)  : nullptr); break;
                 case 21: proc = std::make_unique<UdpMonitorNode>      (id, getUdpMonitorBuffer  ? getUdpMonitorBuffer(id)  : nullptr); break;
+                case 22: proc = std::make_unique<MqttSubscribeNode>   (id); break;
                 default:
                     juce::Logger::writeToLog ("ProcessingGraph: unknown built-in type " + juce::String (type));
                     break;
@@ -474,6 +476,13 @@ OscInDeviceNode* ProcessingGraph::findOscInNode (const juce::String& nodeId)
     auto it = nodeMap.find (nodeId);
     if (it == nodeMap.end()) return nullptr;
     return dynamic_cast<OscInDeviceNode*> (it->second);
+}
+
+MqttSubscribeNode* ProcessingGraph::findMqttSubscribeNode (const juce::String& nodeId)
+{
+    auto it = nodeMap.find (nodeId);
+    if (it == nodeMap.end()) return nullptr;
+    return dynamic_cast<MqttSubscribeNode*> (it->second);
 }
 
 OscOutDeviceNode* ProcessingGraph::findOscOutNode (const juce::String& nodeId)

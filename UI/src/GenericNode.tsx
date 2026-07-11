@@ -41,6 +41,7 @@ const THEME: Record<number, { accent: string; dim: string; glow: string; tag: st
   17: { accent: 'var(--dmx)',    dim: 'var(--dmx-dim)',    glow: 'var(--dmx-glow)',    tag: 'DMX CONSOLE'       },
   18: { accent: 'var(--artnet)', dim: 'var(--artnet-dim)', glow: 'var(--artnet-glow)', tag: 'ARTNET MONITOR'    },
   19: { accent: 'var(--artnet)', dim: 'var(--artnet-dim)', glow: 'var(--artnet-glow)', tag: 'ARTNET CONSOLE'    },
+  22: { accent: 'var(--mqtt)',   dim: 'var(--mqtt-dim)',   glow: 'var(--mqtt-glow)',   tag: 'MQTT SUBSCRIBE'   },
 };
 // Default theme for Pax nodes
 const PAX_THEME = { accent: 'var(--av)', dim: 'var(--av-dim)', glow: 'var(--av-glow)', tag: 'PAX' };
@@ -496,6 +497,205 @@ function OscPortSummary ({ port, oscAddress, byteRate, onClick }: {
   );
 }
 
+// ── MQTT Subscribe settings panel ───────────────────────────────────────────
+function MqttSubscribeSettingsPanel ({ nodeId, host, port, topic, qos, username, password, onClose }: {
+  nodeId:   string;
+  host:     string;
+  port:     number;
+  topic:    string;
+  qos:      0 | 1 | 2;
+  username: string;
+  password: string;
+  onClose:  () => void;
+}) {
+  const accent = 'var(--mqtt)';
+
+  // Local state, seeded from props, updated instantly on every keystroke —
+  // this is what the inputs actually display, so typing feels normal.
+  // The backend commit (which tears down and rebuilds a real TCP
+  // connection, unlike UDP/OSC's cheap socket open) is debounced
+  // separately: firing it on every keystroke would hammer the broker with
+  // rapid connect/disconnect churn, which can itself cause transient
+  // connect errors. Local state re-syncs from props if the node's
+  // settingsJson changes from elsewhere (e.g. undo/redo).
+  const [localHost, setLocalHost] = useState(host);
+  const [localPort, setLocalPort] = useState(port);
+  const [localTopic, setLocalTopic] = useState(topic);
+  const [localQos, setLocalQos] = useState(qos);
+  const [localUsername, setLocalUsername] = useState(username);
+  const [localPassword, setLocalPassword] = useState(password);
+
+  useEffect(() => { setLocalHost(host); },         [host]);
+  useEffect(() => { setLocalPort(port); },         [port]);
+  useEffect(() => { setLocalTopic(topic); },       [topic]);
+  useEffect(() => { setLocalQos(qos); },           [qos]);
+  useEffect(() => { setLocalUsername(username); }, [username]);
+  useEffect(() => { setLocalPassword(password); }, [password]);
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const commit = (next: { host?: string; port?: number; topic?: string; qos?: 0 | 1 | 2;
+                          username?: string; password?: string }) => {
+    // Update local state immediately — this is what makes typing feel normal
+    if (next.host      !== undefined) setLocalHost(next.host);
+    if (next.port      !== undefined) setLocalPort(next.port);
+    if (next.topic     !== undefined) setLocalTopic(next.topic);
+    if (next.qos       !== undefined) setLocalQos(next.qos);
+    if (next.username  !== undefined) setLocalUsername(next.username);
+    if (next.password  !== undefined) setLocalPassword(next.password);
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      Bridge.setMqttSubscribeSettings(
+        nodeId,
+        next.host     ?? localHost,
+        next.port     ?? localPort,
+        next.topic    ?? localTopic,
+        next.qos      ?? localQos,
+        next.username ?? localUsername,
+        next.password ?? localPassword,
+      );
+    }, 600);
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', fontSize: 10, padding: '3px 6px', marginTop: 2,
+    background: 'var(--surface)', border: '1px solid var(--border)',
+    borderRadius: 3, color: 'var(--text-dim)',
+    fontFamily: "'JetBrains Mono', monospace",
+  };
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em',
+    textTransform: 'uppercase', marginTop: 8, marginBottom: 4,
+  };
+
+  return (
+    <div
+      className="nodrag"
+      onMouseDown={e => e.stopPropagation()}
+      onMouseUp={e => e.stopPropagation()}
+      onPointerDown={e => e.stopPropagation()}
+      onPointerUp={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+      style={{
+        position: 'absolute', top: 0, left: '100%', marginLeft: 6,
+        width: 220, background: 'var(--surface2)',
+        border: '1px solid var(--border-hi)', borderRadius: 'var(--radius)',
+        padding: '10px 12px', zIndex: 1000,
+        boxShadow: '0 8px 32px rgba(0,0,0,.6)',
+        fontFamily: "'JetBrains Mono', monospace",
+        userSelect: 'none',
+      }}>
+      <SettingsPanelHeader
+        title="MQTT SUBSCRIBE Settings"
+        onReset={() => commit({ host: '', port: 1883, topic: '', qos: 1, username: '', password: '' })}
+        onClose={onClose}
+      />
+
+      <div style={labelStyle}>Broker Host</div>
+      <input
+        type="text" value={localHost} placeholder="127.0.0.1"
+        autoCapitalize="off" autoCorrect="off" spellCheck={false}
+        onChange={e => commit({ host: e.target.value })}
+        style={inputStyle}
+      />
+
+      <div style={labelStyle}>Broker Port</div>
+      <input
+        type="number" min={1} max={65535} value={localPort || ''}
+        placeholder="1883"
+        onChange={e => commit({ port: parseInt(e.target.value, 10) || 1883 })}
+        style={inputStyle}
+      />
+
+      <div style={labelStyle}>Topic</div>
+      <input
+        type="text" value={localTopic} placeholder="e.g. sensors/+/temperature"
+        autoCapitalize="off" autoCorrect="off" spellCheck={false}
+        onChange={e => commit({ topic: e.target.value })}
+        style={inputStyle}
+      />
+      <div style={{ fontSize: 9, color: accent, marginTop: 4, opacity: 0.7 }}>
+        Wildcards: + (one level), # (all remaining)
+      </div>
+
+      <div style={labelStyle}>QoS</div>
+      <NodeSelect
+        value={String(localQos)}
+        onChange={v => commit({ qos: parseInt(v, 10) as 0 | 1 | 2 })}
+        options={[
+          { id: '0', name: '0 — At most once' },
+          { id: '1', name: '1 — At least once' },
+          { id: '2', name: '2 — Exactly once' },
+        ]}
+        accent={accent}
+        showEmpty={false}
+      />
+
+      <div style={labelStyle}>Username (optional)</div>
+      <input
+        type="text" value={localUsername} placeholder=""
+        autoCapitalize="off" autoCorrect="off" spellCheck={false}
+        onChange={e => commit({ username: e.target.value })}
+        style={inputStyle}
+      />
+
+      <div style={labelStyle}>Password (optional)</div>
+      <input
+        type="password" value={localPassword} placeholder=""
+        autoCapitalize="off" autoCorrect="off"
+        onChange={e => commit({ password: e.target.value })}
+        style={inputStyle}
+      />
+
+      {(!localHost || !localTopic) && (
+        <div style={{ fontSize: 9, color: '#ef5350', marginTop: 6 }}>
+          Set broker host and topic to activate
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── MQTT Subscribe summary label ────────────────────────────────────────────
+function MqttSubscribeSummary ({ host, port, topic, onClick }: {
+  host:    string;
+  port:    number;
+  topic:   string;
+  onClick: () => void;
+}) {
+  const baseStyle: React.CSSProperties = {
+    fontSize: 9, marginBottom: 3, letterSpacing: '0.05em',
+    cursor: 'pointer', borderRadius: 3, padding: '2px 4px',
+    transition: 'background .12s',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+  };
+  if (!host || !topic) {
+    return (
+      <div
+        className="nodrag"
+        onClick={onClick}
+        style={{ ...baseStyle, color: '#ef5350', justifyContent: 'center' }}
+        onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(239,83,80,.12)'; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+      >
+        Set host and topic
+      </div>
+    );
+  }
+  return (
+    <div
+      className="nodrag"
+      onClick={onClick}
+      style={{ ...baseStyle, color: 'var(--text-muted)' }}
+      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--surface)'; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+    >
+      <span style={{ flex: 1, textAlign: 'center' }}>{host}:{port} · {topic}</span>
+    </div>
+  );
+}
+
 // ── ArtNet settings panel ─────────────────────────────────────────────────────
 function ArtNetDeviceSettingsPanel ({ nodeId, nodeType, universe, targetHost, onClose }: {
   nodeId:     string;
@@ -931,6 +1131,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
   const isAudioDevice = nodeData.nodeType === 3 || nodeData.nodeType === 4;
   const isUdpDevice    = nodeData.nodeType === 8  || nodeData.nodeType === 9;
   const isOscDevice    = nodeData.nodeType === 10 || nodeData.nodeType === 11;
+  const isMqttSubscribeDevice = nodeData.nodeType === 22;
   const isArtNetDevice = nodeData.nodeType === 12 || nodeData.nodeType === 13;
   const isDmxDevice    = nodeData.nodeType === 14 || nodeData.nodeType === 15;
   const { setHint } = useContext(HintContext);
@@ -1029,6 +1230,27 @@ function GenericNode({ id, data, selected }: NodeProps) {
     });
     return unsub;
   }, [id, nodeData.nodeType]);
+
+  // ── MQTT Subscribe settings state ───────────────────────────────────────────
+  const [mqttHost, setMqttHost] = useState('');
+  const [mqttPort, setMqttPort] = useState<number>(1883);
+  const [mqttTopic, setMqttTopic] = useState('');
+  const [mqttQos, setMqttQos] = useState<0 | 1 | 2>(1);
+  const [mqttUsername, setMqttUsername] = useState('');
+  const [mqttPassword, setMqttPassword] = useState('');
+
+  useEffect(() => {
+    if (!isMqttSubscribeDevice) return;
+    try {
+      const parsed = nodeData.settingsJson ? JSON.parse(nodeData.settingsJson as string) : null;
+      setMqttHost(parsed?.mqttHost ?? '');
+      setMqttPort(parsed?.mqttPort ?? 1883);
+      setMqttTopic(parsed?.mqttTopic ?? '');
+      setMqttQos((parsed?.mqttQos ?? 1) as 0 | 1 | 2);
+      setMqttUsername(parsed?.mqttUsername ?? '');
+      setMqttPassword(parsed?.mqttPassword ?? '');
+    } catch {}
+  }, [nodeData.settingsJson, isMqttSubscribeDevice]);
 
   // ArtNet state
   const [artNetUniverse,   setArtNetUniverse]   = useState<number>(0);
@@ -1179,7 +1401,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
   return (
     <div
       style={{
-        minWidth:   (isUdpDevice || isOscDevice || isArtNetDevice || isDmxDevice) ? 310 : Math.max(theme.tag.length * 10 + 80, 220),
+        minWidth:   (isUdpDevice || isOscDevice || isMqttSubscribeDevice || isArtNetDevice || isDmxDevice) ? 310 : Math.max(theme.tag.length * 10 + 80, 220),
         userSelect: 'none',
         ...nodeContainerStyle(theme.accent, !!selected, { bg: 'var(--surface)', glow: theme.glow }),
       }}
@@ -1312,6 +1534,27 @@ function GenericNode({ id, data, selected }: NodeProps) {
           </div>
         )}
 
+        {/* MQTT Subscribe settings button */}
+        {isMqttSubscribeDevice && (
+          <div style={{ position: 'relative', display: 'inline-flex' }}>
+            <NodeHeaderButton
+              onClick={toggleSettings}
+              active={showSettings}
+              activeAccent="var(--mqtt)"
+              onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.settings), onMouseLeave: () => setHint(null) }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </NodeHeaderButton>
+            {(!mqttHost || !mqttTopic) && !showSettings && (
+              <div style={{
+                position: 'absolute', top: -3, right: -3,
+                width: 7, height: 7, borderRadius: '50%',
+                background: '#ef5350', pointerEvents: 'none',
+              }} />
+            )}
+          </div>
+        )}
         {/* ArtNet device settings button */}
         {isArtNetDevice && (
           <div style={{ position: 'relative', display: 'inline-flex' }}>
@@ -1408,6 +1651,21 @@ function GenericNode({ id, data, selected }: NodeProps) {
               port={oscPort}
               targetHost={oscTargetHost}
               oscAddress={oscAddress}
+              onClose={closeSettings}
+            />
+          )}
+        </>)}
+        {isMqttSubscribeDevice && (<>
+          <MqttSubscribeSummary host={mqttHost} port={mqttPort} topic={mqttTopic} onClick={toggleSettings} />
+          {showSettings && (
+            <MqttSubscribeSettingsPanel
+              nodeId={id}
+              host={mqttHost}
+              port={mqttPort}
+              topic={mqttTopic}
+              qos={mqttQos}
+              username={mqttUsername}
+              password={mqttPassword}
               onClose={closeSettings}
             />
           )}
@@ -1566,7 +1824,7 @@ Double-click to reset to default (${p.defaultValue}).` })}
       {inputs.map((p, i) => (
         <NodeHandle key={p.id}
           nodeId={id} label={p.label} direction="in"
-          colour={isUdpDevice ? 'var(--udp)' : isOscDevice ? 'var(--osc)' : isArtNetDevice ? 'var(--artnet)' : isDmxDevice ? 'var(--dmx)' : portColour(p.type)}
+          colour={isUdpDevice ? 'var(--udp)' : isOscDevice ? 'var(--osc)' : isMqttSubscribeDevice ? 'var(--mqtt)' : isArtNetDevice ? 'var(--artnet)' : isDmxDevice ? 'var(--dmx)' : portColour(p.type)}
           index={i} total={inputs.length}
           offset={isPax ? 6 : 8}
           portBodyRef={portBodyRef}
@@ -1578,7 +1836,7 @@ Double-click to reset to default (${p.defaultValue}).` })}
       {outputs.map((p, i) => (
         <NodeHandle key={p.id}
           nodeId={id} label={p.label} direction="out"
-          colour={isUdpDevice ? 'var(--udp)' : isOscDevice ? 'var(--osc)' : isArtNetDevice ? 'var(--artnet)' : isDmxDevice ? 'var(--dmx)' : portColour(p.type)}
+          colour={isUdpDevice ? 'var(--udp)' : isOscDevice ? 'var(--osc)' : isMqttSubscribeDevice ? 'var(--mqtt)' : isArtNetDevice ? 'var(--artnet)' : isDmxDevice ? 'var(--dmx)' : portColour(p.type)}
           index={i} total={outputs.length}
           offset={isPax ? 6 : 8}
           portBodyRef={portBodyRef}

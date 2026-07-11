@@ -55,6 +55,12 @@ const BUILTIN_GROUPS = [
       { type: 20 as const, label: 'OSC Monitor',    desc: 'Display OSC messages',                icon: '⊞' },
     ],
   },
+  {
+    label: 'MQTT', accent: 'var(--mqtt)', dim: 'var(--mqtt-dim)',
+    nodes: [
+      { type: 22 as const, label: 'MQTT Subscribe', desc: 'Subscribe to a broker topic', icon: '⊲' },
+    ],
+  },
 ] as const;
 
 const PLUGIN_GROUPS = [

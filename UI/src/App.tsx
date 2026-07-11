@@ -152,6 +152,7 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
   const oscTimers     = useRef<Map<string, number>>(new Map());
   const artNetTimers  = useRef<Map<string, number>>(new Map());
   const dmxTimers     = useRef<Map<string, number>>(new Map());
+  const mqttTimers    = useRef<Map<string, number>>(new Map());
   const audioLevels   = useRef<Map<string, number>>(new Map());
   const portRmsLevels = useRef<Map<string, number[]>>(new Map());
   const edgeList      = useRef(edges);
@@ -183,6 +184,8 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
             artNetTimers.current.set(entry.id, now + 80);
           } else if (nodeType === 14 || nodeType === 15 || nodeType === 16 || nodeType === 17) {
             dmxTimers.current.set(entry.id, now + 80);
+          } else if (nodeType === 22) {
+            mqttTimers.current.set(entry.id, now + 80);
           } else {
             midiTimers.current.set(entry.id, now + 80);
           }
@@ -236,7 +239,9 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
       artNetTimers.current.forEach((expiry, id) => { if (expiry > now) artNetSources.add(id); });
       const dmxSources    = new Set<string>(dmxEdges.map(e => e.source));
       dmxTimers.current.forEach((expiry, id) => { if (expiry > now) dmxSources.add(id); });
-      const allSources   = new Set([...audioSources, ...midiSources, ...udpSources, ...oscSources, ...artNetSources, ...dmxSources]);
+      const mqttSources   = new Set<string>();
+      mqttTimers.current.forEach((expiry, id) => { if (expiry > now) mqttSources.add(id); });
+      const allSources   = new Set([...audioSources, ...midiSources, ...udpSources, ...oscSources, ...artNetSources, ...dmxSources, ...mqttSources]);
 
       let css = '';
 
@@ -285,6 +290,19 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
           const fc = '#93c5fd';
           css += `[data-handleid="${id}_Value Out_out"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
           nodeUdpEdges.forEach(e => {
+            css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${fc}!important;filter:drop-shadow(0 0 4px ${fc});transition:none}`;
+            if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
+          });
+        }
+
+        // MQTT flash — reuses udpEdges (both use the "Value Out" port label),
+        // filtered down to this node's own edges via e.source === id
+        const isMqttFlash = (mqttTimers.current.get(id) ?? 0) > now;
+        if (isMqttFlash) {
+          const nodeMqttEdges = udpEdges.filter(e => e.source === id);
+          const fc = '#fb7185'; // --mqtt coral/salmon
+          css += `[data-handleid="${id}_Value Out_out"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
+          nodeMqttEdges.forEach(e => {
             css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${fc}!important;filter:drop-shadow(0 0 4px ${fc});transition:none}`;
             if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
           });

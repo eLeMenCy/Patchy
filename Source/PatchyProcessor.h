@@ -38,7 +38,7 @@ public:
 
     //─── AudioProcessor ────────────────────────────────────────────────────
     void prepareToPlay  (double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override {}
+    void releaseResources() override { processingGraph.closeAllProtocolDeviceSockets(); }
     void processBlock   (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
@@ -202,6 +202,46 @@ public:
             obj->setProperty ("udpMode",           mode);
             obj->setProperty ("udpTargetHost",     targetHost);
             obj->setProperty ("udpMulticastAddr",  multicastAddr);
+            node->settingsJson = juce::JSON::toString (existing, true);
+        }
+    }
+
+    /** Apply MQTT Subscribe settings and persist them. */
+    void setMqttSubscribeSettings (const juce::String& nodeId,
+                                   const juce::String& host, int port,
+                                   const juce::String& topic, int qos,
+                                   const juce::String& username, const juce::String& password)
+    {
+        MqttDeviceManager::Settings s;
+        s.host     = host;
+        s.port     = port;
+        s.topic    = topic;
+        s.qos      = qos;
+        s.username = username;
+        s.password = password;
+
+        mqttDeviceManager.storeSettings (nodeId, s);
+        mqttDeviceManager.applyToGraph (nodeId, processingGraph);
+        if (pendingGraph != nullptr)
+            mqttDeviceManager.applyToGraph (nodeId, *pendingGraph);
+
+        // Persist in settingsJson for save/restore. Password is included —
+        // same as usernames/hosts already stored in plain settingsJson
+        // elsewhere in this file; no credential encryption exists yet
+        // anywhere in Patchy's settings storage.
+        if (auto* node = graphModel.findNode (nodeId))
+        {
+            juce::var existing;
+            try { existing = juce::JSON::parse (node->settingsJson); } catch (...) {}
+            if (existing.getDynamicObject() == nullptr)
+                existing = new juce::DynamicObject();
+            auto* obj = existing.getDynamicObject();
+            obj->setProperty ("mqttHost",     host);
+            obj->setProperty ("mqttPort",     port);
+            obj->setProperty ("mqttTopic",    topic);
+            obj->setProperty ("mqttQos",      qos);
+            obj->setProperty ("mqttUsername", username);
+            obj->setProperty ("mqttPassword", password);
             node->settingsJson = juce::JSON::toString (existing, true);
         }
     }
@@ -870,6 +910,7 @@ private:
     AudioDeviceManager  audioDeviceManager;
     UdpDeviceManager    udpDeviceManager;
     OscDeviceManager    oscDeviceManager;
+    MqttDeviceManager   mqttDeviceManager;
     ArtNetDeviceManager artNetDeviceManager;
     DmxDeviceManager    dmxDeviceManager;
     std::unordered_map<juce::String, std::unique_ptr<MidiMonitorBuffer>>  monitorBuffers;

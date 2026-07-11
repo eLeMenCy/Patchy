@@ -35,6 +35,10 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
     bridge.onSetOscSettings          = [&p](const juce::String& nid, int port,
                                             const juce::String& targetHost, const juce::String& oscAddress)
                                        { p.setOscSettings (nid, port, targetHost, oscAddress); };
+    bridge.onSetMqttSubscribeSettings = [&p](const juce::String& nid, const juce::String& host, int port,
+                                             const juce::String& topic, int qos,
+                                             const juce::String& username, const juce::String& password)
+                                       { p.setMqttSubscribeSettings (nid, host, port, topic, qos, username, password); };
     bridge.onSetArtNetSettings       = [&p](const juce::String& nid, int universe,
                                             const juce::String& targetHost)
                                        { p.setArtNetSettings (nid, universe, targetHost); };

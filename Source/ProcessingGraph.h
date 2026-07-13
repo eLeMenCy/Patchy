@@ -94,6 +94,7 @@ public:
     UdpOutDeviceNode*   findUdpOutNode   (const juce::String& nodeId);
     OscInDeviceNode*    findOscInNode    (const juce::String& nodeId);
     MqttSubscribeNode*  findMqttSubscribeNode (const juce::String& nodeId);
+    MqttPublishNode*    findMqttPublishNode   (const juce::String& nodeId);
     OscOutDeviceNode*   findOscOutNode   (const juce::String& nodeId);
     ArtNetInDeviceNode*  findArtNetInNode  (const juce::String& nodeId);
     ArtNetOutDeviceNode* findArtNetOutNode (const juce::String& nodeId);

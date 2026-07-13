@@ -133,6 +133,12 @@ std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
         // no input (source node, same shape as a Console)
         mk ("Value Out", PortType::Value, PortDirection::Output);
     }
+    else if (t == 23)
+    {
+        // MqttPublishNode: Value In only — publishes to a broker topic,
+        // no output (sink node)
+        mk ("Value In", PortType::Value, PortDirection::Input);
+    }
     else if (t >= 100)
     {
         // Dynamic addon node — ports based on NGA nodeType (t - 100)
@@ -189,6 +195,7 @@ static juce::String labelForType (int t, const juce::String& paxName)
         case 20: return "OSC Monitor";
         case 21: return "UDP Monitor";
         case 22: return "MQTT Subscribe";
+        case 23: return "MQTT Publish";
         default: return "Addon Node";
     }
 }

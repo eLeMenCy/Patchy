@@ -246,6 +246,44 @@ public:
         }
     }
 
+    /** Apply MQTT Publish settings and persist them. */
+    void setMqttPublishSettings (const juce::String& nodeId,
+                                 const juce::String& host, int port,
+                                 const juce::String& topic, int qos, bool retain,
+                                 const juce::String& username, const juce::String& password)
+    {
+        MqttDeviceManager::Settings s;
+        s.host     = host;
+        s.port     = port;
+        s.topic    = topic;
+        s.qos      = qos;
+        s.retain   = retain;
+        s.username = username;
+        s.password = password;
+
+        mqttDeviceManager.storeSettings (nodeId, s);
+        mqttDeviceManager.applyToGraph (nodeId, processingGraph);
+        if (pendingGraph != nullptr)
+            mqttDeviceManager.applyToGraph (nodeId, *pendingGraph);
+
+        if (auto* node = graphModel.findNode (nodeId))
+        {
+            juce::var existing;
+            try { existing = juce::JSON::parse (node->settingsJson); } catch (...) {}
+            if (existing.getDynamicObject() == nullptr)
+                existing = new juce::DynamicObject();
+            auto* obj = existing.getDynamicObject();
+            obj->setProperty ("mqttHost",     host);
+            obj->setProperty ("mqttPort",     port);
+            obj->setProperty ("mqttTopic",    topic);
+            obj->setProperty ("mqttQos",      qos);
+            obj->setProperty ("mqttRetain",   retain);
+            obj->setProperty ("mqttUsername", username);
+            obj->setProperty ("mqttPassword", password);
+            node->settingsJson = juce::JSON::toString (existing, true);
+        }
+    }
+
     /** Apply OSC settings (port, targetHost, oscAddress) to a live node and persist them. */
     void setOscSettings (const juce::String& nodeId,
                          int port,

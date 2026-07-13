@@ -14,6 +14,11 @@ bool MqttDeviceManager::applyToGraph (const juce::String& nodeId, ProcessingGrap
         sub->configure (s.host, s.port, s.topic, s.qos, s.username, s.password);
         return true;
     }
+    if (auto* pub = graph.findMqttPublishNode (nodeId))
+    {
+        pub->configure (s.host, s.port, s.topic, s.qos, s.retain, s.username, s.password);
+        return true;
+    }
     return false;
 }
 

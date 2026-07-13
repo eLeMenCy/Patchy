@@ -94,6 +94,7 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                 case 20: proc = std::make_unique<OscMonitorNode>      (id, getOscMonitorBuffer  ? getOscMonitorBuffer(id)  : nullptr); break;
                 case 21: proc = std::make_unique<UdpMonitorNode>      (id, getUdpMonitorBuffer  ? getUdpMonitorBuffer(id)  : nullptr); break;
                 case 22: proc = std::make_unique<MqttSubscribeNode>   (id); break;
+                case 23: proc = std::make_unique<MqttPublishNode>     (id); break;
                 default:
                     juce::Logger::writeToLog ("ProcessingGraph: unknown built-in type " + juce::String (type));
                     break;
@@ -483,6 +484,13 @@ MqttSubscribeNode* ProcessingGraph::findMqttSubscribeNode (const juce::String& n
     auto it = nodeMap.find (nodeId);
     if (it == nodeMap.end()) return nullptr;
     return dynamic_cast<MqttSubscribeNode*> (it->second);
+}
+
+MqttPublishNode* ProcessingGraph::findMqttPublishNode (const juce::String& nodeId)
+{
+    auto it = nodeMap.find (nodeId);
+    if (it == nodeMap.end()) return nullptr;
+    return dynamic_cast<MqttPublishNode*> (it->second);
 }
 
 OscOutDeviceNode* ProcessingGraph::findOscOutNode (const juce::String& nodeId)

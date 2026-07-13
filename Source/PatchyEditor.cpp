@@ -39,6 +39,10 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
                                              const juce::String& topic, int qos,
                                              const juce::String& username, const juce::String& password)
                                        { p.setMqttSubscribeSettings (nid, host, port, topic, qos, username, password); };
+    bridge.onSetMqttPublishSettings   = [&p](const juce::String& nid, const juce::String& host, int port,
+                                             const juce::String& topic, int qos, bool retain,
+                                             const juce::String& username, const juce::String& password)
+                                       { p.setMqttPublishSettings (nid, host, port, topic, qos, retain, username, password); };
     bridge.onSetArtNetSettings       = [&p](const juce::String& nid, int universe,
                                             const juce::String& targetHost)
                                        { p.setArtNetSettings (nid, universe, targetHost); };

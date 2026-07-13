@@ -276,6 +276,235 @@ private:
 
 // ─────────────────────────────────────────────────────────────────────────────
 /**
+ * MqttPublishNode  (nodeType 23)
+ *
+ * 1 Value In port. Publishes each incoming PAX_Value to an MQTT broker.
+ *
+ * Topic: data[] overrides the configured topic when non-empty — mirrors
+ * OSC Out's address-override convention, and composes naturally with
+ * MqttSubscribeNode (topic-in-data[] on receive -> topic-in-data[] on
+ * republish), so chaining Subscribe straight into Publish gives a working
+ * "relay to the same topic" with zero special-casing.
+ *
+ * Payload: always the numeric `value`, formatted as plain decimal text
+ * (e.g. "23.5") — matches common MQTT convention (Node-RED, Home
+ * Assistant, etc. publish plain numeric strings, not JSON-wrapped). Same
+ * v1 scoping as MqttSubscribeNode: numeric payloads only.
+ *
+ * Uses its own dedicated send thread + FIFO — same shape as
+ * OscOutDeviceNode/UdpOutDeviceNode — rather than calling
+ * mosquitto_publish() directly from process() (audio thread), since
+ * libmosquitto's internal locking isn't guaranteed real-time-safe.
+ *
+ * NOTE: uses manualReset=false on its WaitableEvent, unlike
+ * OscOutDeviceNode/UdpOutDeviceNode which still use manualReset=true with
+ * no .reset() call anywhere — a latent CPU-spin bug (same root cause as
+ * the DmxOutDeviceNode fix). See Architecture.md Phase 6 table — pending
+ * follow-up to fix those two, not carried into this new code.
+ */
+class MqttPublishNode : public NodeProcessor,
+                         private juce::Thread
+{
+public:
+    explicit MqttPublishNode (const juce::String& nodeId)
+        : NodeProcessor (nodeId, Type::Midi),
+          juce::Thread ("MqttPublish_" + nodeId)
+    {
+        clientId = "Patchy_" + juce::Uuid().toString().substring (0, 8);
+    }
+
+    ~MqttPublishNode() override { teardown(); }
+
+    /** Tears down any existing connection and establishes a fresh one with
+     *  the given settings — same "fully close then reopen" convention as
+     *  MqttSubscribeNode::configure(). */
+    void configure (const juce::String& host, int port, const juce::String& topicToUse,
+                    int qosToUse, bool retainToUse, const juce::String& user, const juce::String& pass)
+    {
+        int clampedQos = juce::jlimit (0, 2, qosToUse);
+        int clampedPort = port > 0 ? port : 1883;
+
+        if (mosq != nullptr
+            && brokerHost == host && brokerPort == clampedPort && topic == topicToUse
+            && qos == clampedQos && retain == retainToUse && username == user && password == pass)
+            return;
+
+        teardown();
+
+        brokerHost = host;
+        brokerPort = clampedPort;
+        topic      = topicToUse;
+        qos        = clampedQos;
+        retain     = retainToUse;
+        username   = user;
+        password   = pass;
+
+        if (brokerHost.isEmpty() || topic.isEmpty())
+            return;   // Not enough to connect yet — wait for full settings
+
+        mosq = mosquitto_new (clientId.toRawUTF8(), true, this);
+        if (mosq == nullptr)
+        {
+            juce::Logger::writeToLog ("MqttPublishNode: mosquitto_new failed");
+            return;
+        }
+
+        if (username.isNotEmpty())
+            mosquitto_username_pw_set (mosq, username.toRawUTF8(),
+                                       password.isNotEmpty() ? password.toRawUTF8() : nullptr);
+
+        mosquitto_connect_callback_set (mosq, &MqttPublishNode::onConnectTrampoline);
+
+        // Same call-order requirement as MqttSubscribeNode::configure() —
+        // loop_start() must come before connect_async() on macOS
+        // (known upstream quirk, eclipse-mosquitto#365).
+        mosquitto_loop_start (mosq);
+
+        int rc = mosquitto_connect_async (mosq, brokerHost.toRawUTF8(), brokerPort, 60);
+        if (rc != MOSQ_ERR_SUCCESS)
+        {
+            juce::String extra;
+            if (rc == MOSQ_ERR_ERRNO)
+                extra = juce::String (" (errno ") + juce::String (errno) + ": "
+                        + juce::String (strerror (errno)) + ")";
+            juce::Logger::writeToLog ("MqttPublishNode: connect failed - "
+                                       + juce::String (mosquitto_strerror (rc)) + extra
+                                       + " [host=" + brokerHost + " port=" + juce::String (brokerPort)
+                                       + " clientId=" + clientId + "]");
+            mosquitto_loop_stop (mosq, true);
+            mosquitto_destroy (mosq);
+            mosq = nullptr;
+            return;
+        }
+
+        connected = false;   // set true in onConnect callback once handshake completes
+        startThread (juce::Thread::Priority::normal);
+    }
+
+    void process (int /*numSamples*/) override
+    {
+        for (int i = 0; i < inputValueCount; ++i)
+            sendQueue.push (inputValues[static_cast<size_t> (i)]);
+
+        if (inputValueCount > 0)
+        {
+            sendQueue.signalDataAvailable();
+            recordMidiActivity (inputValueCount);
+        }
+    }
+
+    juce::String brokerHost;
+    int          brokerPort = 1883;
+    juce::String topic;
+    int          qos = 1;
+    bool         retain = false;
+    juce::String username;
+    juce::String password;
+    juce::String clientId;
+    std::atomic<bool> connected { false };
+
+private:
+    void teardown()
+    {
+        if (isThreadRunning())
+        {
+            signalThreadShouldExit();
+            sendQueue.signalDataAvailable();
+            stopThread (1000);
+        }
+        if (mosq != nullptr)
+        {
+            mosquitto_disconnect (mosq);
+            mosquitto_loop_stop (mosq, false);
+            mosquitto_destroy (mosq);
+            mosq = nullptr;
+        }
+        connected = false;
+    }
+
+    static void onConnectTrampoline (struct mosquitto*, void* userdata, int rc)
+    {
+        auto* self = static_cast<MqttPublishNode*> (userdata);
+        if (self == nullptr) return;
+        if (rc == 0)
+        {
+            self->connected = true;
+            juce::Logger::writeToLog ("MqttPublishNode: connected to "
+                                       + self->brokerHost + ":" + juce::String (self->brokerPort));
+        }
+        else
+        {
+            self->connected = false;
+            juce::Logger::writeToLog ("MqttPublishNode: connect rejected - "
+                                       + juce::String (mosquitto_connack_string (rc)));
+        }
+    }
+
+    void run() override
+    {
+        while (! threadShouldExit())
+        {
+            PAX_Value v {};
+            if (! sendQueue.pop (v))
+            {
+                sendQueue.waitForData (100);
+                continue;
+            }
+            if (mosq == nullptr) continue;
+
+            // Topic: data[] overrides the configured topic when non-empty —
+            // mirrors OSC Out's address-override convention.
+            juce::String pubTopic = topic;
+            if (v.dataType == PAX_DATA_STRING && v.dataSize > 0)
+                pubTopic = juce::String (juce::CharPointer_UTF8 ((const char*) v.data));
+
+            if (pubTopic.isEmpty()) continue;
+
+            // Payload: numeric value as plain decimal text — same v1
+            // scoping as MqttSubscribeNode (numeric payloads only).
+            juce::String payload (v.value, 6);
+            auto payloadUtf8 = payload.toRawUTF8();
+
+            mosquitto_publish (mosq, nullptr, pubTopic.toRawUTF8(),
+                               (int) strlen (payloadUtf8), payloadUtf8, qos, retain);
+        }
+    }
+
+    static constexpr int kFifoSize = 256;
+    struct SendFifo
+    {
+        void push (const PAX_Value& v)
+        {
+            int s1, n1, s2, n2;
+            fifo.prepareToWrite (1, s1, n1, s2, n2);
+            if (n1 > 0) values[static_cast<size_t> (s1)] = v;
+            fifo.finishedWrite (n1 + n2);
+        }
+        bool pop (PAX_Value& v)
+        {
+            int s1, n1, s2, n2;
+            fifo.prepareToRead (1, s1, n1, s2, n2);
+            if (n1 == 0) return false;
+            v = values[static_cast<size_t> (s1)];
+            fifo.finishedRead (n1 + n2);
+            return true;
+        }
+        void signalDataAvailable() { event.signal(); }
+        void waitForData (int timeoutMs) { event.wait (timeoutMs); }
+
+        juce::AbstractFifo               fifo { kFifoSize };
+        std::array<PAX_Value, kFifoSize> values;
+        juce::WaitableEvent               event { false };   // auto-reset — see class comment
+    } sendQueue;
+
+    MosquittoLibraryRef libRef;   // must be declared before mosq is ever used
+    struct mosquitto* mosq = nullptr;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MqttPublishNode)
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+/**
  * MqttDeviceManager
  *
  * Owned by PatchyProcessor. Tracks per-node MQTT settings and reapplies them
@@ -290,6 +519,7 @@ public:
         int          port = 1883;
         juce::String topic;
         int          qos  = 1;
+        bool         retain = false;   // Publish only
         juce::String username;
         juce::String password;
     };

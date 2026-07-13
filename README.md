@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.895
+> Version 0.0.896
 
 ---
 
@@ -46,13 +46,14 @@
 - **Fragment export/import** — select any nodes, export as a reusable `.patchy` fragment, reimport with ghost-placement UX
 - **50-step undo/redo** — full graph snapshot history via `⌘Z` / `⌘⇧Z`
 - **Parameter persistence** — Pax parameters (sliders, steps) survive graph rebuilds, file loads and app restarts
-- **Built-in nodes** — MIDI In/Out, Audio In/Out, MIDI Monitor, Audio Monitor (oscilloscope), MIDI Keyboard, UDP In/Out, OSC In/Out, ArtNet In/Out, DMX In/Out, DMX Monitor, DMX Console, ArtNet Monitor, ArtNet Console, OSC Monitor, UDP Monitor, MQTT Subscribe
+- **Built-in nodes** — MIDI In/Out, Audio In/Out, MIDI Monitor, Audio Monitor (oscilloscope), MIDI Keyboard, UDP In/Out, OSC In/Out, ArtNet In/Out, DMX In/Out, DMX Monitor, DMX Console, ArtNet Monitor, ArtNet Console, OSC Monitor, UDP Monitor, MQTT Subscribe, MQTT Publish
 - **Protocol device nodes** — Phase 3 built-in nodes for network and hardware protocols; UDP, OSC 1.0, Art-Net (ArtDmx), DMX USB (Enttec Pro/Mk2); live byte-rate labels; change-driven activity flash
 - **DMX Monitor + Console** — vertical fader bank and bargraph display for all 512 DMX channels; configurable visible count (8/16/24/32); page navigation; dec/pct/hex format; custom name; Blackout button; full undo/redo; Console is output-only
 - **ArtNet Monitor + Console** — same 512-channel fader/bargraph as DMX; universe selector (0–32767); universe filter on Monitor (show all or filter by universe, "--" on mismatch); Blackout button; full undo/redo; Console is output-only
 - **OSC Monitor** — scrolling message log showing the complete OSC message (address + every typed argument, not just the first); address substring filter; pause/clear; independent raw-capture path so multi-arg messages are never collapsed
 - **UDP Monitor** — scrolling log of raw UDP packets with sender IP:port, byte count, and a hex/ASCII toggle display; pause/clear; same independent raw-capture rationale as OSC Monitor
 - **MQTT Subscribe** — connects to a broker (via `libmosquitto`) and subscribes to a topic; host/port/topic/QoS/username/password settings; auto-generated unique client ID per instance
+- **MQTT Publish** — publishes to a broker topic; topic can be overridden per-message from the incoming value (mirrors OSC Out's address override); numeric payload as plain decimal text; retain flag
 - **Pax system** — drop a `.dylib/.so/.dll` into the Pax folder; new node type appears in the sidebar on next launch
 - **Dynamic port counts** — Pax can change their output port count at runtime (e.g. Spectrumyser band count) without audio interruption
 - **Restructured burger menu** — `☰` top-right opens File and Edit flyout submenus with keyboard shortcuts
@@ -80,7 +81,7 @@ Patchy/
 │   │                                Background socket thread, lock-free FIFO, byte-rate counter
 │   ├── UdpMonitorNode.h/.cpp        UDP Monitor (type 21) + UdpMonitorBuffer
 │   │                                Full-detail raw capture (sender IP/port), independent of routed PAX_Value
-│   ├── MqttDeviceNodes.h/.cpp       MQTT Subscribe (type 22) + MqttDeviceManager
+│   ├── MqttDeviceNodes.h/.cpp       MQTT Subscribe (type 22) + MQTT Publish (type 23) + MqttDeviceManager
 │   │                                libmosquitto — first external C library dependency in the project
 │   ├── OscDeviceNodes.h/.cpp        OSC In (type 10) + OSC Out (type 11) + OscDeviceManager
 │   │                                Manual OscCodec (no juce_osc), OSC 1.0, byte-rate counter
@@ -178,6 +179,7 @@ Patchy/
 | 20 | OSC Monitor | OSC In + OSC Out | Scrolling log of complete OSC messages (address + every typed arg); pass-through; address substring filter; pause/clear |
 | 21 | UDP Monitor | Value In + Value Out | Scrolling log of raw UDP packets (sender IP:port, byte count, hex/ASCII toggle); pass-through; pause/clear |
 | 22 | MQTT Subscribe | Value Out | Connects to a broker and subscribes to a topic (`libmosquitto`); host/port/topic/QoS/username/password; source node, output only |
+| 23 | MQTT Publish | Value In | Publishes to a broker topic (`libmosquitto`); topic overridable per-message from incoming value; numeric payload as plain decimal text; retain flag; sink node, input only |
 | 100+ | Pax nodes | Per descriptor | Dynamically loaded from `.dylib/.so/.dll` |
 
 ---
@@ -588,4 +590,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.895 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.896 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

@@ -284,6 +284,29 @@ void PatchyProcessor::rebuildProcessingGraph()
                 catch (...) {}
             }
         }
+        else if (n.nodeType == 23)
+        {
+            // Restore MQTT Publish settings from settingsJson (undo/redo safe)
+            if (n.settingsJson.isNotEmpty())
+            {
+                try
+                {
+                    auto parsed = juce::JSON::parse (n.settingsJson);
+                    MqttDeviceManager::Settings s;
+                    s.host     = parsed["mqttHost"].toString();
+                    s.port     = (int) parsed["mqttPort"];
+                    s.topic    = parsed["mqttTopic"].toString();
+                    s.qos      = (int) parsed["mqttQos"];
+                    s.retain   = (bool) parsed["mqttRetain"];
+                    s.username = parsed["mqttUsername"].toString();
+                    s.password = parsed["mqttPassword"].toString();
+                    if (s.port <= 0) s.port = 1883;
+                    if (s.host.isNotEmpty() && s.topic.isNotEmpty())
+                        mqttDeviceManager.storeSettings (n.id, s);
+                }
+                catch (...) {}
+            }
+        }
         else if (n.nodeType == 12 || n.nodeType == 13)
         {
             // Restore ArtNet settings from settingsJson (undo/redo safe)

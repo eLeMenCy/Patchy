@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.896
+> Version 0.0.898
 
 ---
 
@@ -34,8 +34,10 @@
 ## Feature Overview
 
 - **Visual node graph** — drag, connect and rearrange processing nodes on a zoomable/pannable canvas
+- **Strict port typing** — connections are only valid between matching protocol types (MIDI, Audio, OSC, DMX, ArtNet, MQTT, UDP); a UDP node can never be wired directly into an MQTT node or any other mismatched protocol, by design — cross-protocol bridging is meant to go through dedicated converter Pax, not a raw connection
 - **Centred node drop** — nodes appear centred on the drop point, sized correctly for every node type
 - **Real-time signal flow** — ports and edges animate with live MIDI flash and audio VU colour (green → yellow → red)
+- **Colour-coded connection preview** — the dashed line shown while dragging a new connection matches the source port's own protocol colour, not a fixed generic accent
 - **Per-port VU** — multi-output nodes (Splitter, Spectrumyser) colour each output dot independently
 - **Per-node channel selection** — Audio IN/OUT nodes expose a settings panel to select any combination of physical channels; supports devices up to 256 channels (e.g. Blackhole 16ch)
 - **DAW mode** — full bidirectional audio routing between Patchy and your DAW track via a virtual "DAW" device
@@ -590,4 +592,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.896 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.898 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

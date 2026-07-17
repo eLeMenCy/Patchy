@@ -55,13 +55,13 @@ std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
     }
     else if (t == 8)
     {
-        // UdpInDeviceNode: 1 Value output (feeds downstream graph nodes)
-        mk ("Value Out", PortType::Value, PortDirection::Output);
+        // UdpInDeviceNode: 1 UDP output (feeds downstream graph nodes)
+        mk ("UDP Out", PortType::UDP, PortDirection::Output);
     }
     else if (t == 9)
     {
-        // UdpOutDeviceNode: 1 Value input (receives from upstream graph nodes)
-        mk ("Value In",  PortType::Value, PortDirection::Input);
+        // UdpOutDeviceNode: 1 UDP input (receives from upstream graph nodes)
+        mk ("UDP In",  PortType::UDP, PortDirection::Input);
     }
     else if (t == 10)
     {
@@ -123,21 +123,21 @@ std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
     }
     else if (t == 21)
     {
-        // UdpMonitorNode: Value In + Value Out (pass-through, display only)
-        mk ("Value In",  PortType::Value, PortDirection::Input);
-        mk ("Value Out", PortType::Value, PortDirection::Output);
+        // UdpMonitorNode: UDP In + UDP Out (pass-through, display only)
+        mk ("UDP In",  PortType::UDP, PortDirection::Input);
+        mk ("UDP Out", PortType::UDP, PortDirection::Output);
     }
     else if (t == 22)
     {
-        // MqttSubscribeNode: Value Out only — subscribes to a broker topic,
+        // MqttSubscribeNode: MQTT Out only — subscribes to a broker topic,
         // no input (source node, same shape as a Console)
-        mk ("Value Out", PortType::Value, PortDirection::Output);
+        mk ("MQTT Out", PortType::MQTT, PortDirection::Output);
     }
     else if (t == 23)
     {
-        // MqttPublishNode: Value In only — publishes to a broker topic,
+        // MqttPublishNode: MQTT In only — publishes to a broker topic,
         // no output (sink node)
-        mk ("Value In", PortType::Value, PortDirection::Input);
+        mk ("MQTT In", PortType::MQTT, PortDirection::Input);
     }
     else if (t >= 100)
     {

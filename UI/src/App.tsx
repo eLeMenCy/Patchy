@@ -103,8 +103,7 @@ function rawToFlowEdge(raw: RawConnection): Edge {
             : src.includes('artdmx')  ? 'edge-artnet'   // must come before 'dmx'
             : src.includes('dmx')     ? 'edge-dmx'
             : src.includes('mqtt')    ? 'edge-mqtt'
-            : src.includes('_udp_')   ? 'edge-udp'
-            : src.includes('value')   ? 'edge-udp'
+            : src.includes('udp')     ? 'edge-udp'
             : 'edge-midi';
   return {
     id:           raw.id,
@@ -184,7 +183,7 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
             artNetTimers.current.set(entry.id, now + 80);
           } else if (nodeType === 14 || nodeType === 15 || nodeType === 16 || nodeType === 17) {
             dmxTimers.current.set(entry.id, now + 80);
-          } else if (nodeType === 22) {
+          } else if (nodeType === 22 || nodeType === 23) {
             mqttTimers.current.set(entry.id, now + 80);
           } else {
             midiTimers.current.set(entry.id, now + 80);
@@ -220,7 +219,8 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
       // Collect active node ids (audio + midi sources, including unconnected)
       const audioEdges = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('audio'));
       const midiEdges  = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('midi'));
-      const udpEdges   = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('value'));
+      const udpEdges   = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('udp'));
+      const mqttEdges  = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('mqtt'));
       const oscEdges   = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('osc'));
       const artNetEdges = edgeList.current.filter(e => (e.sourceHandle ?? '').toLowerCase().includes('artdmx'));
       const dmxEdges    = edgeList.current.filter(e => {
@@ -288,20 +288,22 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
         if (isUdpFlash) {
           const nodeUdpEdges = udpEdges.filter(e => e.source === id);
           const fc = '#93c5fd';
-          css += `[data-handleid="${id}_Value Out_out"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
+          css += `[data-handleid="${id}_UDP Out_out"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
           nodeUdpEdges.forEach(e => {
             css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${fc}!important;filter:drop-shadow(0 0 4px ${fc});transition:none}`;
             if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
           });
         }
 
-        // MQTT flash — reuses udpEdges (both use the "Value Out" port label),
-        // filtered down to this node's own edges via e.source === id
+        // MQTT flash — now has its own mqttEdges collection (previously
+        // reused udpEdges since both shared the generic "Value Out" label;
+        // fixed alongside the cross-protocol port-typing gap — see
+        // Architecture.md's locked decisions).
         const isMqttFlash = (mqttTimers.current.get(id) ?? 0) > now;
         if (isMqttFlash) {
-          const nodeMqttEdges = udpEdges.filter(e => e.source === id);
+          const nodeMqttEdges = mqttEdges.filter(e => e.source === id);
           const fc = '#fb7185'; // --mqtt coral/salmon
-          css += `[data-handleid="${id}_Value Out_out"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
+          css += `[data-handleid="${id}_MQTT Out_out"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
           nodeMqttEdges.forEach(e => {
             css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${fc}!important;filter:drop-shadow(0 0 4px ${fc});transition:none}`;
             if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
@@ -624,13 +626,42 @@ function FlowCanvas() {
     [],
   );
 
+  // ── Drag-in-progress connection line colour ──────────────────────────────
+  // The line shown while dragging a NEW connection (before it's dropped)
+  // defaults to a fixed accent colour via connectionLineStyle. This makes
+  // it reflect the source port's own protocol colour instead, matching the
+  // node being dragged from — same colour-by-type classification used for
+  // finished edges (see rawToFlowEdge), kept as its own small function here
+  // rather than refactored into a shared one, to keep this addition isolated.
+  const [connectionLineColour, setConnectionLineColour] = useState('var(--accent)');
+
+  const colourForHandleId = (handleId: string): string => {
+    const h = handleId.toLowerCase();
+    if (h.includes('audio'))   return 'var(--audio)';
+    if (h.includes('artdmx'))  return 'var(--artnet)';  // must come before 'dmx'
+    if (h.includes('osc'))     return 'var(--osc)';
+    if (h.includes('dmx'))     return 'var(--dmx)';
+    if (h.includes('mqtt'))    return 'var(--mqtt)';
+    if (h.includes('udp'))     return 'var(--udp)';
+    if (h.includes('midi'))    return 'var(--midi)';
+    return 'var(--accent)';
+  };
+
+  const onConnectStart = useCallback((_event: MouseEvent | TouchEvent, params: { nodeId: string | null; handleId: string | null; handleType: string | null }) => {
+    if (params.handleId) setConnectionLineColour(colourForHandleId(params.handleId));
+  }, []);
+
+  const onConnectEnd = useCallback(() => {
+    setConnectionLineColour('var(--accent)');
+  }, []);
+
   // ── Connection validation ─────────────────────────────────────────────────
   const isValidConnection = useCallback((connection: Connection | Edge): boolean => {
     const { sourceHandle, targetHandle } = connection;
     if (!sourceHandle || !targetHandle) return false;
 
     // Extract port type from handle ID — format: {nodeId}_{Label}_{in|out}
-    // Label examples: "Audio In", "OSC Out", "Value Out", "ArtDMX In", "MIDI Out"
+    // Label examples: "Audio In", "OSC Out", "UDP Out", "MQTT In", "ArtDMX In", "MIDI Out"
     const getPortType = (handle: string): string => {
       const h = handle.toLowerCase();
       if (h.includes('audio'))   return 'audio';
@@ -639,7 +670,6 @@ function FlowCanvas() {
       if (h.includes('dmx'))     return 'dmx';
       if (h.includes('mqtt'))    return 'mqtt';
       if (h.includes('udp'))     return 'udp';
-      if (h.includes('value'))   return 'value';
       return 'midi';
     };
 
@@ -702,12 +732,12 @@ function FlowCanvas() {
       connection.targetHandle!,
     );
     const src = connection.sourceHandle?.toLowerCase() ?? '';
-    const edgeCls = src.includes('audio')   ? 'edge-audio'
-                  : src.includes('_osc_')   ? 'edge-osc'
-                  : src.includes('_dmx_')   ? 'edge-dmx'
-                  : src.includes('_mqtt_')  ? 'edge-mqtt'
-                  : src.includes('_udp_')   ? 'edge-udp'
-                  : src.includes('_value_') ? 'edge-value'
+    const edgeCls = src.includes('audio')  ? 'edge-audio'
+                  : src.includes('artdmx') ? 'edge-artnet'  // must come before 'dmx'
+                  : src.includes('osc')    ? 'edge-osc'
+                  : src.includes('dmx')    ? 'edge-dmx'
+                  : src.includes('mqtt')   ? 'edge-mqtt'
+                  : src.includes('udp')    ? 'edge-udp'
                   : 'edge-midi';
     setEdges(es => addEdge({
       ...connection,
@@ -837,6 +867,8 @@ function FlowCanvas() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onConnectStart={onConnectStart}
+        onConnectEnd={onConnectEnd}
         onReconnect={onReconnect}
         onReconnectEnd={onReconnectEnd}
         isValidConnection={isValidConnection}
@@ -845,7 +877,7 @@ function FlowCanvas() {
         maxZoom={2}
         deleteKeyCode="Delete"
         style={{ background: 'var(--bg)' }}
-        connectionLineStyle={{ stroke: 'var(--accent)', strokeWidth: 2, strokeDasharray: '6 3' }}
+        connectionLineStyle={{ stroke: connectionLineColour, strokeWidth: 2, strokeDasharray: '6 3' }}
         defaultEdgeOptions={{ style: { strokeWidth: 2 } }}
         onDragOver={onDragOver}
         onDrop={onDrop}

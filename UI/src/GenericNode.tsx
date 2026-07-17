@@ -216,7 +216,7 @@ function ChannelSummary ({ channels }: { channels: number[] }) {
 }
 
 // ── UDP port summary label ────────────────────────────────────────────────────
-function UdpPortSummary ({ port, mode, multicastAddr, byteRate, onClick }: { port: number; mode: 0 | 1 | 2; multicastAddr: string; byteRate: string; onClick: () => void }) {
+function UdpPortSummary ({ port, mode, targetHost, multicastAddr, byteRate, onClick }: { port: number; mode: 0 | 1 | 2; targetHost: string; multicastAddr: string; byteRate: string; onClick: () => void }) {
   const baseStyle: React.CSSProperties = {
     fontSize: 9, marginBottom: 3, letterSpacing: '0.05em',
     cursor: 'pointer', borderRadius: 3, padding: '2px 4px',
@@ -236,7 +236,9 @@ function UdpPortSummary ({ port, mode, multicastAddr, byteRate, onClick }: { por
       </div>
     );
   }
-  const modeTag = mode === 1 ? ` · multicast${multicastAddr ? ` · ${multicastAddr}` : ''}` : mode === 2 ? ' · broadcast' : '';
+  const modeTag = mode === 1 ? ` · multicast${multicastAddr ? ` · ${multicastAddr}` : ''}`
+                : mode === 2 ? ' · broadcast'
+                : (targetHost ? ` · ${targetHost}` : '');
   return (
     <div
       className="nodrag"
@@ -265,14 +267,78 @@ function UdpDeviceSettingsPanel ({ nodeId, nodeType, port, mode, targetHost, mul
   const title  = isOut ? 'UDP OUT Settings' : 'UDP IN Settings';
   const accent = 'var(--udp)';
 
-  const commit = (next: { port?: number; mode?: 0 | 1 | 2; targetHost?: string; multicastAddr?: string }) => {
+  // Instant local state for display, explicit-action commit for the
+  // backend — same pattern established for MQTT Subscribe/Publish (see
+  // their locked decisions in Architecture.md for the full rationale).
+  const [localPort, setLocalPort] = useState(port);
+  const [localMode, setLocalMode] = useState(mode);
+  const [localTargetHost, setLocalTargetHost] = useState(targetHost);
+  const [localMulticastAddr, setLocalMulticastAddr] = useState(multicastAddr);
+
+  useEffect(() => { setLocalPort(port); },                   [port]);
+  useEffect(() => { setLocalMode(mode); },                   [mode]);
+  useEffect(() => { setLocalTargetHost(targetHost); },       [targetHost]);
+  useEffect(() => { setLocalMulticastAddr(multicastAddr); }, [multicastAddr]);
+
+  const updateLocal = (next: { port?: number; mode?: 0 | 1 | 2; targetHost?: string; multicastAddr?: string }) => {
+    if (next.port          !== undefined) setLocalPort(next.port);
+    if (next.mode           !== undefined) setLocalMode(next.mode);
+    if (next.targetHost     !== undefined) setLocalTargetHost(next.targetHost);
+    if (next.multicastAddr  !== undefined) setLocalMulticastAddr(next.multicastAddr);
+  };
+
+  const commitNow = (overrides: { port?: number; mode?: 0 | 1 | 2; targetHost?: string; multicastAddr?: string } = {}) => {
     Bridge.setUdpSettings(
       nodeId,
-      next.port ?? port,
-      next.mode ?? mode,
-      next.targetHost ?? targetHost,
-      next.multicastAddr ?? multicastAddr,
+      overrides.port          ?? localPort,
+      overrides.mode          ?? localMode,
+      overrides.targetHost    ?? localTargetHost,
+      overrides.multicastAddr ?? localMulticastAddr,
     );
+  };
+
+  // Enter handlers call .blur() programmatically (to trigger the beep, or
+  // just to leave the field after a commit) — but a programmatic .blur()
+  // fires the same native blur event as a user click-away, which would
+  // otherwise make the onBlur handler below fire commitNow() a second,
+  // unintended time (redundant on a valid host, and on a malformed host it
+  // would defeat the whole point of isLikelyCompleteHost by committing the
+  // bad value anyway). This ref suppresses exactly one such blur.
+  const suppressNextBlurRef = useRef(false);
+  const blurSuppressed = (el: HTMLInputElement) => {
+    suppressNextBlurRef.current = true;
+    el.blur();
+  };
+
+  const commitOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') { e.preventDefault(); commitNow(); blurSuppressed(e.target as HTMLInputElement); }
+  };
+
+  // Host-shaped fields (Target Host, Multicast Group) get their own Enter
+  // handler: a malformed/incomplete address deliberately does NOT call
+  // preventDefault(), and blurs-then-refocuses (rather than skipping blur
+  // entirely) — this combination is what triggers the WebView's default
+  // beep as intentional "not valid yet" feedback, confirmed empirically
+  // via MQTT's settings panels. Re-focusing immediately means the user can
+  // keep typing right away even though the beep fires.
+  const commitHostOnEnter = (field: 'targetHost' | 'multicastAddr') => (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    const candidate = (e.target as HTMLInputElement).value;
+    if (!isLikelyCompleteHost(candidate)) {
+      const el = e.target as HTMLInputElement;
+      suppressNextBlurRef.current = true;
+      el.blur();
+      requestAnimationFrame(() => el.focus());
+      return;
+    }
+    e.preventDefault();
+    commitNow({ [field]: candidate });
+    blurSuppressed(e.target as HTMLInputElement);
+  };
+
+  const commitOnBlur = (overrides: { port?: number; mode?: 0 | 1 | 2; targetHost?: string; multicastAddr?: string } = {}) => {
+    if (suppressNextBlurRef.current) { suppressNextBlurRef.current = false; return; }
+    commitNow(overrides);
   };
 
   const inputStyle: React.CSSProperties = {
@@ -299,15 +365,20 @@ function UdpDeviceSettingsPanel ({ nodeId, nodeType, port, mode, targetHost, mul
         fontFamily: "'JetBrains Mono', monospace",
         userSelect: 'none',
       }}>
-      <SettingsPanelHeader title={title} onReset={() => commit({ port: 0, mode: 0, targetHost: '', multicastAddr: '' })} onClose={onClose} />
+      <SettingsPanelHeader title={title} onReset={() => {
+        updateLocal({ port: 0, mode: 0, targetHost: '', multicastAddr: '' });
+        commitNow({ port: 0, mode: 0, targetHost: '', multicastAddr: '' });
+      }} onClose={onClose} />
 
       <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 8, marginBottom: 4 }}>
         Port
       </div>
       <input
-        type="number" min={1} max={65535} value={port || ''}
+        type="number" min={1} max={65535} value={localPort || ''}
         placeholder="e.g. 9000"
-        onChange={e => commit({ port: parseInt(e.target.value, 10) || 0 })}
+        onChange={e => updateLocal({ port: parseInt(e.target.value, 10) || 0 })}
+        onKeyDown={commitOnEnter}
+        onBlur={() => commitOnBlur()}
         style={inputStyle}
       />
 
@@ -317,12 +388,12 @@ function UdpDeviceSettingsPanel ({ nodeId, nodeType, port, mode, targetHost, mul
       <div style={{ display: 'flex', gap: 4 }}>
         {(['Unicast', 'Multicast', 'Broadcast'] as const).map((label, i) => (
           <button key={label}
-            onClick={() => commit({ mode: i as 0 | 1 | 2 })}
+            onClick={() => { const m = i as 0 | 1 | 2; updateLocal({ mode: m }); commitNow({ mode: m }); }}
             style={{
               flex: 1, fontSize: 9, padding: '4px 2px', borderRadius: 3,
-              border: '1px solid ' + (mode === i ? accent : 'var(--border)'),
-              background: mode === i ? 'var(--surface)' : 'transparent',
-              color: mode === i ? accent : 'var(--text-muted)',
+              border: '1px solid ' + (localMode === i ? accent : 'var(--border)'),
+              background: localMode === i ? 'var(--surface)' : 'transparent',
+              color: localMode === i ? accent : 'var(--text-muted)',
               cursor: 'pointer', fontFamily: "'JetBrains Mono', monospace",
             }}>
             {label}
@@ -330,33 +401,39 @@ function UdpDeviceSettingsPanel ({ nodeId, nodeType, port, mode, targetHost, mul
         ))}
       </div>
 
-      {isOut && mode === 0 && (
+      {isOut && localMode === 0 && (
         <>
           <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 8, marginBottom: 4 }}>
             Target Host
           </div>
           <input
-            type="text" value={targetHost} placeholder="192.168.1.50"
-            onChange={e => commit({ targetHost: e.target.value })}
+            type="text" value={localTargetHost} placeholder="192.168.1.50"
+            autoCapitalize="off" autoCorrect="off" spellCheck={false}
+            onChange={e => updateLocal({ targetHost: e.target.value })}
+            onKeyDown={commitHostOnEnter('targetHost')}
+            onBlur={() => commitOnBlur()}
             style={inputStyle}
           />
         </>
       )}
 
-      {mode === 1 && (
+      {localMode === 1 && (
         <>
           <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 8, marginBottom: 4 }}>
             Multicast Group
           </div>
           <input
-            type="text" value={multicastAddr} placeholder="239.0.0.1"
-            onChange={e => commit({ multicastAddr: e.target.value })}
+            type="text" value={localMulticastAddr} placeholder="239.0.0.1"
+            autoCapitalize="off" autoCorrect="off" spellCheck={false}
+            onChange={e => updateLocal({ multicastAddr: e.target.value })}
+            onKeyDown={commitHostOnEnter('multicastAddr')}
+            onBlur={() => commitOnBlur()}
             style={inputStyle}
           />
         </>
       )}
 
-      {!port && (
+      {!localPort && (
         <div style={{ fontSize: 9, color: '#ef5350', marginTop: 6 }}>
           Set a port to activate
         </div>
@@ -378,13 +455,63 @@ function OscDeviceSettingsPanel ({ nodeId, nodeType, port, targetHost, oscAddres
   const title = isOut ? 'OSC OUT Settings' : 'OSC IN Settings';
   const accent = 'var(--osc)';
 
-  const commit = (next: { port?: number; targetHost?: string; oscAddress?: string }) => {
+  // Instant local state for display, explicit-action commit for the
+  // backend — same pattern established for MQTT Subscribe/Publish/UDP.
+  const [localPort, setLocalPort] = useState(port);
+  const [localTargetHost, setLocalTargetHost] = useState(targetHost);
+  const [localOscAddress, setLocalOscAddress] = useState(oscAddress);
+
+  useEffect(() => { setLocalPort(port); },             [port]);
+  useEffect(() => { setLocalTargetHost(targetHost); }, [targetHost]);
+  useEffect(() => { setLocalOscAddress(oscAddress); }, [oscAddress]);
+
+  const updateLocal = (next: { port?: number; targetHost?: string; oscAddress?: string }) => {
+    if (next.port        !== undefined) setLocalPort(next.port);
+    if (next.targetHost  !== undefined) setLocalTargetHost(next.targetHost);
+    if (next.oscAddress  !== undefined) setLocalOscAddress(next.oscAddress);
+  };
+
+  const commitNow = (overrides: { port?: number; targetHost?: string; oscAddress?: string } = {}) => {
     Bridge.setOscSettings(
       nodeId,
-      next.port        ?? port,
-      next.targetHost  ?? targetHost,
-      next.oscAddress  ?? oscAddress,
+      overrides.port       ?? localPort,
+      overrides.targetHost ?? localTargetHost,
+      overrides.oscAddress ?? localOscAddress,
     );
+  };
+
+  // See UdpDeviceSettingsPanel's comment for why programmatic blur() calls
+  // need to suppress the separate onBlur handler from also firing.
+  const suppressNextBlurRef = useRef(false);
+  const blurSuppressed = (el: HTMLInputElement) => {
+    suppressNextBlurRef.current = true;
+    el.blur();
+  };
+  const commitOnBlur = (overrides: { port?: number; targetHost?: string; oscAddress?: string } = {}) => {
+    if (suppressNextBlurRef.current) { suppressNextBlurRef.current = false; return; }
+    commitNow(overrides);
+  };
+
+  const commitOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') { e.preventDefault(); commitNow(); blurSuppressed(e.target as HTMLInputElement); }
+  };
+
+  // Target Host gets its own Enter handler — see UdpDeviceSettingsPanel's
+  // comment for why blur()-then-refocus is used to trigger the beep as
+  // intentional "not valid yet" feedback on a malformed address.
+  const commitHostOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    const candidate = (e.target as HTMLInputElement).value;
+    if (!isLikelyCompleteHost(candidate)) {
+      const el = e.target as HTMLInputElement;
+      suppressNextBlurRef.current = true;
+      el.blur();
+      requestAnimationFrame(() => el.focus());
+      return;
+    }
+    e.preventDefault();
+    commitNow({ targetHost: candidate });
+    blurSuppressed(e.target as HTMLInputElement);
   };
 
   const inputStyle: React.CSSProperties = {
@@ -418,30 +545,41 @@ function OscDeviceSettingsPanel ({ nodeId, nodeType, port, targetHost, oscAddres
       }}>
       <SettingsPanelHeader
         title={title}
-        onReset={() => commit({ port: 0, targetHost: '', oscAddress: '/patchy' })}
+        onReset={() => {
+          updateLocal({ port: 0, targetHost: '', oscAddress: '/patchy' });
+          commitNow({ port: 0, targetHost: '', oscAddress: '/patchy' });
+        }}
         onClose={onClose}
       />
 
       <div style={labelStyle}>Port</div>
       <input
-        type="number" min={1} max={65535} value={port || ''}
+        type="number" min={1} max={65535} value={localPort || ''}
         placeholder="e.g. 8000"
-        onChange={e => commit({ port: parseInt(e.target.value, 10) || 0 })}
+        onChange={e => updateLocal({ port: parseInt(e.target.value, 10) || 0 })}
+        onKeyDown={commitOnEnter}
+        onBlur={() => commitOnBlur()}
         style={inputStyle}
       />
 
       {isOut && (<>
         <div style={labelStyle}>Target Host</div>
         <input
-          type="text" value={targetHost} placeholder="192.168.1.50"
-          onChange={e => commit({ targetHost: e.target.value })}
+          type="text" value={localTargetHost} placeholder="192.168.1.50"
+          autoCapitalize="off" autoCorrect="off" spellCheck={false}
+          onChange={e => updateLocal({ targetHost: e.target.value })}
+          onKeyDown={commitHostOnEnter}
+          onBlur={() => commitOnBlur()}
           style={inputStyle}
         />
 
         <div style={labelStyle}>OSC Address</div>
         <input
-          type="text" value={oscAddress} placeholder="/patchy"
-          onChange={e => commit({ oscAddress: e.target.value || '/patchy' })}
+          type="text" value={localOscAddress} placeholder="/patchy"
+          autoCapitalize="off" autoCorrect="off" spellCheck={false}
+          onChange={e => updateLocal({ oscAddress: e.target.value })}
+          onKeyDown={commitOnEnter}
+          onBlur={() => commitOnBlur({ oscAddress: localOscAddress || '/patchy' })}
           style={inputStyle}
         />
         <div style={{ fontSize: 9, color: accent, marginTop: 4, opacity: 0.7 }}>
@@ -449,7 +587,7 @@ function OscDeviceSettingsPanel ({ nodeId, nodeType, port, targetHost, oscAddres
         </div>
       </>)}
 
-      {!port && (
+      {!localPort && (
         <div style={{ fontSize: 9, color: '#ef5350', marginTop: 6 }}>
           Set a port to activate
         </div>
@@ -459,8 +597,9 @@ function OscDeviceSettingsPanel ({ nodeId, nodeType, port, targetHost, oscAddres
 }
 
 // ── OSC port summary label ────────────────────────────────────────────────────
-function OscPortSummary ({ port, oscAddress, byteRate, onClick }: {
+function OscPortSummary ({ port, targetHost, oscAddress, byteRate, onClick }: {
   port:       number;
+  targetHost: string;
   oscAddress: string;
   byteRate:   string;
   onClick:    () => void;
@@ -484,6 +623,8 @@ function OscPortSummary ({ port, oscAddress, byteRate, onClick }: {
       </div>
     );
   }
+  const addressTag = oscAddress && oscAddress !== '/patchy' ? ` · ${oscAddress}` : '';
+  const hostTag = targetHost ? ` · ${targetHost}` : '';
   return (
     <div
       className="nodrag"
@@ -492,7 +633,7 @@ function OscPortSummary ({ port, oscAddress, byteRate, onClick }: {
       onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--surface)'; }}
       onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
     >
-      <span style={{ flex: 1, textAlign: 'center' }}>:{port}{oscAddress && oscAddress !== '/patchy' ? ` · ${oscAddress}` : ''}</span>
+      <span style={{ flex: 1, textAlign: 'center' }}>:{port}{hostTag}{addressTag}</span>
       {byteRate && <span style={{ color: 'var(--osc)', opacity: 0.85 }}>{byteRate}</span>}
     </div>
   );
@@ -597,23 +738,44 @@ function MqttSubscribeSettingsPanel ({ nodeId, host, port, topic, qos, username,
     );
   };
 
+  // See UdpDeviceSettingsPanel's comment for why programmatic blur() calls
+  // need to suppress the separate onBlur handler from also firing.
+  const suppressNextBlurRef = useRef(false);
+  const blurSuppressed = (el: HTMLInputElement) => {
+    suppressNextBlurRef.current = true;
+    el.blur();
+  };
+  const commitOnBlur = (overrides: { host?: string; port?: number; topic?: string; qos?: 0 | 1 | 2;
+                                     username?: string; password?: string } = {}) => {
+    if (suppressNextBlurRef.current) { suppressNextBlurRef.current = false; return; }
+    commitNow(overrides);
+  };
+
   // Enter commits immediately; Escape reverts the field to the last
   // committed value (blurs so the user sees the reset take effect).
   const commitOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') { e.preventDefault(); commitNow(); (e.target as HTMLInputElement).blur(); }
+    if (e.key === 'Enter') { e.preventDefault(); commitNow(); blurSuppressed(e.target as HTMLInputElement); }
   };
 
   // Host field gets its own Enter handler: a malformed/incomplete address
-  // deliberately does NOT call preventDefault(), letting the WebView's
-  // default beep fire as a clear "not valid yet" signal — and skips the
-  // commit/blur entirely so the user can keep editing right away.
+  // deliberately does NOT call preventDefault(), and blurs-then-refocuses
+  // the field (rather than skipping blur entirely) — this combination is
+  // what actually triggers the WebView's default beep as intentional
+  // "not valid yet" feedback. Re-focusing immediately means the user can
+  // keep typing right away even though the beep fires.
   const commitHostOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Enter') return;
     const candidate = (e.target as HTMLInputElement).value;
-    if (!isLikelyCompleteHost(candidate)) return;   // let the beep through
+    if (!isLikelyCompleteHost(candidate)) {
+      const el = e.target as HTMLInputElement;
+      suppressNextBlurRef.current = true;
+      el.blur();
+      requestAnimationFrame(() => el.focus());
+      return;
+    }
     e.preventDefault();
     commitNow();
-    (e.target as HTMLInputElement).blur();
+    blurSuppressed(e.target as HTMLInputElement);
   };
 
   const inputStyle: React.CSSProperties = {
@@ -658,7 +820,7 @@ function MqttSubscribeSettingsPanel ({ nodeId, host, port, topic, qos, username,
         autoCapitalize="off" autoCorrect="off" spellCheck={false}
         onChange={e => updateLocal({ host: e.target.value })}
         onKeyDown={commitHostOnEnter}
-        onBlur={() => commitNow()}
+        onBlur={() => commitOnBlur()}
         style={inputStyle}
       />
 
@@ -668,7 +830,7 @@ function MqttSubscribeSettingsPanel ({ nodeId, host, port, topic, qos, username,
         placeholder="1883"
         onChange={e => updateLocal({ port: parseInt(e.target.value, 10) || 1883 })}
         onKeyDown={commitOnEnter}
-        onBlur={() => commitNow()}
+        onBlur={() => commitOnBlur()}
         style={inputStyle}
       />
 
@@ -678,7 +840,7 @@ function MqttSubscribeSettingsPanel ({ nodeId, host, port, topic, qos, username,
         autoCapitalize="off" autoCorrect="off" spellCheck={false}
         onChange={e => updateLocal({ topic: e.target.value })}
         onKeyDown={commitOnEnter}
-        onBlur={() => commitNow()}
+        onBlur={() => commitOnBlur()}
         style={inputStyle}
       />
       <div style={{ fontSize: 9, color: accent, marginTop: 4, opacity: 0.7 }}>
@@ -704,7 +866,7 @@ function MqttSubscribeSettingsPanel ({ nodeId, host, port, topic, qos, username,
         autoCapitalize="off" autoCorrect="off" spellCheck={false}
         onChange={e => updateLocal({ username: e.target.value })}
         onKeyDown={commitOnEnter}
-        onBlur={() => commitNow()}
+        onBlur={() => commitOnBlur()}
         style={inputStyle}
       />
 
@@ -714,7 +876,7 @@ function MqttSubscribeSettingsPanel ({ nodeId, host, port, topic, qos, username,
         autoCapitalize="off" autoCorrect="off"
         onChange={e => updateLocal({ password: e.target.value })}
         onKeyDown={commitOnEnter}
-        onBlur={() => commitNow()}
+        onBlur={() => commitOnBlur()}
         style={inputStyle}
       />
 
@@ -827,19 +989,39 @@ function MqttPublishSettingsPanel ({ nodeId, host, port, topic, qos, retain, use
     );
   };
 
+  // See UdpDeviceSettingsPanel's comment for why programmatic blur() calls
+  // need to suppress the separate onBlur handler from also firing.
+  const suppressNextBlurRef = useRef(false);
+  const blurSuppressed = (el: HTMLInputElement) => {
+    suppressNextBlurRef.current = true;
+    el.blur();
+  };
+  const commitOnBlur = (overrides: { host?: string; port?: number; topic?: string; qos?: 0 | 1 | 2;
+                                     retain?: boolean; username?: string; password?: string } = {}) => {
+    if (suppressNextBlurRef.current) { suppressNextBlurRef.current = false; return; }
+    commitNow(overrides);
+  };
+
   const commitOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') { e.preventDefault(); commitNow(); (e.target as HTMLInputElement).blur(); }
+    if (e.key === 'Enter') { e.preventDefault(); commitNow(); blurSuppressed(e.target as HTMLInputElement); }
   };
 
   // Host field gets its own Enter handler — see MqttSubscribeSettingsPanel's
-  // comment for why a malformed address deliberately lets the beep through.
+  // comment for why blur()-then-refocus triggers the beep as intentional
+  // "not valid yet" feedback on a malformed address.
   const commitHostOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Enter') return;
     const candidate = (e.target as HTMLInputElement).value;
-    if (!isLikelyCompleteHost(candidate)) return;
+    if (!isLikelyCompleteHost(candidate)) {
+      const el = e.target as HTMLInputElement;
+      suppressNextBlurRef.current = true;
+      el.blur();
+      requestAnimationFrame(() => el.focus());
+      return;
+    }
     e.preventDefault();
     commitNow();
-    (e.target as HTMLInputElement).blur();
+    blurSuppressed(e.target as HTMLInputElement);
   };
 
   const inputStyle: React.CSSProperties = {
@@ -884,7 +1066,7 @@ function MqttPublishSettingsPanel ({ nodeId, host, port, topic, qos, retain, use
         autoCapitalize="off" autoCorrect="off" spellCheck={false}
         onChange={e => updateLocal({ host: e.target.value })}
         onKeyDown={commitHostOnEnter}
-        onBlur={() => commitNow()}
+        onBlur={() => commitOnBlur()}
         style={inputStyle}
       />
 
@@ -894,7 +1076,7 @@ function MqttPublishSettingsPanel ({ nodeId, host, port, topic, qos, retain, use
         placeholder="1883"
         onChange={e => updateLocal({ port: parseInt(e.target.value, 10) || 1883 })}
         onKeyDown={commitOnEnter}
-        onBlur={() => commitNow()}
+        onBlur={() => commitOnBlur()}
         style={inputStyle}
       />
 
@@ -904,7 +1086,7 @@ function MqttPublishSettingsPanel ({ nodeId, host, port, topic, qos, retain, use
         autoCapitalize="off" autoCorrect="off" spellCheck={false}
         onChange={e => updateLocal({ topic: e.target.value })}
         onKeyDown={commitOnEnter}
-        onBlur={() => commitNow()}
+        onBlur={() => commitOnBlur()}
         style={inputStyle}
       />
       <div style={{ fontSize: 9, color: accent, marginTop: 4, opacity: 0.7 }}>
@@ -934,7 +1116,7 @@ function MqttPublishSettingsPanel ({ nodeId, host, port, topic, qos, retain, use
         autoCapitalize="off" autoCorrect="off" spellCheck={false}
         onChange={e => updateLocal({ username: e.target.value })}
         onKeyDown={commitOnEnter}
-        onBlur={() => commitNow()}
+        onBlur={() => commitOnBlur()}
         style={inputStyle}
       />
 
@@ -944,7 +1126,7 @@ function MqttPublishSettingsPanel ({ nodeId, host, port, topic, qos, retain, use
         autoCapitalize="off" autoCorrect="off"
         onChange={e => updateLocal({ password: e.target.value })}
         onKeyDown={commitOnEnter}
-        onBlur={() => commitNow()}
+        onBlur={() => commitOnBlur()}
         style={inputStyle}
       />
 
@@ -1008,12 +1190,59 @@ function ArtNetDeviceSettingsPanel ({ nodeId, nodeType, universe, targetHost, on
   const title  = isOut ? 'ARTNET OUT Settings' : 'ARTNET IN Settings';
   const accent = 'var(--artnet)';
 
-  const commit = (next: { universe?: number; targetHost?: string }) => {
+  // Instant local state for display, explicit-action commit for the
+  // backend — same pattern established for MQTT Subscribe/Publish/UDP/OSC.
+  const [localUniverse, setLocalUniverse] = useState(universe);
+  const [localTargetHost, setLocalTargetHost] = useState(targetHost);
+
+  useEffect(() => { setLocalUniverse(universe); },     [universe]);
+  useEffect(() => { setLocalTargetHost(targetHost); }, [targetHost]);
+
+  const updateLocal = (next: { universe?: number; targetHost?: string }) => {
+    if (next.universe   !== undefined) setLocalUniverse(next.universe);
+    if (next.targetHost !== undefined) setLocalTargetHost(next.targetHost);
+  };
+
+  const commitNow = (overrides: { universe?: number; targetHost?: string } = {}) => {
     Bridge.setArtNetSettings(
       nodeId,
-      next.universe    ?? universe,
-      next.targetHost  ?? targetHost,
+      overrides.universe   ?? localUniverse,
+      overrides.targetHost ?? localTargetHost,
     );
+  };
+
+  // See UdpDeviceSettingsPanel's comment for why programmatic blur() calls
+  // need to suppress the separate onBlur handler from also firing.
+  const suppressNextBlurRef = useRef(false);
+  const blurSuppressed = (el: HTMLInputElement) => {
+    suppressNextBlurRef.current = true;
+    el.blur();
+  };
+  const commitOnBlur = (overrides: { universe?: number; targetHost?: string } = {}) => {
+    if (suppressNextBlurRef.current) { suppressNextBlurRef.current = false; return; }
+    commitNow(overrides);
+  };
+
+  const commitOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') { e.preventDefault(); commitNow(); blurSuppressed(e.target as HTMLInputElement); }
+  };
+
+  // Target Host gets its own Enter handler — see UdpDeviceSettingsPanel's
+  // comment for why blur()-then-refocus is used to trigger the beep as
+  // intentional "not valid yet" feedback on a malformed address.
+  const commitHostOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    const candidate = (e.target as HTMLInputElement).value;
+    if (!isLikelyCompleteHost(candidate)) {
+      const el = e.target as HTMLInputElement;
+      suppressNextBlurRef.current = true;
+      el.blur();
+      requestAnimationFrame(() => el.focus());
+      return;
+    }
+    e.preventDefault();
+    commitNow({ targetHost: candidate });
+    blurSuppressed(e.target as HTMLInputElement);
   };
 
   const inputStyle: React.CSSProperties = {
@@ -1047,15 +1276,20 @@ function ArtNetDeviceSettingsPanel ({ nodeId, nodeType, universe, targetHost, on
       }}>
       <SettingsPanelHeader
         title={title}
-        onReset={() => commit({ universe: 0, targetHost: '' })}
+        onReset={() => {
+          updateLocal({ universe: 0, targetHost: '' });
+          commitNow({ universe: 0, targetHost: '' });
+        }}
         onClose={onClose}
       />
 
       <div style={labelStyle}>Universe</div>
       <input
-        type="number" min={0} max={32767} value={universe || ''}
+        type="number" min={0} max={32767} value={localUniverse || ''}
         placeholder="0"
-        onChange={e => commit({ universe: parseInt(e.target.value, 10) || 0 })}
+        onChange={e => updateLocal({ universe: parseInt(e.target.value, 10) || 0 })}
+        onKeyDown={commitOnEnter}
+        onBlur={() => commitOnBlur()}
         style={inputStyle}
       />
       <div style={{ fontSize: 9, color: accent, marginTop: 4, opacity: 0.7 }}>
@@ -1065,8 +1299,11 @@ function ArtNetDeviceSettingsPanel ({ nodeId, nodeType, universe, targetHost, on
       {isOut && (<>
         <div style={labelStyle}>Target Host</div>
         <input
-          type="text" value={targetHost} placeholder="192.168.1.255"
-          onChange={e => commit({ targetHost: e.target.value })}
+          type="text" value={localTargetHost} placeholder="192.168.1.255"
+          autoCapitalize="off" autoCorrect="off" spellCheck={false}
+          onChange={e => updateLocal({ targetHost: e.target.value })}
+          onKeyDown={commitHostOnEnter}
+          onBlur={() => commitOnBlur()}
           style={inputStyle}
         />
         <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 4, opacity: 0.7 }}>
@@ -1074,7 +1311,7 @@ function ArtNetDeviceSettingsPanel ({ nodeId, nodeType, universe, targetHost, on
         </div>
       </>)}
 
-      {isOut && !targetHost && (
+      {isOut && !localTargetHost && (
         <div style={{ fontSize: 9, color: '#ef5350', marginTop: 6 }}>
           Set a target host to activate
         </div>
@@ -1974,7 +2211,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
           )}
         </>)}
         {isUdpDevice && (<>
-          <UdpPortSummary port={udpPort} mode={udpMode} multicastAddr={udpMulticastAddr} byteRate={udpByteRate} onClick={toggleSettings} />
+          <UdpPortSummary port={udpPort} mode={udpMode} targetHost={udpTargetHost} multicastAddr={udpMulticastAddr} byteRate={udpByteRate} onClick={toggleSettings} />
           {showSettings && (
             <UdpDeviceSettingsPanel
               nodeId={id}
@@ -1988,7 +2225,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
           )}
         </>)}
         {isOscDevice && (<>
-          <OscPortSummary port={oscPort} oscAddress={oscAddress} byteRate={oscByteRate} onClick={toggleSettings} />
+          <OscPortSummary port={oscPort} targetHost={oscTargetHost} oscAddress={oscAddress} byteRate={oscByteRate} onClick={toggleSettings} />
           {showSettings && (
             <OscDeviceSettingsPanel
               nodeId={id}

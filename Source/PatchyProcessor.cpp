@@ -431,6 +431,47 @@ void PatchyProcessor::getStateInformation (juce::MemoryBlock& destData)
     destData.replaceAll (json.toRawUTF8(), static_cast<size_t>(json.getNumBytesAsUTF8()));
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+/** Migrates a legacy port ID that used the old generic "Value In"/"Value Out"
+ *  label to the new protocol-specific label (e.g. "UDP Out", "MQTT In"),
+ *  based on the owning node's current nodeType.
+ *
+ *  Needed because Port::id embeds the label text directly (see
+ *  GraphModel::portsForType's mk() helper: `id = nodeId + "_" + label + "_"
+ *  + dir`) — a saved connection referencing the old "..._Value Out_out"
+ *  string would otherwise silently fail to reconnect once the label was
+ *  changed to fix the cross-protocol port-typing gap (UDP and MQTT nodes
+ *  used to share the generic PortType::Value, allowing them to be wired
+ *  directly together — see Architecture.md's locked decisions for the full
+ *  story). This keeps existing saved .patchy projects working unchanged. */
+static juce::String migrateLegacyPortId (const juce::String& portId, int nodeType)
+{
+    static const std::unordered_map<int, juce::String> newOutLabel = {
+        { 8,  "UDP Out"  },   // UdpInDeviceNode
+        { 21, "UDP Out"  },   // UdpMonitorNode (also has an In, handled below)
+        { 22, "MQTT Out" },   // MqttSubscribeNode
+    };
+    static const std::unordered_map<int, juce::String> newInLabel = {
+        { 9,  "UDP In"  },    // UdpOutDeviceNode
+        { 21, "UDP In"  },    // UdpMonitorNode
+        { 23, "MQTT In" },    // MqttPublishNode
+    };
+
+    if (portId.endsWith ("_Value Out_out"))
+    {
+        auto it = newOutLabel.find (nodeType);
+        if (it != newOutLabel.end())
+            return portId.upToLastOccurrenceOf ("_Value Out_out", false, false) + "_" + it->second + "_out";
+    }
+    else if (portId.endsWith ("_Value In_in"))
+    {
+        auto it = newInLabel.find (nodeType);
+        if (it != newInLabel.end())
+            return portId.upToLastOccurrenceOf ("_Value In_in", false, false) + "_" + it->second + "_in";
+    }
+    return portId;   // unchanged — not a legacy Value port, or node isn't UDP/MQTT
+}
+
 void PatchyProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     juce::String json (static_cast<const char*> (data), static_cast<size_t>(sizeInBytes));
@@ -489,11 +530,18 @@ void PatchyProcessor::setStateInformation (const void* data, int sizeInBytes)
     {
         auto* cd = cv.getDynamicObject();
         if (cd == nullptr) continue;
-        graphModel.addConnection (
-            cd->getProperty ("sourceNodeId").toString(),
-            cd->getProperty ("sourcePortId").toString(),
-            cd->getProperty ("targetNodeId").toString(),
-            cd->getProperty ("targetPortId").toString());
+
+        juce::String srcNodeId = cd->getProperty ("sourceNodeId").toString();
+        juce::String srcPortId = cd->getProperty ("sourcePortId").toString();
+        juce::String tgtNodeId = cd->getProperty ("targetNodeId").toString();
+        juce::String tgtPortId = cd->getProperty ("targetPortId").toString();
+
+        if (auto* srcNode = graphModel.findNode (srcNodeId))
+            srcPortId = migrateLegacyPortId (srcPortId, srcNode->nodeType);
+        if (auto* tgtNode = graphModel.findNode (tgtNodeId))
+            tgtPortId = migrateLegacyPortId (tgtPortId, tgtNode->nodeType);
+
+        graphModel.addConnection (srcNodeId, srcPortId, tgtNodeId, tgtPortId);
     }
 
     // Restore viewport

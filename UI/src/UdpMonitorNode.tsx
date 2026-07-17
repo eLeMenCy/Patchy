@@ -258,8 +258,8 @@ export const UdpMonitorNode = memo(function UdpMonitorNode({ id, data, selected 
         userSelect: 'none',
       }}>
 
-      <NodeHandle nodeId={id} label="Value In"  direction="in"  colour="var(--udp)" index={0} total={1} offset={-3} portBodyRef={portBodyRef} />
-      <NodeHandle nodeId={id} label="Value Out" direction="out" colour="var(--udp)" index={0} total={1} offset={-3} portBodyRef={portBodyRef} />
+      <NodeHandle nodeId={id} label="UDP In"  direction="in"  colour="var(--udp)" index={0} total={1} offset={-3} portBodyRef={portBodyRef} />
+      <NodeHandle nodeId={id} label="UDP Out" direction="out" colour="var(--udp)" index={0} total={1} offset={-3} portBodyRef={portBodyRef} />
 
       <NodeHeader title={settings.customName || "UDP MONITOR"} accent="var(--udp)"
         showSettings={showSettings} onToggleSettings={toggleSettings}

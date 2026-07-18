@@ -427,3 +427,52 @@ export function SettingsPanelHeader ({ title, onReset, onClose }: {
     </div>
   );
 }
+
+// ── isLikelyCompleteHost ────────────────────────────────────────────────────
+// Checks whether a host string looks syntactically complete enough to be
+// worth attempting a connection to — either a valid IPv4 address, or a
+// hostname-shaped string with no leading/trailing/double dots. Deliberately
+// permissive on hostnames (can't fully validate without a real DNS lookup),
+// but this catches the overwhelmingly common case: partial states typed
+// character-by-character while entering an IP (e.g. "127.", "192.168.")
+// which would otherwise reach a blocking DNS resolution and freeze the whole
+// graph (confirmed upstream libmosquitto behaviour for MQTT — see
+// Architecture.md's MQTT locked decisions). Used by every {Protocol}DeviceUI
+// settings panel with a host-shaped field (UDP, OSC, MQTT, ArtNet).
+export function isLikelyCompleteHost(host: string): boolean {
+  if (!host) return false;
+  if (host.startsWith('.') || host.endsWith('.') || host.includes('..')) return false;
+
+  const ipv4Match = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4Match) {
+    return ipv4Match.slice(1).every(octet => {
+      const n = parseInt(octet, 10);
+      return n >= 0 && n <= 255;
+    });
+  }
+
+  // Not a complete IPv4 shape — if it contains only digits and dots, it's
+  // a partial IP being typed (e.g. "127", "192.168"), not a hostname yet.
+  if (/^[\d.]+$/.test(host)) return false;
+
+  // Otherwise treat as a hostname-shaped string (e.g. "mybroker.local",
+  // "localhost") — permissive, since hostnames vary widely in valid form.
+  return true;
+}
+
+// ── portColour ───────────────────────────────────────────────────────────────
+// Maps a classified port type string (see App.tsx's getPortType/
+// colourForHandleId) to its display colour. Used as a fallback wherever a
+// port's type is known generically rather than via a specific protocol's
+// own accent colour.
+export function portColour (type: string): string {
+  switch (type) {
+    case 'audio': return 'rgb(20,80,20)';
+    case 'osc':   return 'var(--osc)';
+    case 'dmx':   return 'var(--dmx)';
+    case 'mqtt':  return 'var(--mqtt)';
+    case 'udp':   return 'var(--udp)';
+    case 'value': return 'var(--value)';
+    default:      return 'var(--midi)';
+  }
+}

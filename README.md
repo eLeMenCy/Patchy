@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.898
+> Version 0.0.899
 
 ---
 
@@ -119,8 +119,14 @@ Patchy/
 │   └── src/
 │       ├── App.tsx                  ReactFlow canvas, graph sync, port activity, menus
 │       ├── Bridge.ts                JS↔C++ typed façade + subscriber system
-│       ├── NodeUtils.tsx            Shared hooks, components + style helpers
-│       ├── GenericNode.tsx          Device nodes + Pax nodes (types 1–4, 8–13, 22, 100+)
+│       ├── NodeUtils.tsx            Shared hooks, components + style helpers (incl. isLikelyCompleteHost, portColour)
+│       ├── GenericNode.tsx          Main shell for device nodes + Pax nodes (types 1–4, 8–13, 22–23, 100+)
+│       ├── AudioDeviceUI.tsx        Audio In/Out settings panel + summary
+│       ├── UdpDeviceUI.tsx          UDP In/Out settings panel + summary
+│       ├── OscDeviceUI.tsx          OSC In/Out settings panel + summary
+│       ├── MqttDeviceUI.tsx         MQTT Subscribe/Publish settings panels + summaries
+│       ├── ArtNetDeviceUI.tsx       ArtNet In/Out settings panel + summary
+│       ├── DmxDeviceUI.tsx          DMX In/Out settings panel + summary
 │       │                            Includes channel selection, UDP, OSC and ArtNet settings panels
 │       ├── MidiMonitorNode.tsx      MIDI Monitor node (type 5)
 │       ├── AudioMonitorNode.tsx     Audio Monitor node (type 6)
@@ -592,4 +598,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.898 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.899 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

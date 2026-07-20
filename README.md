@@ -122,14 +122,13 @@ Patchy/
 │       ├── App.tsx                  ReactFlow canvas, graph sync, port activity, menus
 │       ├── Bridge.ts                JS↔C++ typed façade + subscriber system
 │       ├── NodeUtils.tsx            Shared hooks, components + style helpers (incl. isLikelyCompleteHost, portColour)
-│       ├── GenericNode.tsx          Main shell for device nodes + Pax nodes (types 1–4, 8–13, 22–23, 100+)
+│       ├── GenericNode.tsx          Main shell for device nodes + Pax nodes (types 1–4, 8–15, 22–23, 100+)
 │       ├── AudioDeviceUI.tsx        Audio In/Out settings panel + summary
 │       ├── UdpDeviceUI.tsx          UDP In/Out settings panel + summary
 │       ├── OscDeviceUI.tsx          OSC In/Out settings panel + summary
 │       ├── MqttDeviceUI.tsx         MQTT Subscribe/Publish settings panels + summaries
 │       ├── ArtNetDeviceUI.tsx       ArtNet In/Out settings panel + summary
 │       ├── DmxDeviceUI.tsx          DMX In/Out settings panel + summary
-│       │                            Includes channel selection, UDP, OSC and ArtNet settings panels
 │       ├── MidiMonitorNode.tsx      MIDI Monitor node (type 5)
 │       ├── AudioMonitorNode.tsx     Audio Monitor node (type 6)
 │       ├── MidiKeyboardNode.tsx     MIDI Keyboard node (type 7)
@@ -176,8 +175,8 @@ Patchy/
 | 5 | MIDI Monitor | MIDI In + Out | Inspects MIDI events; pass-through; event table with filters |
 | 6 | Audio Monitor | Audio In | Stereo oscilloscope; trigger modes; VU zoom |
 | 7 | MIDI Keyboard | MIDI In + Out | Virtual keyboard; pitch/mod wheels; upstream note display |
-| 8 | UDP In Device | Value Out | Listens on a UDP port; Unicast · Multicast · Broadcast; live byte-rate |
-| 9 | UDP Out Device | Value In | Sends datagrams to a configured host:port; Unicast · Multicast · Broadcast |
+| 8 | UDP In Device | UDP Out | Listens on a UDP port; Unicast · Multicast · Broadcast; live byte-rate |
+| 9 | UDP Out Device | UDP In | Sends datagrams to a configured host:port; Unicast · Multicast · Broadcast |
 | 10 | OSC In Device | OSC Out | Listens on a UDP port; parses OSC 1.0 messages; live byte-rate |
 | 11 | OSC Out Device | OSC In | Sends PAX_Value events as OSC messages to a configured host:port; configurable OSC address |
 | 12 | ArtNet In Device | ArtDMX Out | Listens on UDP port 6454; parses ArtDmx; universe filtering; change-driven flash; live byte-rate |
@@ -189,11 +188,11 @@ Patchy/
 | 18 | ArtNet Monitor | ArtDMX In + ArtDMX Out | Displays all 512 ArtNet channels as vertical bargraphs; pass-through; universe filter; "--" on mismatch |
 | 19 | ArtNet Console | ArtDMX Out | 512-channel vertical fader bank; universe selector (0–32767); blackout; configurable visible count; output-only |
 | 20 | OSC Monitor | OSC In + OSC Out | Scrolling log of complete OSC messages (address + every typed arg); pass-through; address substring filter; pause/clear |
-| 21 | UDP Monitor | Value In + Value Out | Scrolling log of raw UDP packets (sender IP:port, byte count, hex/ASCII toggle); pass-through; pause/clear |
-| 22 | MQTT Subscribe | Value Out | Connects to a broker and subscribes to a topic (`libmosquitto`); host/port/topic/QoS/username/password; source node, output only |
-| 23 | MQTT Publish | Value In | Publishes to a broker topic (`libmosquitto`); topic overridable per-message from incoming value; numeric payload as plain decimal text; retain flag; sink node, input only |
-| 24 | MQTT Monitor | Value In/Out | Pass-through display of MQTT topic+payload traffic; TIME/TOPIC/PAYLOAD scrolling log |
-| 25 | MQTT Console | Value Out | Manual topic+payload composer; topic history dropdown, explicit Send; source node, output only, no broker connection of its own |
+| 21 | UDP Monitor | UDP In + UDP Out | Scrolling log of raw UDP packets (sender IP:port, byte count, hex/ASCII toggle); pass-through; pause/clear |
+| 22 | MQTT Subscribe | MQTT Out | Connects to a broker and subscribes to a topic (`libmosquitto`); host/port/topic/QoS/username/password; source node, output only |
+| 23 | MQTT Publish | MQTT In | Publishes to a broker topic (`libmosquitto`); topic overridable per-message from incoming value; numeric payload as plain decimal text; retain flag; sink node, input only |
+| 24 | MQTT Monitor | MQTT In + MQTT Out | Pass-through display of MQTT topic+payload traffic; TIME/TOPIC/PAYLOAD scrolling log |
+| 25 | MQTT Console | MQTT Out | Manual topic+payload composer; topic history dropdown, explicit Send; source node, output only, no broker connection of its own |
 | 100+ | Pax nodes | Per descriptor | Dynamically loaded from `.dylib/.so/.dll` |
 
 ---
@@ -204,11 +203,13 @@ All ports and edges animate live at 30fps:
 
 **MIDI activity** — flashes bright cyan-white (80ms) on OUT port, edge and downstream IN port
 
-**UDP activity** — flashes steel blue (80ms) on Value Out port, edge and downstream IN port; live byte-rate label (B/s or kB/s) displayed inline on UDP In nodes while packets are flowing
+**UDP activity** — flashes steel blue (80ms) on UDP Out port, edge and downstream IN port; live byte-rate label (B/s or kB/s) displayed inline on UDP In nodes while packets are flowing
 
 **OSC activity** — flashes cyan/teal (80ms) on OSC Out port, edge and downstream IN port; live byte-rate label displayed inline on OSC In nodes while messages are arriving
 
 **ArtNet activity** — flashes pale amber (80ms) on ArtDMX Out port, edge and downstream IN port; change-driven (no flash on 44Hz heartbeat refresh, only on DMX value changes); live byte-rate label on ArtNet In nodes
+
+**MQTT activity** — flashes coral/salmon (80ms) on MQTT Out port, edge and downstream IN port; applies to Subscribe, Publish, Monitor and Console alike
 
 **Audio level** — continuously reflects RMS level via colour:
 - Silence → dim base colour

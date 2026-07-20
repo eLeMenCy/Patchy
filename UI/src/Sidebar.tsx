@@ -60,6 +60,8 @@ const BUILTIN_GROUPS = [
     nodes: [
       { type: 22 as const, label: 'MQTT Subscribe', desc: 'Subscribe to a broker topic', icon: '⊲' },
       { type: 23 as const, label: 'MQTT Publish',   desc: 'Publish to a broker topic',   icon: '⊳' },
+      { type: 24 as const, label: 'MQTT Monitor',   desc: 'Display MQTT messages',       icon: '⊞' },
+      { type: 25 as const, label: 'MQTT Console',   desc: 'Manual topic+payload composer', icon: '⊟' },
     ],
   },
 ] as const;

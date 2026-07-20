@@ -32,6 +32,8 @@ import { ArtNetMonitorNode } from './ArtNetMonitorNode';
 import { ArtNetConsoleNode } from './ArtNetConsoleNode';
 import { OscMonitorNode, OscMonitorNodeData } from './OscMonitorNode';
 import { UdpMonitorNode, UdpMonitorNodeData } from './UdpMonitorNode';
+import { MqttMonitorNode, MqttMonitorNodeData } from './MqttMonitorNode';
+import { MqttConsoleNode, MqttConsoleNodeData } from './MqttConsoleNode';
 import PreferencesPanel, { GraphPreferences, loadPrefs, savePrefs } from './PreferencesPanel';
 import { HintProvider, HintContext, BUTTON_HINTS, PORT_HINTS, EDGE_HINTS } from './HintPanel';
 import { Menu, ChevronsDownUp, ChevronsUpDown, Settings, ChevronLeft } from 'lucide-react';
@@ -40,13 +42,13 @@ import SpectrumyserNode from './SpectrumyserNode';
 import EnvelopeNode     from './EnvelopeNode';
 
 // ── Node type registry ────────────────────────────────────────────────────────
-const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode };
+const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 // Module-level Pax params map — populated when Pax list arrives
 const _paxParamsMap = new Map<string, PaxParamInfo[]>();
 
-function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>): Node<NodeData | MidiMonitorNodeData | DmxMonitorNodeData | OscMonitorNodeData | UdpMonitorNodeData> {
+function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>): Node<NodeData | MidiMonitorNodeData | DmxMonitorNodeData | OscMonitorNodeData | UdpMonitorNodeData | MqttMonitorNodeData | MqttConsoleNodeData> {
   const isMidiMonitor    = raw.nodeType === 5;
   const isAudioMonitor   = raw.nodeType === 6;
   const isMidiKeyboard   = raw.nodeType === 7;
@@ -56,6 +58,8 @@ function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>)
   const isArtNetConsole  = raw.nodeType === 19;
   const isOscMonitor     = raw.nodeType === 20;
   const isUdpMonitor     = raw.nodeType === 21;
+  const isMqttMonitor    = raw.nodeType === 24;
+  const isMqttConsole    = raw.nodeType === 25;
   return {
     id:       raw.id,
     type:     isMidiMonitor    ? 'midiMonitor'
@@ -67,6 +71,8 @@ function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>)
             : isArtNetConsole  ? 'artNetConsole'
             : isOscMonitor     ? 'oscMonitor'
             : isUdpMonitor     ? 'udpMonitor'
+            : isMqttMonitor    ? 'mqttMonitor'
+            : isMqttConsole    ? 'mqttConsole'
             : raw.paxName === 'Spectrumyser' ? 'spectrumyser'
             : raw.paxName === 'Envelope'     ? 'envelope' : 'custom',
     position: { x: raw.x, y: raw.y },
@@ -88,6 +94,10 @@ function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>)
       ? { label: raw.label, nodeType: 20, ports: raw.ports, settingsJson: raw.settingsJson } as OscMonitorNodeData
       : isUdpMonitor
       ? { label: raw.label, nodeType: 21, ports: raw.ports, settingsJson: raw.settingsJson } as UdpMonitorNodeData
+      : isMqttMonitor
+      ? { label: raw.label, nodeType: 24, ports: raw.ports, settingsJson: raw.settingsJson } as MqttMonitorNodeData
+      : isMqttConsole
+      ? { label: raw.label, nodeType: 25, ports: raw.ports, settingsJson: raw.settingsJson } as MqttConsoleNodeData
       : { label: raw.label, nodeType: raw.nodeType,
           ports: raw.ports, selectedDeviceId: raw.selectedDeviceId,
           paxName: raw.paxName,
@@ -183,7 +193,7 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
             artNetTimers.current.set(entry.id, now + 80);
           } else if (nodeType === 14 || nodeType === 15 || nodeType === 16 || nodeType === 17) {
             dmxTimers.current.set(entry.id, now + 80);
-          } else if (nodeType === 22 || nodeType === 23) {
+          } else if (nodeType === 22 || nodeType === 23 || nodeType === 24 || nodeType === 25) {
             mqttTimers.current.set(entry.id, now + 80);
           } else {
             midiTimers.current.set(entry.id, now + 80);

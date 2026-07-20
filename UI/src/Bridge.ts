@@ -115,6 +115,19 @@ export interface UdpMonitorBatch {
 type UdpMonitorCallback = (batches: UdpMonitorBatch[]) => void;
 const _udpMonitorSubscribers: UdpMonitorCallback[] = [];
 
+// ── MQTT Monitor types ─────────────────────────────────────────────────────────
+export interface RawMqttMonitorEvent {
+  ts: number;   // timestamp ms
+  tp: string;   // topic
+  pl: string;   // payload, formatted numeric text (e.g. "23.500000")
+}
+export interface MqttMonitorBatch {
+  nodeId: string;
+  events: RawMqttMonitorEvent[];
+}
+type MqttMonitorCallback = (batches: MqttMonitorBatch[]) => void;
+const _mqttMonitorSubscribers: MqttMonitorCallback[] = [];
+
 type GraphUpdateCallback  = (state: GraphState)   => void;
 type MidiDevicesCallback  = (devices: MidiDeviceList) => void;
 
@@ -353,6 +366,14 @@ function _dispatchClaimed() {
       _udpMonitorSubscribers.forEach(cb => cb(batches));
     } catch (e) {
       console.error('Bridge udpMonitorEvents parse error', e);
+    }
+  },
+  onMqttMonitorEvents: (json: string) => {
+    try {
+      const batches: MqttMonitorBatch[] = JSON.parse(json);
+      _mqttMonitorSubscribers.forEach(cb => cb(batches));
+    } catch (e) {
+      console.error('Bridge mqttMonitorEvents parse error', e);
     }
   },
   onMidiDevices: (json: string) => {
@@ -637,6 +658,13 @@ export const Bridge = {
       if (idx !== -1) _udpMonitorSubscribers.splice(idx, 1);
     };
   },
+  onMqttMonitorEvents(cb: MqttMonitorCallback) {
+    _mqttMonitorSubscribers.push(cb);
+    return () => {
+      const idx = _mqttMonitorSubscribers.indexOf(cb);
+      if (idx !== -1) _mqttMonitorSubscribers.splice(idx, 1);
+    };
+  },
   onMidiDevices(cb: MidiDevicesCallback) {
     _midiDeviceSubscribers.push(cb);
     if (_midiDeviceCache) cb(_midiDeviceCache);
@@ -752,6 +780,16 @@ export const Bridge = {
     sendToJuce({
       type: 'setNodeParam', nodeId, key: 'mqttPublishSettings',
       value: JSON.stringify({ host, port, topic, qos, retain, username, password }),
+    });
+  },
+
+  /** MQTT Console's Send action — a one-shot trigger, not a persisted
+   *  setting (unlike the two above), so it reuses the same setNodeParam
+   *  envelope but doesn't round-trip through settingsJson on the backend. */
+  sendMqttConsole(nodeId: string, topic: string, payload: number) {
+    sendToJuce({
+      type: 'setNodeParam', nodeId, key: 'mqttConsoleSend',
+      value: JSON.stringify({ topic, payload }),
     });
   },
 

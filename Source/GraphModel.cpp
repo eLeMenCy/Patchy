@@ -139,6 +139,18 @@ std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
         // no output (sink node)
         mk ("MQTT In", PortType::MQTT, PortDirection::Input);
     }
+    else if (t == 24)
+    {
+        // MqttMonitorNode: MQTT In + MQTT Out (pass-through, display only)
+        mk ("MQTT In",  PortType::MQTT, PortDirection::Input);
+        mk ("MQTT Out", PortType::MQTT, PortDirection::Output);
+    }
+    else if (t == 25)
+    {
+        // MqttConsoleNode: MQTT Out only — manual topic+payload composer,
+        // source node, same shape as DmxConsoleNode/ArtNetConsoleNode
+        mk ("MQTT Out", PortType::MQTT, PortDirection::Output);
+    }
     else if (t >= 100)
     {
         // Dynamic addon node — ports based on NGA nodeType (t - 100)
@@ -196,6 +208,8 @@ static juce::String labelForType (int t, const juce::String& paxName)
         case 21: return "UDP Monitor";
         case 22: return "MQTT Subscribe";
         case 23: return "MQTT Publish";
+        case 24: return "MQTT Monitor";
+        case 25: return "MQTT Console";
         default: return "Addon Node";
     }
 }

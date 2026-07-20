@@ -28,7 +28,8 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                                std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetMonitorBuffer,
                                std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetConsoleBuffer,
                                std::function<OscMonitorBuffer*(const juce::String&)>     getOscMonitorBuffer,
-                               std::function<UdpMonitorBuffer*(const juce::String&)>     getUdpMonitorBuffer)
+                               std::function<UdpMonitorBuffer*(const juce::String&)>     getUdpMonitorBuffer,
+                               std::function<MqttMonitorBuffer*(const juce::String&)>    getMqttMonitorBuffer)
 {
     auto snapshot = model.toVar();
     auto* root    = snapshot.getDynamicObject();
@@ -95,6 +96,8 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                 case 21: proc = std::make_unique<UdpMonitorNode>      (id, getUdpMonitorBuffer  ? getUdpMonitorBuffer(id)  : nullptr); break;
                 case 22: proc = std::make_unique<MqttSubscribeNode>   (id); break;
                 case 23: proc = std::make_unique<MqttPublishNode>     (id); break;
+                case 24: proc = std::make_unique<MqttMonitorNode>     (id, getMqttMonitorBuffer ? getMqttMonitorBuffer(id) : nullptr); break;
+                case 25: proc = std::make_unique<MqttConsoleNode>     (id); break;
                 default:
                     juce::Logger::writeToLog ("ProcessingGraph: unknown built-in type " + juce::String (type));
                     break;
@@ -491,6 +494,20 @@ MqttPublishNode* ProcessingGraph::findMqttPublishNode (const juce::String& nodeI
     auto it = nodeMap.find (nodeId);
     if (it == nodeMap.end()) return nullptr;
     return dynamic_cast<MqttPublishNode*> (it->second);
+}
+
+MqttMonitorNode* ProcessingGraph::findMqttMonitorNode (const juce::String& nodeId)
+{
+    auto it = nodeMap.find (nodeId);
+    if (it == nodeMap.end()) return nullptr;
+    return dynamic_cast<MqttMonitorNode*> (it->second);
+}
+
+MqttConsoleNode* ProcessingGraph::findMqttConsoleNode (const juce::String& nodeId)
+{
+    auto it = nodeMap.find (nodeId);
+    if (it == nodeMap.end()) return nullptr;
+    return dynamic_cast<MqttConsoleNode*> (it->second);
 }
 
 OscOutDeviceNode* ProcessingGraph::findOscOutNode (const juce::String& nodeId)

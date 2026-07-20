@@ -43,6 +43,8 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
                                              const juce::String& topic, int qos, bool retain,
                                              const juce::String& username, const juce::String& password)
                                        { p.setMqttPublishSettings (nid, host, port, topic, qos, retain, username, password); };
+    bridge.onMqttConsoleSend          = [&p](const juce::String& nid, const juce::String& topic, float payload)
+                                       { p.mqttConsoleSend (nid, topic, payload); };
     bridge.onSetArtNetSettings       = [&p](const juce::String& nid, int universe,
                                             const juce::String& targetHost)
                                        { p.setArtNetSettings (nid, universe, targetHost); };
@@ -51,6 +53,7 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
     bridge.drainDmxSnapshots         = [&p]() { return p.drainAllDmxSnapshots(); };
     bridge.drainOscMonitor           = [&p]() { return p.drainAllOscMonitorEvents(); };
     bridge.drainUdpMonitor           = [&p]() { return p.drainAllUdpMonitorEvents(); };
+    bridge.drainMqttMonitor          = [&p]() { return p.drainAllMqttMonitorEvents(); };
     bridge.onSetDmxConsoleChannel    = [&p](const juce::String& nid, int channel, uint8_t value)
                                        {
                                            auto* node = p.getProcessingGraph().findDmxConsoleNode (nid);

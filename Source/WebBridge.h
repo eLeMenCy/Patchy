@@ -11,6 +11,7 @@
 #include "ArtNetConsoleNode.h"
 #include "OscMonitorNode.h"
 #include "UdpMonitorNode.h"
+#include "MqttDeviceNodes.h"
 
 /**
  * WebBridge
@@ -112,6 +113,9 @@ public:
                        const juce::String&, const juce::String&)>                                onSetMqttSubscribeSettings;
     std::function<void(const juce::String&, const juce::String&, int, const juce::String&, int, bool,
                        const juce::String&, const juce::String&)>                                onSetMqttPublishSettings;
+    /** MQTT Console's Send action — a discrete trigger, not a persisted
+     *  setting like the two above (nodeId, topic, payload). */
+    std::function<void(const juce::String&, const juce::String&, float)>                         onMqttConsoleSend;
     std::function<void(const juce::String&, int, const juce::String&)>                           onSetArtNetSettings;
     std::function<void(const juce::String&, const juce::String&, int)>                          onSetDmxSettings;
     std::function<std::vector<DmxSnapshot>()>                                                    drainDmxSnapshots;
@@ -135,6 +139,7 @@ public:
 
     // UDP Monitor
     std::function<std::vector<UdpMonitorBatch>()>                                                 drainUdpMonitor;
+    std::function<std::vector<MqttMonitorBatch>()>                                                drainMqttMonitor;
 
 private:
     // ── Resource provider (release) ───────────────────────────────────────
@@ -188,6 +193,7 @@ private:
     void pushArtNetSnapshots();
     void pushOscMonitorEvents();
     void pushUdpMonitorEvents();
+    void pushMqttMonitorEvents();
 
     void pushPaxList();
 

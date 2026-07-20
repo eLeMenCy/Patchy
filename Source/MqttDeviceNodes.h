@@ -505,6 +505,169 @@ private:
 
 // ─────────────────────────────────────────────────────────────────────────────
 /**
+ * MqttMonitorEvent / MqttMonitorBuffer / MqttMonitorNode  (nodeType 24)
+ *
+ * MQTT In + MQTT Out (pass-through, display only) — same shape as
+ * DmxMonitorNode/ArtNetMonitorNode, not OscMonitorNode/UdpMonitorNode.
+ *
+ * Deliberately simpler than OSC/UDP Monitor's raw-capture-bypass design:
+ * those needed to tap raw protocol bytes independently of the collapsed
+ * PAX_Value because PAX_Value only keeps the FIRST typed arg, losing real
+ * data on multi-arg OSC messages. MQTT has no equivalent problem — our own
+ * design already scopes MQTT to one topic + one numeric payload per
+ * message (see MqttSubscribeNode/MqttPublishNode's locked decisions), so
+ * the collapsed PAX_Value (topic in data[], payload in value) already IS
+ * the full picture, regardless of what feeds it. No raw-tap FIFO, no
+ * ProcessingGraph routing branch needed — process() just reads its own
+ * inputValues directly, same as DmxMonitorNode/ArtNetMonitorNode. No
+ * source-node attribution either, for the same reason those two don't
+ * have it: a topic+payload log is fully self-descriptive without needing
+ * to know which upstream node produced it.
+ */
+
+struct MqttMonitorEvent
+{
+    int64_t      timestampMs = 0;
+    juce::String topic;
+    juce::String payload;   // formatted numeric value, e.g. "23.500000"
+};
+
+struct MqttMonitorBatch
+{
+    juce::String                   nodeId;
+    std::vector<MqttMonitorEvent>  events;
+};
+
+struct MqttMonitorBuffer
+{
+    static constexpr int kRingSize = 512;
+
+    void push (const MqttMonitorEvent& ev)
+    {
+        int writePos = (ringWritePos.load() + 1) % kRingSize;
+        ring[static_cast<size_t> (writePos)] = ev;
+        ringWritePos.store (writePos);
+    }
+
+    std::vector<MqttMonitorEvent> drain()
+    {
+        std::vector<MqttMonitorEvent> result;
+        int readPos  = ringReadPos.load();
+        int writePos = ringWritePos.load();
+        while (readPos != writePos)
+        {
+            readPos = (readPos + 1) % kRingSize;
+            result.push_back (ring[static_cast<size_t> (readPos)]);
+            ringReadPos.store (readPos);
+        }
+        return result;
+    }
+
+    std::array<MqttMonitorEvent, kRingSize> ring;
+    std::atomic<int> ringWritePos { 0 };
+    std::atomic<int> ringReadPos  { 0 };
+};
+
+class MqttMonitorNode : public NodeProcessor
+{
+public:
+    MqttMonitorNode (const juce::String& nodeId, MqttMonitorBuffer* sharedBuffer)
+        : NodeProcessor (nodeId, Type::Midi), buffer (sharedBuffer) {}
+
+    void process (int /*numSamples*/) override
+    {
+        outputValueCount = inputValueCount;
+        for (int i = 0; i < inputValueCount; ++i)
+            outputValues[static_cast<size_t> (i)] = inputValues[static_cast<size_t> (i)];
+
+        if (inputValueCount > 0)
+            recordMidiActivity (inputValueCount);
+
+        if (buffer == nullptr) return;
+        const int64_t now = juce::Time::currentTimeMillis();
+        for (int i = 0; i < inputValueCount; ++i)
+        {
+            const auto& v = inputValues[static_cast<size_t> (i)];
+            if (v.dataType != PAX_DATA_STRING || v.dataSize == 0) continue;   // no topic, skip
+
+            MqttMonitorEvent ev;
+            ev.timestampMs = now;
+            ev.topic       = juce::String (juce::CharPointer_UTF8 ((const char*) v.data));
+            ev.payload     = juce::String (v.value, 6);
+            buffer->push (ev);
+        }
+    }
+
+private:
+    MqttMonitorBuffer* buffer = nullptr;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MqttMonitorNode)
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * MqttConsoleNode  (nodeType 25)
+ *
+ * MQTT Out only — pure value source, same shape as DmxConsoleNode/
+ * ArtNetConsoleNode: no broker connection of its own, that stays on a
+ * downstream MqttPublishNode. Manual topic+payload composer with an
+ * explicit Send trigger (button or Enter — both call sendNow()), not a
+ * continuously-held state like DMX's faders. One PAX_Value is emitted for
+ * exactly one process() block per send, then cleared — a discrete event,
+ * not a persistent value like a fader position. No undo/redo for sends
+ * themselves (can't un-send a message that already went out), matching
+ * that a "send" is an action, not state.
+ */
+class MqttConsoleNode : public NodeProcessor
+{
+public:
+    explicit MqttConsoleNode (const juce::String& nodeId)
+        : NodeProcessor (nodeId, Type::Midi) {}
+
+    /** Called from PatchyProcessor in response to a UI Send action. Queues
+     *  one value to be emitted on the next process() block. */
+    void sendNow (const juce::String& topic, float payload)
+    {
+        if (topic.isEmpty()) return;
+
+        PAX_Value v {};
+        v.type = PAX_TYPE_MQTT;
+        v.key  = static_cast<uint32_t> (topic.hashCode());
+
+        // Topic in data[] — same convention as MqttSubscribeNode/OSC's address.
+        v.dataType = PAX_DATA_STRING;
+        auto topicUtf8 = topic.toRawUTF8();
+        auto len = juce::jmin ((int) sizeof (v.data) - 1, (int) strlen (topicUtf8));
+        memcpy (v.data, topicUtf8, static_cast<size_t> (len));
+        v.data[len] = 0;
+        v.dataSize = static_cast<uint16_t> (len);
+
+        v.value = payload;
+
+        pendingValue = v;
+        pendingSend.store (true);
+    }
+
+    void process (int /*numSamples*/) override
+    {
+        outputValueCount = 0;
+        if (pendingSend.exchange (false))
+        {
+            outputValues[0] = pendingValue;
+            outputValueCount = 1;
+            recordMidiActivity (1);
+        }
+    }
+
+private:
+    PAX_Value          pendingValue {};
+    std::atomic<bool>  pendingSend { false };
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MqttConsoleNode)
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+/**
  * MqttDeviceManager
  *
  * Owned by PatchyProcessor. Tracks per-node MQTT settings and reapplies them

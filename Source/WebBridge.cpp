@@ -609,6 +609,18 @@ void WebBridge::handleMessage (const juce::String& json)
             if (auto* nd = graph.findNode (nodeId))
                 pushSettingsToUI (nodeId, nd->settingsJson);
         }
+        else if (key == "mqttConsoleSend" && onMqttConsoleSend)
+        {
+            // value is a JSON object: { topic, payload } — a one-shot trigger,
+            // not a persisted setting, so no settingsJson push-back here (the
+            // frontend already updated its own topic-history state locally
+            // before sending, same as any other UI-only state).
+            auto parsed = juce::JSON::parse (value);
+            juce::String topic = parsed["topic"].toString();
+            float payload       = (float) parsed["payload"];
+
+            onMqttConsoleSend (nodeId, topic, payload);
+        }
         else if (key == "artNetSettings" && onSetArtNetSettings)
         {
             // value is a JSON object: { universe, targetHost }
@@ -971,6 +983,7 @@ void WebBridge::timerCallback()
         pushArtNetSnapshots();
         pushOscMonitorEvents();
         pushUdpMonitorEvents();
+        pushMqttMonitorEvents();
     }
 }
 
@@ -1122,6 +1135,51 @@ void WebBridge::pushUdpMonitorEvents()
     json << "]";
 
     pushToUI ("onUdpMonitorEvents", json);
+}
+
+void WebBridge::pushMqttMonitorEvents()
+{
+    if (! connected || ! drainMqttMonitor || webView == nullptr) return;
+
+    auto batches = drainMqttMonitor();
+
+    if (batches.empty()) return;
+
+    const juce::juce_wchar Q = '"';
+
+    juce::String json;
+    json << "[";
+
+    bool firstBatch = true;
+    for (const auto& batch : batches)
+    {
+        if (! firstBatch) json << ",";
+        firstBatch = false;
+
+        json << "{"
+             << Q << "nodeId" << Q << ":" << Q << batch.nodeId << Q << ","
+             << Q << "events" << Q << ":[";
+
+        bool firstEv = true;
+        for (const auto& ev : batch.events)
+        {
+            if (! firstEv) json << ",";
+            firstEv = false;
+
+            juce::String tp = ev.topic.replace   ("\\", "\\\\").replace ("\"", "\\\"");
+            juce::String pl = ev.payload.replace ("\\", "\\\\").replace ("\"", "\\\"");
+
+            json << "{"
+                 << Q << "ts" << Q << ":" << ev.timestampMs << ","
+                 << Q << "tp" << Q << ":" << Q << tp << Q << ","
+                 << Q << "pl" << Q << ":" << Q << pl << Q
+                 << "}";
+        }
+        json << "]}";
+    }
+    json << "]";
+
+    pushToUI ("onMqttMonitorEvents", json);
 }
 
 void WebBridge::pushAudioSnapshots()

@@ -284,6 +284,26 @@ public:
         }
     }
 
+    /** Triggers an MqttConsoleNode's Send action — a discrete one-shot event,
+     *  not a persisted setting, so this doesn't touch settingsJson at all
+     *  (unlike setMqttXSettings above). Topic history is tracked entirely on
+     *  the frontend, persisted via the node's ordinary settingsJson round-trip
+     *  same as any other UI-only state.
+     *
+     *  Deliberately only targets the CURRENTLY ACTIVE processingGraph, unlike
+     *  the settings-apply methods above which also apply to a pendingGraph if
+     *  one exists. pendingGraph doesn't get process() calls until it's
+     *  swapped in later — setting the pending-send flag there would fire an
+     *  unexpected, stale send whenever that swap eventually happens, with no
+     *  relation to this actual click. A persisted setting should apply
+     *  consistently to whichever graph ends up active; a one-shot trigger
+     *  should only ever affect what's live right now. */
+    void mqttConsoleSend (const juce::String& nodeId, const juce::String& topic, float payload)
+    {
+        if (auto* node = processingGraph.findMqttConsoleNode (nodeId))
+            node->sendNow (topic, payload);
+    }
+
     /** Apply OSC settings (port, targetHost, oscAddress) to a live node and persist them. */
     void setOscSettings (const juce::String& nodeId,
                          int port,
@@ -845,6 +865,19 @@ public:
         return result;
     }
 
+    /** Called by WebBridge 30fps timer — drains all MQTT monitor buffers. */
+    std::vector<MqttMonitorBatch> drainAllMqttMonitorEvents()
+    {
+        std::vector<MqttMonitorBatch> result;
+        for (auto& [nodeId, buf] : mqttMonitorBuffers)
+        {
+            auto events = buf->drain();
+            if (! events.empty())
+                result.push_back ({ nodeId, std::move (events) });
+        }
+        return result;
+    }
+
     /** Called by WebBridge 30fps timer — drains DMX monitor + console snapshots. */
     std::vector<ArtNetSnapshot> drainAllArtNetSnapshots()
     {
@@ -923,6 +956,7 @@ public:
     ArtNetMonitorBuffer*   getOrCreateArtNetConsoleBuffer   (const juce::String& id) { return getOrCreateBuffer (artNetConsoleBuffers,    id); }
     OscMonitorBuffer*      getOrCreateOscMonitorBuffer      (const juce::String& id) { return getOrCreateBuffer (oscMonitorBuffers,       id); }
     UdpMonitorBuffer*      getOrCreateUdpMonitorBuffer      (const juce::String& id) { return getOrCreateBuffer (udpMonitorBuffers,       id); }
+    MqttMonitorBuffer*     getOrCreateMqttMonitorBuffer     (const juce::String& id) { return getOrCreateBuffer (mqttMonitorBuffers,      id); }
 
     void removeMonitorBuffer (const juce::String& nodeId)
     {
@@ -960,6 +994,7 @@ private:
     std::unordered_map<juce::String, std::unique_ptr<ArtNetMonitorBuffer>>   artNetConsoleBuffers;
     std::unordered_map<juce::String, std::unique_ptr<OscMonitorBuffer>>      oscMonitorBuffers;
     std::unordered_map<juce::String, std::unique_ptr<UdpMonitorBuffer>>      udpMonitorBuffers;
+    std::unordered_map<juce::String, std::unique_ptr<MqttMonitorBuffer>>     mqttMonitorBuffers;
     bool audioSnapshotBusy = false;
 
     // Pending graph to swap in at the start of the next processBlock

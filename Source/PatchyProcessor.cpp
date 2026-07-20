@@ -72,7 +72,8 @@ void PatchyProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
                              [this](const juce::String& nid) { return getOrCreateArtNetMonitorBuffer(nid); },
                              [this](const juce::String& nid) { return getOrCreateArtNetConsoleBuffer(nid); },
                              [this](const juce::String& nid) { return getOrCreateOscMonitorBuffer(nid); },
-                             [this](const juce::String& nid) { return getOrCreateUdpMonitorBuffer(nid); });
+                             [this](const juce::String& nid) { return getOrCreateUdpMonitorBuffer(nid); },
+                             [this](const juce::String& nid) { return getOrCreateMqttMonitorBuffer(nid); });
     processingGraph.isStandaloneMode = isStandalone;
     processingGraph.graphModel        = &graphModel;
     processingGraph.prepare (sampleRate, samplesPerBlock);
@@ -144,6 +145,7 @@ void PatchyProcessor::rebuildProcessingGraph()
                     if (t == 6) getOrCreateAudioMonitorBuffer (nid);
                     if (t == 20) getOrCreateOscMonitorBuffer  (nid);
                     if (t == 21) getOrCreateUdpMonitorBuffer  (nid);
+                    if (t == 24) getOrCreateMqttMonitorBuffer (nid);
                 }
             }
         }
@@ -176,7 +178,8 @@ void PatchyProcessor::rebuildProcessingGraph()
                        [this](const juce::String& nid) { return getOrCreateArtNetMonitorBuffer(nid); },
                        [this](const juce::String& nid) { return getOrCreateArtNetConsoleBuffer(nid); },
                        [this](const juce::String& nid) { return getOrCreateOscMonitorBuffer(nid); },
-                       [this](const juce::String& nid) { return getOrCreateUdpMonitorBuffer(nid); });
+                       [this](const juce::String& nid) { return getOrCreateUdpMonitorBuffer(nid); },
+                       [this](const juce::String& nid) { return getOrCreateMqttMonitorBuffer(nid); });
 
     // Transfer existing open audio device connections to the new graph nodes
     // rather than closing and reopening — this avoids the ~1 second audio gap.

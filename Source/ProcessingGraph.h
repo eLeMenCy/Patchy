@@ -51,7 +51,8 @@ public:
                  std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetMonitorBuffer = nullptr,
                  std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetConsoleBuffer = nullptr,
                  std::function<OscMonitorBuffer*(const juce::String&)>     getOscMonitorBuffer    = nullptr,
-                 std::function<UdpMonitorBuffer*(const juce::String&)>     getUdpMonitorBuffer    = nullptr);
+                 std::function<UdpMonitorBuffer*(const juce::String&)>     getUdpMonitorBuffer    = nullptr,
+                 std::function<MqttMonitorBuffer*(const juce::String&)>    getMqttMonitorBuffer   = nullptr);
     void prepare (double sampleRate, int maxBlockSize);
     void process (juce::AudioBuffer<float>& hostAudio, juce::MidiBuffer& hostMidi);
 
@@ -95,6 +96,8 @@ public:
     OscInDeviceNode*    findOscInNode    (const juce::String& nodeId);
     MqttSubscribeNode*  findMqttSubscribeNode (const juce::String& nodeId);
     MqttPublishNode*    findMqttPublishNode   (const juce::String& nodeId);
+    MqttMonitorNode*    findMqttMonitorNode   (const juce::String& nodeId);
+    MqttConsoleNode*    findMqttConsoleNode   (const juce::String& nodeId);
     OscOutDeviceNode*   findOscOutNode   (const juce::String& nodeId);
     ArtNetInDeviceNode*  findArtNetInNode  (const juce::String& nodeId);
     ArtNetOutDeviceNode* findArtNetOutNode (const juce::String& nodeId);

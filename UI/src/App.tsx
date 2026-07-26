@@ -21,7 +21,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { Bridge, FileState, AudioSettings, GraphState, RawNode, RawConnection, PortActivityEntry, PaxParamInfo, FragmentData, UndoState } from './Bridge';
+import { Bridge, FileState, AudioSettings, GraphState, RawNode, RawConnection, PortActivityEntry, PaxParamInfo, PaxInfo, FragmentData, UndoState } from './Bridge';
 import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
@@ -40,15 +40,19 @@ import { Menu, ChevronsDownUp, ChevronsUpDown, Settings, ChevronLeft } from 'luc
 import Sidebar from './Sidebar';
 import SpectrumyserNode from './SpectrumyserNode';
 import EnvelopeNode     from './EnvelopeNode';
+import { _paxInfoMap } from './NodeUtils';
 
 // ── Node type registry ────────────────────────────────────────────────────────
 const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
-// Module-level Pax params map — populated when Pax list arrives
-const _paxParamsMap = new Map<string, PaxParamInfo[]>();
+// _paxInfoMap lives in NodeUtils.tsx (not declared here) — GenericNode.tsx
+// also needs to read it (for colourCategory), and App.tsx already imports
+// GenericNode to register it as a node type, so declaring it here would
+// create a circular import. NodeUtils.tsx is a lower-level shared utility
+// file both already depend on safely.
 
-function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>): Node<NodeData | MidiMonitorNodeData | DmxMonitorNodeData | OscMonitorNodeData | UdpMonitorNodeData | MqttMonitorNodeData | MqttConsoleNodeData> {
+function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<NodeData | MidiMonitorNodeData | DmxMonitorNodeData | OscMonitorNodeData | UdpMonitorNodeData | MqttMonitorNodeData | MqttConsoleNodeData> {
   const isMidiMonitor    = raw.nodeType === 5;
   const isAudioMonitor   = raw.nodeType === 6;
   const isMidiKeyboard   = raw.nodeType === 7;
@@ -101,7 +105,7 @@ function rawToFlowNode(raw: RawNode, paxParamsMap?: Map<string, PaxParamInfo[]>)
       : { label: raw.label, nodeType: raw.nodeType,
           ports: raw.ports, selectedDeviceId: raw.selectedDeviceId,
           paxName: raw.paxName,
-          paxParams: raw.paxName ? (paxParamsMap?.get(raw.paxName) ?? []) : [],
+          paxParams: raw.paxName ? (paxInfoMap?.get(raw.paxName)?.params ?? []) : [],
           settingsJson: raw.settingsJson } as NodeData,
   };
 }
@@ -114,6 +118,7 @@ function rawToFlowEdge(raw: RawConnection): Edge {
             : src.includes('dmx')     ? 'edge-dmx'
             : src.includes('mqtt')    ? 'edge-mqtt'
             : src.includes('udp')     ? 'edge-udp'
+            : src.includes('value')   ? 'edge-value'   // Pax adapter/converter ports (Phase 4)
             : 'edge-midi';
   return {
     id:           raw.id,
@@ -154,6 +159,24 @@ function rmsToGlow (rms: number, col: string): string {
 }
 
 // ── Port activity — dynamic CSS injection ─────────────────────────────────────
+// Maps a port/handle id string to its display colour, purely from label
+// text (same convention as every other classifier in this file — ports
+// are typed by their label, not a separate lookup). Module-level since
+// both usePortActivityStyles (per-port Pax value flash) and the main App
+// component (drag-preview line colour) need the exact same mapping.
+function colourForHandleId (handleId: string): string {
+  const h = handleId.toLowerCase();
+  if (h.includes('audio'))   return 'var(--audio)';
+  if (h.includes('artdmx'))  return 'var(--artnet)';  // must come before 'dmx'
+  if (h.includes('osc'))     return 'var(--osc)';
+  if (h.includes('dmx'))     return 'var(--dmx)';
+  if (h.includes('mqtt'))    return 'var(--mqtt)';
+  if (h.includes('udp'))     return 'var(--udp)';
+  if (h.includes('value'))   return 'var(--value)';  // Pax adapter/converter ports (Phase 4)
+  if (h.includes('midi'))    return 'var(--midi)';
+  return 'var(--accent)';
+}
+
 function usePortActivityStyles (edges: any[], nodes: any[]) {
   const styleRef      = useRef<HTMLStyleElement | null>(null);
   const midiTimers    = useRef<Map<string, number>>(new Map());
@@ -162,6 +185,7 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
   const artNetTimers  = useRef<Map<string, number>>(new Map());
   const dmxTimers     = useRef<Map<string, number>>(new Map());
   const mqttTimers    = useRef<Map<string, number>>(new Map());
+  const paxValueTimers = useRef<Map<string, number>>(new Map());
   const audioLevels   = useRef<Map<string, number>>(new Map());
   const portRmsLevels = useRef<Map<string, number[]>>(new Map());
   const edgeList      = useRef(edges);
@@ -195,6 +219,15 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
             dmxTimers.current.set(entry.id, now + 80);
           } else if (nodeType === 22 || nodeType === 23 || nodeType === 24 || nodeType === 25) {
             mqttTimers.current.set(entry.id, now + 80);
+          } else if (nodeType >= 100) {
+            // Pax node (ngaType = nodeType - 100) — never matches any of
+            // the built-in nodeType checks above, so it used to fall
+            // through to the generic MIDI bucket regardless of what its
+            // actual declared port types are. Own bucket now, coloured
+            // per-port in the CSS injection below rather than with one
+            // fixed colour, since a Pax can have several differently
+            // typed value ports on the same node.
+            paxValueTimers.current.set(entry.id, now + 80);
           } else {
             midiTimers.current.set(entry.id, now + 80);
           }
@@ -251,7 +284,9 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
       dmxTimers.current.forEach((expiry, id) => { if (expiry > now) dmxSources.add(id); });
       const mqttSources   = new Set<string>();
       mqttTimers.current.forEach((expiry, id) => { if (expiry > now) mqttSources.add(id); });
-      const allSources   = new Set([...audioSources, ...midiSources, ...udpSources, ...oscSources, ...artNetSources, ...dmxSources, ...mqttSources]);
+      const paxValueSources = new Set<string>();
+      paxValueTimers.current.forEach((expiry, id) => { if (expiry > now) paxValueSources.add(id); });
+      const allSources   = new Set([...audioSources, ...midiSources, ...udpSources, ...oscSources, ...artNetSources, ...dmxSources, ...mqttSources, ...paxValueSources]);
 
       let css = '';
 
@@ -282,6 +317,32 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
           css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${col}!important;filter:drop-shadow(0 0 3px ${col})}`;
           if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${col}!important;box-shadow:${glow}!important}`;
         });
+
+        // Pax value-port flash (nodeType >= 100, paxValueTimers bucket) —
+        // pragmatic middle ground agreed for this follow-up: true per-port
+        // activity distinction would need new backend counters (not built
+        // here), so instead flash every one of a node's typed non-audio
+        // output ports together whenever the node has any activity, each
+        // in its own correct colour rather than one fixed colour for the
+        // whole node. Reuses colourForHandleId — same label-text-based
+        // classification as every other port/edge colour in this file, so
+        // a port's own id (which already encodes its correct type-specific
+        // label thanks to the per-port-typing mechanism) gives the right
+        // colour with no separate lookup needed. Audio ports excluded —
+        // already handled by the RMS block above, this is specifically
+        // for MIDI/OSC/DMX/MQTT/UDP/Value-typed ports on a Pax node.
+        const isPaxValueFlash = (paxValueTimers.current.get(id) ?? 0) > now;
+        if (isPaxValueFlash) {
+          const valuePorts = ports.filter(p => p.direction === 'output' && p.type !== 'audio');
+          valuePorts.forEach(p => {
+            const pCol = colourForHandleId(p.id as string);
+            css += `[data-handleid="${p.id}"]{background:${pCol}!important;box-shadow:0 0 10px ${pCol}!important;transition:none}`;
+            edgeList.current.filter(e => e.sourceHandle === p.id).forEach(e => {
+              css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${pCol}!important;filter:drop-shadow(0 0 4px ${pCol});transition:none}`;
+              if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${pCol}!important;box-shadow:0 0 10px ${pCol}!important;transition:none}`;
+            });
+          });
+        }
 
         // MIDI flash — written last so it wins over audio VU
         if (isMidiFlash) {
@@ -557,7 +618,7 @@ function FlowCanvas() {
         setNodes(prev => {
           const styleMap = new Map(prev.map(n => [n.id, n.style]));
           return state.nodes.map(raw => {
-            const node = rawToFlowNode(raw, _paxParamsMap);
+            const node = rawToFlowNode(raw, _paxInfoMap);
             const existing = styleMap.get(raw.id);
             if (existing) node.style = { ...node.style, ...existing };
             return node;
@@ -585,7 +646,7 @@ function FlowCanvas() {
 
 
     Bridge.onPaxList((paxItems) => {
-      paxItems.forEach(a => _paxParamsMap.set(a.name, a.params ?? []));
+      paxItems.forEach(a => _paxInfoMap.set(a.name, a));
     });
     Bridge.ready();
     return () => unsubGraph();
@@ -645,18 +706,6 @@ function FlowCanvas() {
   // rather than refactored into a shared one, to keep this addition isolated.
   const [connectionLineColour, setConnectionLineColour] = useState('var(--accent)');
 
-  const colourForHandleId = (handleId: string): string => {
-    const h = handleId.toLowerCase();
-    if (h.includes('audio'))   return 'var(--audio)';
-    if (h.includes('artdmx'))  return 'var(--artnet)';  // must come before 'dmx'
-    if (h.includes('osc'))     return 'var(--osc)';
-    if (h.includes('dmx'))     return 'var(--dmx)';
-    if (h.includes('mqtt'))    return 'var(--mqtt)';
-    if (h.includes('udp'))     return 'var(--udp)';
-    if (h.includes('midi'))    return 'var(--midi)';
-    return 'var(--accent)';
-  };
-
   const onConnectStart = useCallback((_event: MouseEvent | TouchEvent, params: { nodeId: string | null; handleId: string | null; handleType: string | null }) => {
     if (params.handleId) setConnectionLineColour(colourForHandleId(params.handleId));
   }, []);
@@ -680,6 +729,7 @@ function FlowCanvas() {
       if (h.includes('dmx'))     return 'dmx';
       if (h.includes('mqtt'))    return 'mqtt';
       if (h.includes('udp'))     return 'udp';
+      if (h.includes('value'))   return 'value';  // generic Pax adapter/converter ports (Phase 4)
       return 'midi';
     };
 
@@ -748,6 +798,7 @@ function FlowCanvas() {
                   : src.includes('dmx')    ? 'edge-dmx'
                   : src.includes('mqtt')   ? 'edge-mqtt'
                   : src.includes('udp')    ? 'edge-udp'
+                  : src.includes('value')  ? 'edge-value'
                   : 'edge-midi';
     setEdges(es => addEdge({
       ...connection,
@@ -777,7 +828,7 @@ function FlowCanvas() {
     if (!raw) return;
 
     // Data is JSON { nodeType, paxName, ngaType? }
-    // For Pax: nodeType=0 (sentinel), ngaType=1/2/3 (PAX MIDI/Audio/AV)
+    // For Pax: nodeType=0 (sentinel), ngaType=1/2/3/4 (PAX MIDI/Audio/AV/Value)
     // For built-ins: nodeType=1-4, paxName=''
     let nodeType: number = 1;
     let paxName = '';
@@ -840,7 +891,7 @@ function FlowCanvas() {
         ...prev,
         ...pendingFragment.nodes.map(raw => rawToFlowNode(
           { ...raw, x: flowPos.x + raw.x, y: flowPos.y + raw.y },
-          _paxParamsMap
+          _paxInfoMap
         )),
       ]);
       setEdges(prev => [

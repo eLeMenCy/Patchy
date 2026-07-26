@@ -502,17 +502,21 @@ void PatchyProcessor::setStateInformation (const void* data, int sizeInBytes)
         auto* nd = nv.getDynamicObject();
         if (nd == nullptr) continue;
         juce::String paxName = nd->getProperty ("paxName").toString();
-        int audioIn = 0, audioOut = 0, midiIn = 0, midiOut = 0;
+        PaxPortSpec portSpec;
         if (paxName.isNotEmpty())
         {
             for (const auto& e : registry.getEntries())
             {
                 if (e.name == paxName)
                 {
-                    audioIn  = e.audioInputs;
-                    audioOut = e.audioOutputs;
-                    midiIn   = e.midiInputs;
-                    midiOut  = e.midiOutputs;
+                    portSpec.audioIn  = e.audioInputs;
+                    portSpec.audioOut = e.audioOutputs;
+                    portSpec.midiIn   = e.midiInputs;
+                    portSpec.midiOut  = e.midiOutputs;
+                    portSpec.valueIn  = e.valueInputs;
+                    portSpec.valueOut = e.valueOutputs;
+                    for (int tag : e.valueInputTypes)  portSpec.valueInTypes.push_back  (paxValueTypeFromTag (tag));
+                    for (int tag : e.valueOutputTypes) portSpec.valueOutTypes.push_back (paxValueTypeFromTag (tag));
                     break;
                 }
             }
@@ -522,7 +526,7 @@ void PatchyProcessor::setStateInformation (const void* data, int sizeInBytes)
             (int)   nd->getProperty ("nodeType"),
             (float) nd->getProperty ("x"),
             (float) nd->getProperty ("y"),
-            paxName, audioIn, audioOut, midiIn, midiOut);
+            paxName, portSpec);
         restoredNode.selectedDeviceId = nd->getProperty ("selectedDeviceId").toString();
         restoredNode.settingsJson     = nd->getProperty ("settingsJson").toString();
     }

@@ -2,9 +2,68 @@
 #include <unordered_set>
 #include <algorithm>
 
+/** Translates a Pax-declared per-port value type into the internal
+ *  PortType plus the label prefix that makes the frontend's own
+ *  (label-text-based) connection/edge classifiers recognise it
+ *  correctly. See PaxValueType's comment in GraphModel.h for why
+ *  ArtNet and DMX share PortType::DMX but need different label text. */
+void portTypeAndLabelFor (PaxValueType t, PortType& outType, juce::String& outLabelPrefix)
+{
+    switch (t)
+    {
+        case PaxValueType::Mqtt:    outType = PortType::MQTT;  outLabelPrefix = "MQTT";   break;
+        case PaxValueType::Osc:     outType = PortType::OSC;   outLabelPrefix = "OSC";    break;
+        case PaxValueType::Dmx:     outType = PortType::DMX;   outLabelPrefix = "DMX";    break;
+        case PaxValueType::Udp:     outType = PortType::UDP;   outLabelPrefix = "UDP";    break;
+        case PaxValueType::ArtNet:  outType = PortType::DMX;   outLabelPrefix = "ArtDMX"; break;
+        case PaxValueType::Midi:    outType = PortType::Midi;  outLabelPrefix = "MIDI";   break;
+        case PaxValueType::Generic:
+        default:                   outType = PortType::Value; outLabelPrefix = "Value";  break;
+    }
+}
+
+PaxValueType paxValueTypeFromPort (const Port& p)
+{
+    if (p.type == PortType::MQTT) return PaxValueType::Mqtt;
+    if (p.type == PortType::OSC)  return PaxValueType::Osc;
+    if (p.type == PortType::UDP)  return PaxValueType::Udp;
+    if (p.type == PortType::DMX)  return p.label.startsWith ("ArtDMX") ? PaxValueType::ArtNet : PaxValueType::Dmx;
+    if (p.type == PortType::Midi) return PaxValueType::Midi;
+    return PaxValueType::Generic;
+}
+
+juce::String tagForValueType (PaxValueType t)
+{
+    switch (t)
+    {
+        case PaxValueType::Mqtt:   return "mqtt";
+        case PaxValueType::Osc:    return "osc";
+        case PaxValueType::Dmx:    return "dmx";
+        case PaxValueType::Udp:    return "udp";
+        case PaxValueType::ArtNet: return "artnet";
+        case PaxValueType::Midi:   return "midi";
+        case PaxValueType::Generic:
+        default:                  return "generic";
+    }
+}
+
+/** Parses a value-type tag string (as written by toVar()'s tagForValueType)
+ *  back into a PaxValueType — used by restoreSnapshot() to reconstruct
+ *  exactly what a Pax's per-port types were at the point a snapshot was
+ *  taken, rather than re-querying the (possibly since-changed) registry. */
+PaxValueType parseValueTypeTag (const juce::String& tag)
+{
+    if (tag == "mqtt")   return PaxValueType::Mqtt;
+    if (tag == "osc")    return PaxValueType::Osc;
+    if (tag == "dmx")    return PaxValueType::Dmx;
+    if (tag == "udp")    return PaxValueType::Udp;
+    if (tag == "artnet") return PaxValueType::ArtNet;
+    if (tag == "midi")   return PaxValueType::Midi;
+    return PaxValueType::Generic;
+}
+
 std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
-                                               int audioIn, int audioOut,
-                                               int midiIn,  int midiOut)
+                                               const PaxPortSpec& portSpec)
 {
     std::vector<Port> p;
     auto mk = [&](const char* lbl, PortType pt, PortDirection dir)
@@ -158,10 +217,18 @@ std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
         int ngaType = t - 100;
 
         // Determine effective port counts (descriptor overrides nodeType defaults)
-        int effMidiIn   = midiIn   > 0 ? midiIn   : ((ngaType == 1 || ngaType == 3) ? 1 : 0);
-        int effMidiOut  = midiOut  > 0 ? midiOut  : ((ngaType == 1 || ngaType == 3) ? 1 : 0);
-        int effAudioIn  = audioIn  > 0 ? audioIn  : ((ngaType == 2 || ngaType == 3) ? 1 : 0);
-        int effAudioOut = audioOut > 0 ? audioOut : ((ngaType == 2 || ngaType == 3) ? 1 : 0);
+        int effMidiIn   = portSpec.midiIn   > 0 ? portSpec.midiIn   : ((ngaType == 1 || ngaType == 3) ? 1 : 0);
+        int effMidiOut  = portSpec.midiOut  > 0 ? portSpec.midiOut  : ((ngaType == 1 || ngaType == 3) ? 1 : 0);
+        int effAudioIn  = portSpec.audioIn  > 0 ? portSpec.audioIn  : ((ngaType == 2 || ngaType == 3) ? 1 : 0);
+        int effAudioOut = portSpec.audioOut > 0 ? portSpec.audioOut : ((ngaType == 2 || ngaType == 3) ? 1 : 0);
+        // Value ports have no nodeType-implied default (unlike audio/midi
+        // above) — nodeType 4 (Value only) carries no audio/MIDI default
+        // either, so a Value-only Pax needs valueInputs/valueOutputs set
+        // via PAX_getValueInputCount/PAX_getValueOutputCount to get any
+        // ports at all. Purely override-driven, 0 is a valid "no value
+        // ports" default for any nodeType.
+        int effValueIn  = portSpec.valueIn;
+        int effValueOut = portSpec.valueOut;
 
         for (int i = 0; i < effMidiIn;   ++i)
             mk (effMidiIn  == 1 ? "MIDI In"  : ("MIDI In "  + juce::String(i+1)).toRawUTF8(),
@@ -175,6 +242,44 @@ std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
         for (int i = 0; i < effAudioOut; ++i)
             mk (effAudioOut == 1 ? "Audio Out" : ("Audio Out " + juce::String(i+1)).toRawUTF8(),
                 PortType::Audio, PortDirection::Output);
+
+        // Value ports — each one individually typed via portSpec, not a
+        // single blanket "Value In"/"Value Out" like before per-port
+        // typing existed. A Pax that only declares counts (no per-port
+        // types) still gets plain generic "Value In"/"Value Out" ports,
+        // identical to the original behaviour.
+        for (int i = 0; i < effValueIn;  ++i)
+        {
+            PortType pt; juce::String prefix;
+            portTypeAndLabelFor (portSpec.valueInTypeAt (i), pt, prefix);
+            juce::String label = prefix + " In";
+            // Count same-typed ports so far to number duplicates correctly
+            // (e.g. two MQTT-typed inputs → "MQTT In", "MQTT In 2").
+            int sameTypeCount = 0;
+            for (int j = 0; j <= i; ++j)
+            {
+                PortType pt2; juce::String prefix2;
+                portTypeAndLabelFor (portSpec.valueInTypeAt (j), pt2, prefix2);
+                if (prefix2 == prefix) ++sameTypeCount;
+            }
+            if (sameTypeCount > 1) label << " " << sameTypeCount;
+            mk (label.toRawUTF8(), pt, PortDirection::Input);
+        }
+        for (int i = 0; i < effValueOut; ++i)
+        {
+            PortType pt; juce::String prefix;
+            portTypeAndLabelFor (portSpec.valueOutTypeAt (i), pt, prefix);
+            juce::String label = prefix + " Out";
+            int sameTypeCount = 0;
+            for (int j = 0; j <= i; ++j)
+            {
+                PortType pt2; juce::String prefix2;
+                portTypeAndLabelFor (portSpec.valueOutTypeAt (j), pt2, prefix2);
+                if (prefix2 == prefix) ++sameTypeCount;
+            }
+            if (sameTypeCount > 1) label << " " << sameTypeCount;
+            mk (label.toRawUTF8(), pt, PortDirection::Output);
+        }
     }
     return p;
 }
@@ -221,7 +326,7 @@ void GraphModel::notifyChange()
 }
 
 NodeData& GraphModel::addNode (int t, float x, float y, const juce::String& paxName,
-                               int audioIn, int audioOut, int midiIn, int midiOut)
+                               const PaxPortSpec& portSpec)
 {
     NodeData n;
     n.id       = juce::Uuid().toString();
@@ -230,7 +335,7 @@ NodeData& GraphModel::addNode (int t, float x, float y, const juce::String& paxN
     n.paxName = paxName;
 
     n.label = labelForType (t, paxName);
-    n.ports    = portsForType (t, n.id, audioIn, audioOut, midiIn, midiOut);
+    n.ports    = portsForType (t, n.id, portSpec);
     nodes.push_back (std::move (n));
     notifyChange();
     return nodes.back();
@@ -306,21 +411,53 @@ juce::var GraphModel::toVar() const
         obj->setProperty ("x",        n.x);
         obj->setProperty ("y",        n.y);
 
-        // Count ports by type/direction for restore
-        int audioIn = 0, audioOut = 0, midiIn = 0, midiOut = 0;
+        // Count ports by type/direction for restore. OSC/DMX/MQTT/UDP are
+        // "value-ish" here alongside generic Value — a Pax's per-port-typed
+        // value ports (new mechanism) use these same PortTypes, so they
+        // need to be counted as value ports, not folded into "midi", or a
+        // Pax with e.g. an OSC-typed value port would restore with a
+        // phantom MIDI port instead. Harmless for built-in protocol nodes
+        // (OSC/DMX/MQTT/UDP In/Out etc.) — their portsForType() branches
+        // are hardcoded per-nodeType and never consult these aggregate
+        // counts during restore, same as before this change.
+        //
+        // Deliberately NOT including PortType::Midi in "value-ish" here —
+        // a MIDI-typed value port (PaxValueType::Midi) is indistinguishable
+        // from a legacy MIDI port at this level, so it folds back into the
+        // legacy midiIn/midiOut count instead. Harmless: portsForType()'s
+        // t>=100 branch produces the identical resulting port list (same
+        // count, same "MIDI In"/"MIDI In 2" labels) whichever path
+        // reconstructs it — no existing Pax combines the two mechanisms
+        // for MIDI specifically, so this never actually diverges in
+        // practice. Same reasoning as updateNodeAudioOutputCount() above.
+        int audioIn = 0, audioOut = 0, midiIn = 0, midiOut = 0, valueIn = 0, valueOut = 0;
+        juce::Array<juce::var> valueInTypes, valueOutTypes;
         for (const auto& p : n.ports)
         {
-            bool isAudio = (p.type == PortType::Audio);
-            bool isOut   = (p.direction == PortDirection::Output);
-            if  (isAudio &&  isOut) ++audioOut;
-            else if (isAudio && !isOut) ++audioIn;
-            else if (!isAudio &&  isOut) ++midiOut;
-            else ++midiIn;
+            bool isOut = (p.direction == PortDirection::Output);
+            bool isValueLike = (p.type == PortType::Value || p.type == PortType::OSC ||
+                                 p.type == PortType::DMX   || p.type == PortType::MQTT ||
+                                 p.type == PortType::UDP);
+            if (p.type == PortType::Audio)
+            {
+                if (isOut) ++audioOut; else ++audioIn;
+            }
+            else if (isValueLike)
+            {
+                auto tag = tagForValueType (paxValueTypeFromPort (p));
+                if (isOut) { ++valueOut; valueOutTypes.add (tag); }
+                else       { ++valueIn;  valueInTypes.add  (tag); }
+            }
+            else { if (isOut) ++midiOut; else ++midiIn; }
         }
         obj->setProperty ("audioInputs",  audioIn);
         obj->setProperty ("audioOutputs", audioOut);
         obj->setProperty ("midiInputs",   midiIn);
         obj->setProperty ("midiOutputs",  midiOut);
+        obj->setProperty ("valueInputs",  valueIn);
+        obj->setProperty ("valueOutputs", valueOut);
+        obj->setProperty ("valueInputTypes",  valueInTypes);
+        obj->setProperty ("valueOutputTypes", valueOutTypes);
 
         juce::Array<juce::var> ports;
         for (const auto& p : n.ports)
@@ -371,7 +508,7 @@ juce::var GraphModel::toVar() const
 NodeData& GraphModel::restoreNode (const juce::String& savedId,
                                     int t, float x, float y,
                                     const juce::String& paxName,
-                                    int audioIn, int audioOut, int midiIn, int midiOut)
+                                    const PaxPortSpec& portSpec)
 {
     NodeData n;
     n.id         = savedId;
@@ -379,7 +516,7 @@ NodeData& GraphModel::restoreNode (const juce::String& savedId,
     n.x = x; n.y = y;
     n.paxName = paxName;
     n.label = labelForType (t, paxName);
-    n.ports      = portsForType (t, n.id, audioIn, audioOut, midiIn, midiOut);
+    n.ports      = portsForType (t, n.id, portSpec);
 
     nodes.push_back (std::move (n));
     // onChange intentionally not fired here — caller uses resumeNotifications()
@@ -413,15 +550,39 @@ void GraphModel::updateNodeAudioOutputCount (const juce::String& nodeId, int new
 
         // Collect valid port IDs after the update
         int audioIn = 0, midiIn = 0, midiOut = 0;
+        PaxPortSpec spec;
         for (auto& p : n.ports)
         {
             if (p.type == PortType::Audio && p.direction == PortDirection::Input)  ++audioIn;
             if (p.type == PortType::Midi  && p.direction == PortDirection::Input)  ++midiIn;
             if (p.type == PortType::Midi  && p.direction == PortDirection::Output) ++midiOut;
+
+            // Value ports: preserve each one's actual type, not just a count.
+            // MIDI-typed value ports (via the newer per-port mechanism) are
+            // a narrow exception — indistinguishable here from a legacy
+            // MIDI port sharing the same PortType::Midi, so they fold back
+            // into the legacy midiIn/midiOut count above instead. Only
+            // matters for a Pax combining dynamic audio bands *and*
+            // MIDI-typed value ports at once — no existing Pax does both.
+            bool isValueLike = (p.type == PortType::Value || p.type == PortType::OSC ||
+                                 p.type == PortType::DMX   || p.type == PortType::MQTT ||
+                                 p.type == PortType::UDP);
+            if (isValueLike && p.direction == PortDirection::Input)
+            {
+                spec.valueInTypes.push_back (paxValueTypeFromPort (p));
+                ++spec.valueIn;
+            }
+            if (isValueLike && p.direction == PortDirection::Output)
+            {
+                spec.valueOutTypes.push_back (paxValueTypeFromPort (p));
+                ++spec.valueOut;
+            }
         }
+        spec.audioIn = audioIn; spec.audioOut = newAudioOut;
+        spec.midiIn  = midiIn;  spec.midiOut  = midiOut;
 
         // Build new port list so we know which port IDs will exist
-        auto newPorts = portsForType (n.nodeType, n.id, audioIn, newAudioOut, midiIn, midiOut);
+        auto newPorts = portsForType (n.nodeType, n.id, spec);
         std::unordered_set<juce::String> validPortIds;
         for (auto& p : newPorts) validPortIds.insert (p.id);
 
@@ -513,10 +674,17 @@ void GraphModel::restoreSnapshot (const juce::var& snapshot)
             auto* nObj = n.getDynamicObject();
             if (! nObj) continue;
 
-            int audioIn  = (int) nObj->getProperty ("audioInputs");
-            int audioOut = (int) nObj->getProperty ("audioOutputs");
-            int midiIn   = (int) nObj->getProperty ("midiInputs");
-            int midiOut  = (int) nObj->getProperty ("midiOutputs");
+            PaxPortSpec spec;
+            spec.audioIn  = (int) nObj->getProperty ("audioInputs");
+            spec.audioOut = (int) nObj->getProperty ("audioOutputs");
+            spec.midiIn   = (int) nObj->getProperty ("midiInputs");
+            spec.midiOut  = (int) nObj->getProperty ("midiOutputs");
+            spec.valueIn  = (int) nObj->getProperty ("valueInputs");
+            spec.valueOut = (int) nObj->getProperty ("valueOutputs");
+            if (auto* arr = nObj->getProperty ("valueInputTypes").getArray())
+                for (auto& v : *arr) spec.valueInTypes.push_back (parseValueTypeTag (v.toString()));
+            if (auto* arr = nObj->getProperty ("valueOutputTypes").getArray())
+                for (auto& v : *arr) spec.valueOutTypes.push_back (parseValueTypeTag (v.toString()));
 
             auto& nd = restoreNode (
                 nObj->getProperty ("id").toString(),
@@ -524,7 +692,7 @@ void GraphModel::restoreSnapshot (const juce::var& snapshot)
                 (float)(double) nObj->getProperty ("x"),
                 (float)(double) nObj->getProperty ("y"),
                 nObj->getProperty ("paxName").toString(),
-                audioIn, audioOut, midiIn, midiOut);
+                spec);
 
             // Always restore selectedDeviceId — empty string means "no device"
             nd.selectedDeviceId = nObj->getProperty ("selectedDeviceId").toString();

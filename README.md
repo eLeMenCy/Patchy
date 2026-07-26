@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.900
+> Version 0.0.901
 
 ---
 
@@ -39,6 +39,8 @@
 - **Real-time signal flow** — ports and edges animate with live MIDI flash and audio VU colour (green → yellow → red)
 - **Colour-coded connection preview** — the dashed line shown while dragging a new connection matches the source port's own protocol colour, not a fixed generic accent
 - **Per-port VU** — multi-output nodes (Splitter, Spectrumyser) colour each output dot independently
+- **Per-port typed Pax flash** — a Pax with multiple differently-typed Value ports (e.g. MQTT + DMX on the same node) flashes each output in its own correct protocol colour, not one blanket colour for the whole node
+- **Automatic Hybrid/Converter node colouring** — a Pax's overall colour is auto-detected from its own declared ports: a type present on only one side (input or output) marks it a Converter (fuchsia); every type mirrored on both sides gives it a single native colour if there's only one, or Hybrid (orange) if there's more than one — e.g. Envelope (Audio+MIDI, mirrored) is Hybrid, `MqttToValuePax` (MQTT in, generic out — not mirrored) is a Converter
 - **Per-node channel selection** — Audio IN/OUT nodes expose a settings panel to select any combination of physical channels; supports devices up to 256 channels (e.g. Blackhole 16ch)
 - **DAW mode** — full bidirectional audio routing between Patchy and your DAW track via a virtual "DAW" device
 - **Standalone mode** — full standalone app with its own audio device selection, window bounds persistence and last-folder memory
@@ -115,6 +117,7 @@ Patchy/
 │   ├── TransposePax/              MIDI transpose (-24 to +24 semitones)
 │   ├── EnvelopePax/               Audio envelope → MIDI CC converter
 │   ├── StereoSplitterPax/         Stereo → Left + Right split (1 in / 2 out)
+│   ├── MqttToValuePax/            MQTT → generic Value adapter (first Phase 4 converter)
 │   └── SpectrumyserPax/           FFT spectrum analyser with band outputs
 │
 ├── UI/                              React / TypeScript frontend
@@ -276,6 +279,7 @@ Addons are shared libraries implementing the `PAX_Descriptor` C API in `Pax/PaxA
 | Envelope | AV Hybrid | 1m+1a in / 1m+1a out | Mode, CC, Attack, Release, Band filters |
 | Splitter | Audio | 1in/2out | — (L→out1, R→out2) |
 | Spectrumyser | Audio | 1in/1-5out | Band count (1-5), per-band frequency range |
+| MQTT to Value | Converter | 1 MQTT in / 1 Value out | — (stateless passthrough; first Phase 4 adapter, bridges MQTT payloads into the generic Value graph) |
 
 ### Parameter persistence
 
@@ -434,7 +438,7 @@ extern "C" {
 const PAX_Descriptor* PAX_getDescriptor() {
     static PAX_Descriptor d {
         "My Pax", "My Studio", "1.0.0",
-        2,               // nodeType: 1=MIDI, 2=Audio, 3=AV
+        2,               // nodeType: 1=MIDI, 2=Audio, 3=AV, 4=Value only
         PAX_API_VERSION,
         1, 1, 0, 0       // audioIn, audioOut, midiIn, midiOut
     };
@@ -459,7 +463,7 @@ void PAX_process (PAX_Instance*, const PAX_ProcessContext* ctx)
     for (int e = 0; e < ctx->midiInCount && e < ctx->midiMaxCount; ++e)
         ctx->midiOut[(*ctx->midiOutCount)++] = ctx->midiIn[e];
 
-    // Value ports — NULL until implemented by host, always guard:
+    // Value ports — live, routed by the host the same way audio/MIDI are:
     // if (ctx->valuesOut && ctx->valueMaxCount > 0) { ... }
 }
 
@@ -476,6 +480,9 @@ void  PAX_setParameter      (PAX_Instance*, int, float)              {}
 | Symbol | Description |
 |--------|-------------|
 | `PAX_getAudioOutputCount` | Return current output port count (dynamic ports) |
+| `PAX_getValueInputCount` / `PAX_getValueOutputCount` | Return Value port counts (nodeType 4, cross-protocol adapters) — static, no instance needed, fixed at scan time |
+| `PAX_getValueInputType` / `PAX_getValueOutputType` | Return the specific type (`PAX_VALUETYPE_*` — MQTT/OSC/DMX/UDP/ArtNet/MIDI/generic) of the Value port at a given index, so a Pax can mix multiple differently-typed ports on one node rather than only generic Value — indexed, static, defaults to generic if not exported |
+| `PAX_getColourCategory` | Override the node's auto-detected colour category (Hybrid/Converter/native-type) — only consulted for a pure-source or pure-sink Pax, the one case the automatic rule can't resolve on its own |
 | `PAX_getFFTSize` | Return FFT magnitude bin count (for spectrum display) |
 | `PAX_getFFTMagnitudes` | Return pointer to FFT magnitude array |
 
@@ -490,7 +497,7 @@ typedef struct {
     const char* name;        // Display name in sidebar
     const char* vendor;      // Author/studio
     const char* version;     // Semver string e.g. "1.0.0"
-    int         nodeType;    // 1=MIDI, 2=Audio, 3=AV
+    int         nodeType;    // 1=MIDI, 2=Audio, 3=AV, 4=Value only (see PAX_getValueInputCount/OutputCount below)
     int         apiVersion;  // Must equal PAX_API_VERSION
     int         audioInputs;
     int         audioOutputs;
@@ -605,4 +612,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.900 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.901 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

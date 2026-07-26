@@ -140,6 +140,20 @@ private:
     std::unordered_map<juce::String, NodeProcessor*> nodeMap;
     std::unordered_map<juce::String, juce::String>       labelMap;  // nodeId → display label
 
+    // portId → raw declaration index among that node's value-ish output
+    // (or input) ports, in creation order — matches the index a Pax's
+    // PAX_getValueOutputType(portIndex)/PAX_Value::portIndex are keyed on.
+    // Not simply parseable from the port's label text the way audio's
+    // per-port index is: label numbering counts "same-type occurrences"
+    // for UI clarity (e.g. "MQTT Out 2" = the 2nd MQTT port), which only
+    // happens to equal the raw declaration index for audio because every
+    // audio port shares one type — for value ports, which can mix types,
+    // those two numbers genuinely diverge (e.g. DMX, DMX, MQTT — the MQTT
+    // port's "1st MQTT" label number is 1, but its raw index is 2). Built
+    // fresh each rebuild() from the node snapshot's own port array order,
+    // which does preserve true creation/declaration order.
+    std::unordered_map<juce::String, int>                 valuePortIndexMap;
+
     double preparedSampleRate = 44100.0;
     int    preparedBlockSize  = 512;
     bool   isPrepared         = false;

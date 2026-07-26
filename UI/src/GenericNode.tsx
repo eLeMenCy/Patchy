@@ -4,7 +4,7 @@ import { DawContext } from './DawContext';
 import { X } from 'lucide-react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, PaxParamInfo } from './Bridge';
-import { useNodeDelete, NodeHeaderButton, useNodeCollapsed, useNodeSettings, NodeHandle, nodeContainerStyle, portColour } from './NodeUtils';
+import { useNodeDelete, NodeHeaderButton, useNodeCollapsed, useNodeSettings, NodeHandle, nodeContainerStyle, portColour, _paxInfoMap, detectPaxTheme, detectPaxTagPrefix } from './NodeUtils';
 
 import { DeviceSelector, AudioDeviceSettingsPanel, ChannelSummary } from './AudioDeviceUI';
 import { UdpPortSummary, UdpDeviceSettingsPanel } from './UdpDeviceUI';
@@ -16,6 +16,7 @@ import { DmxDeviceSelector, DmxSettingsPanel, DmxByteRateLabel } from './DmxDevi
 export interface NodeData {
   label: string;
   nodeType: 1 | 2 | 3 | 4 | number;  // 1-4 built-in, higher = Pax
+  paxName?: string;
   selectedDeviceId?: string;
   ports: {
     id: string;
@@ -55,21 +56,22 @@ const PAX_THEME = { accent: 'var(--av)', dim: 'var(--av-dim)', glow: 'var(--av-g
 // ── Main node ─────────────────────────────────────────────────────────────────
 function GenericNode({ id, data, selected }: NodeProps) {
   const nodeData = data as NodeData;
-  // nodeType>=100 means addon: extract ngaType = nodeType-100 for theming
+  // nodeType>=100 means addon
   const ngaType  = nodeData.nodeType >= 100 ? nodeData.nodeType - 100 : null;
+  const paxColourCategory = nodeData.paxName ? _paxInfoMap.get(nodeData.paxName)?.colourCategory : undefined;
   const paxTag = (() => {
     if (ngaType === null) return null;
-    const prefix = ({ 1: 'MIDI', 2: 'AUDIO', 3: 'AV' } as Record<number,string>)[ngaType] ?? 'PLUGIN';
+    const prefix = detectPaxTagPrefix (nodeData.ports, paxColourCategory);
     const labelUp = nodeData.label.toUpperCase();
-    // Avoid doubling the prefix (e.g. "AV Passthrough" → "AV PASSTHROUGH" not "AV AV PASSTHROUGH")
-    const body = labelUp.startsWith(prefix + ' ') ? labelUp.slice(prefix.length + 1) : labelUp;
-    return prefix + ' ' + body;
+    // Skip prepending the category if it already appears anywhere in the
+    // label — not just as a strict prefix. "AV Passthrough" already
+    // avoided "AV AV PASSTHROUGH" via startsWith, but "MQTT to Value"
+    // has "Value" at the end, not the start, so a plain startsWith check
+    // missed it and produced "VALUE MQTT TO VALUE".
+    return labelUp.includes(prefix) ? labelUp : prefix + ' ' + labelUp;
   })();
   const theme    = ngaType !== null
-    ? ({ 1: { accent: 'var(--midi)',  dim: 'var(--midi-dim)',  glow: 'var(--midi-glow)',  tag: paxTag! },
-          2: { accent: 'var(--audio)', dim: 'var(--audio-dim)', glow: 'var(--audio-glow)', tag: paxTag! },
-          3: { accent: 'var(--av)',    dim: 'var(--av-dim)',    glow: 'var(--av-glow)',    tag: paxTag! },
-        }[ngaType] ?? { ...PAX_THEME, tag: paxTag! })
+    ? { ...detectPaxTheme (nodeData.ports, paxColourCategory), tag: paxTag! }
     : (THEME[nodeData.nodeType] ?? PAX_THEME);
 
   const inputs  = nodeData.ports.filter(p => p.direction === 'input');

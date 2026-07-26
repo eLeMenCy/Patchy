@@ -1,6 +1,20 @@
 #include "PaxRegistry.h"
 #include <algorithm>
 
+PaxValueType paxValueTypeFromTag (int tag)
+{
+    switch (tag)
+    {
+        case PAX_VALUETYPE_MQTT:   return PaxValueType::Mqtt;
+        case PAX_VALUETYPE_OSC:    return PaxValueType::Osc;
+        case PAX_VALUETYPE_DMX:    return PaxValueType::Dmx;
+        case PAX_VALUETYPE_UDP:    return PaxValueType::Udp;
+        case PAX_VALUETYPE_ARTNET: return PaxValueType::ArtNet;
+        case PAX_VALUETYPE_MIDI:   return PaxValueType::Midi;
+        default:                   return PaxValueType::Generic;
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  PaxRegistry
 // ─────────────────────────────────────────────────────────────────────────────
@@ -41,6 +55,46 @@ void PaxRegistry::load (const std::vector<PaxScanner::ScanResult>& results)
                 e.midiOutputs  = desc->midiOutputs;
             }
         }
+
+        // Value port counts — separate optional exports, not descriptor fields
+        // (avoids an ABI-breaking struct change for already-compiled Pax
+        // binaries; see PaxAPI.h's PAX_Descriptor nodeType=4 comment).
+        // Static, no instance needed — called once here at scan time.
+        if (auto* getValIn = (int(*)()) lib->getFunction ("PAX_getValueInputCount"))
+            e.valueInputs = getValIn();
+        if (auto* getValOut = (int(*)()) lib->getFunction ("PAX_getValueOutputCount"))
+            e.valueOutputs = getValOut();
+
+        // Per-port value types — one more optional export beyond the counts
+        // above, indexed by port position. Not exporting this (or an older
+        // Pax that only has the count functions) means every value port
+        // defaults to PAX_VALUETYPE_GENERIC (0), same as before per-port
+        // typing existed.
+        //
+        // Always populate with exactly one entry per declared port, even
+        // when the optional export isn't present at all — a Pax that
+        // deliberately relies on the generic default (like MqttToValuePax's
+        // output) must still get e.g. valueOutputTypes = [0], not an empty
+        // array. An empty array here was a real bug: anything reconstructing
+        // ports from this array (rather than from a live process() context,
+        // which has its own separate in-code default) would see zero
+        // output ports at all for such a Pax, not one generic one —
+        // found via the sidebar showing MqttToValuePax as MQTT's own
+        // colour instead of Converter/fuchsia, because with an empty
+        // valueOutputTypes it looked like a pure-MQTT-source with no
+        // output side to compare against at all.
+        auto* getValInType  = (int(*)(int)) lib->getFunction ("PAX_getValueInputType");
+        for (int i = 0; i < e.valueInputs; ++i)
+            e.valueInputTypes.push_back (getValInType ? getValInType (i) : PAX_VALUETYPE_GENERIC);
+        auto* getValOutType = (int(*)(int)) lib->getFunction ("PAX_getValueOutputType");
+        for (int i = 0; i < e.valueOutputs; ++i)
+            e.valueOutputTypes.push_back (getValOutType ? getValOutType (i) : PAX_VALUETYPE_GENERIC);
+
+        // Colour category override — see PaxAPI.h's PAX_getColourCategory
+        // doc for the full rule (only consulted for the one case the
+        // auto-detection genuinely can't resolve: a pure source/sink Pax).
+        if (auto* getColourCat = (int(*)()) lib->getFunction ("PAX_getColourCategory"))
+            e.colourCategory = getColourCat();
 
         e.create  = (Entry::CreateFn)  lib->getFunction ("PAX_create");
         e.destroy = (Entry::DestroyFn) lib->getFunction ("PAX_destroy");
@@ -200,6 +254,12 @@ void DynamicPaxProcessor::process (int numSamples)
     ctx.midiOutCount   = &outCount;
     ctx.midiMaxCount   = kMaxMidiEvents;
     // Value buffers — now live
+    // Reset before each block so an unset PAX_Value::portIndex (or any
+    // other field a Pax doesn't explicitly write) always reads as a safe
+    // zero, never a stale value left over from a previous block's write
+    // to that same array slot. Matches the guarantee documented in
+    // PaxAPI.h's PAX_Value comment.
+    outputValues.fill (PAX_Value {});
     ctx.valuesIn       = inputValues.data();
     ctx.valueInCount   = inputValueCount;
     ctx.valuesOut      = outputValues.data();
@@ -208,6 +268,18 @@ void DynamicPaxProcessor::process (int numSamples)
 
     fnProcess (instance, &ctx);
     outputValueCount = valueOutCount;
+
+    // Value events also count as activity for flash purposes — this was
+    // missing until now, which meant a Pax that only ever writes value
+    // events (e.g. MqttToValuePax) never registered any activity at all,
+    // not even with the wrong colour. recordMidiActivity() is already the
+    // de facto generic "this node had discrete-event activity" signal in
+    // practice — every non-MIDI protocol node (DMX/ArtNet/OSC/UDP/MQTT)
+    // already calls this exact same counter for its own activity, despite
+    // none of them being MIDI either, so this is consistent with existing
+    // precedent, not a special case.
+    if (valueOutCount > 0)
+        recordMidiActivity (valueOutCount);
 
     // ── Convert PAX_MidiEvent array → juce::MidiBuffer ───────────────────
     outputMidi.clear();

@@ -14,6 +14,70 @@ struct Port
     PortDirection direction = PortDirection::Input;
 };
 
+/** Value port type tag for a Pax-declared port — deliberately its own
+ *  enum, not PortType directly. ArtNet and plain DMX share the same
+ *  PortType::DMX internally (see the built-in ArtNet/DMX nodes) and are
+ *  only distinguished by label text ("ArtDMX" vs "DMX") — the frontend's
+ *  own connection-type classifier works off that label text, not this
+ *  backend enum, so PaxValueType needs to keep ArtNet and DMX distinct
+ *  even though they'll resolve to the same PortType once a port is
+ *  actually created. Mirrors PAX_VALUETYPE_* in PaxAPI.h 1:1. */
+enum class PaxValueType { Generic, Mqtt, Osc, Dmx, Udp, ArtNet, Midi };
+
+/** Translates a PaxValueType + port label into the internal PortType plus
+ *  the label prefix that makes the frontend's own (label-text-based)
+ *  connection/edge classifiers recognise it correctly. See PaxValueType's
+ *  comment above for why ArtNet and DMX share PortType::DMX but need
+ *  different label text. */
+void portTypeAndLabelFor (PaxValueType t, PortType& outType, juce::String& outLabelPrefix);
+
+/** Reverse direction — determines a Port's PaxValueType from its actual
+ *  PortType + label (the ArtDMX-vs-DMX distinction again needs the label,
+ *  not just PortType, to tell them apart). Used when serializing a node's
+ *  ports (toVar()) back into per-port type tags for undo/redo and fragment
+ *  export. */
+PaxValueType paxValueTypeFromPort (const Port& p);
+
+/** String tag <-> PaxValueType, used for JSON serialization (toVar()'s
+ *  output, and reading it back in restoreSnapshot()/Fragment Import).
+ *  Deliberately string tags rather than raw ints, for readability in
+ *  saved/exported project JSON. */
+juce::String tagForValueType   (PaxValueType t);
+PaxValueType  parseValueTypeTag (const juce::String& tag);
+
+/** Bundles a Pax node's full port configuration — counts plus, for Value
+ *  ports specifically, each port's individual declared type. Replaces
+ *  the long, ever-growing list of individual int parameters that
+ *  addNode/restoreNode/portsForType used to take (audioIn, audioOut,
+ *  midiIn, midiOut, then valueIn, valueOut added alongside them) — one
+ *  more extension on top of that would have made an already-awkward
+ *  signature worse, so this consolidates it while the per-port-typing
+ *  work is already touching all three functions anyway.
+ *
+ *  valueInTypes/valueOutTypes: PaxValueType per Value port, in the same
+ *  order as the count implies. Empty, or shorter than the count, is
+ *  fine — missing entries default to PaxValueType::Generic, which is
+ *  exactly the pre-per-port-typing behaviour for any Pax that doesn't
+ *  declare per-port types (existing PAX_getValueInputCount/OutputCount-
+ *  only Pax, or an index the author didn't populate). */
+struct PaxPortSpec
+{
+    int audioIn = 0, audioOut = 0;
+    int midiIn  = 0, midiOut  = 0;
+    int valueIn = 0, valueOut = 0;
+    std::vector<PaxValueType> valueInTypes;
+    std::vector<PaxValueType> valueOutTypes;
+
+    PaxValueType valueInTypeAt (int i) const
+    {
+        return (i >= 0 && i < (int) valueInTypes.size()) ? valueInTypes[(size_t) i] : PaxValueType::Generic;
+    }
+    PaxValueType valueOutTypeAt (int i) const
+    {
+        return (i >= 0 && i < (int) valueOutTypes.size()) ? valueOutTypes[(size_t) i] : PaxValueType::Generic;
+    }
+};
+
 struct NodeData
 {
     juce::String      id, label;
@@ -47,8 +111,7 @@ public:
 
     NodeData&   addNode       (int nodeType, float x, float y,
                               const juce::String& paxName = {},
-                              int audioIn=0, int audioOut=0,
-                              int midiIn=0,  int midiOut=0);
+                              const PaxPortSpec& portSpec = {});
 
     /** Restore a node with its original saved ID (used by setStateInformation).
      *  Does NOT fire onChange — caller must do that once all nodes+connections
@@ -56,8 +119,7 @@ public:
     NodeData&   restoreNode   (const juce::String& savedId,
                                int nodeType, float x, float y,
                                const juce::String& paxName = {},
-                               int audioIn=0, int audioOut=0,
-                               int midiIn=0,  int midiOut=0);
+                               const PaxPortSpec& portSpec = {});
 
     /** Temporarily disable onChange notifications (for batch restores). */
     void clear()
@@ -119,8 +181,7 @@ public:
     int getConnectionCount() const { return static_cast<int>(connections.size()); }
 
     static std::vector<Port> portsForType (int t, const juce::String& nodeId,
-                                           int audioIn=0, int audioOut=0,
-                                           int midiIn=0,  int midiOut=0);
+                                           const PaxPortSpec& portSpec = {});
 
 private:
     void notifyChange();

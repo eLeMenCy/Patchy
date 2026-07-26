@@ -2,6 +2,7 @@ import { DragEvent, useEffect, useState, useContext } from 'react';
 import { DawContext } from './DawContext';
 import { HintPanel, NODE_HINTS, HintContext } from './HintPanel';
 import { Bridge, PaxInfo } from './Bridge';
+import { detectPaxTheme, detectPaxCategoryKey } from './NodeUtils';
 
 const BUILTIN_GROUPS = [
   {
@@ -66,10 +67,60 @@ const BUILTIN_GROUPS = [
   },
 ] as const;
 
+// Maps the backend's value-type tag strings (from PaxInfo.valueInputTypes/
+// valueOutputTypes — "generic"/"mqtt"/"osc"/"dmx"/"udp"/"artnet"/"midi") to
+// the {type, label} shape detectPaxTheme's portGroupKey expects, so the
+// sidebar can build a "ports-like" array from a PaxInfo entry's raw counts
+// and call the exact same auto-detection algorithm a placed node uses —
+// found this was needed after noticing the sidebar was colouring by a
+// fixed per-ngaType lookup, producing a real mismatch against placed
+// nodes' genuinely auto-detected colour.
+const VALUE_TAG_TO_PORT: Record<string, { type: string; label: string }> = {
+  generic: { type: 'value', label: 'Value' },
+  mqtt:    { type: 'mqtt',  label: 'MQTT' },
+  osc:     { type: 'osc',   label: 'OSC' },
+  dmx:     { type: 'dmx',  label: 'DMX' },
+  udp:     { type: 'udp',   label: 'UDP' },
+  artnet:  { type: 'dmx',  label: 'ArtDMX' },
+  midi:    { type: 'midi', label: 'MIDI' },
+};
+
+function paxInfoToPorts (p: PaxInfo): { type: string; label: string; direction: string }[] {
+  const ports: { type: string; label: string; direction: string }[] = [];
+  if (p.audioInputs  > 0) ports.push({ type: 'audio', label: 'Audio', direction: 'input' });
+  if (p.audioOutputs > 0) ports.push({ type: 'audio', label: 'Audio', direction: 'output' });
+  if (p.midiInputs   > 0) ports.push({ type: 'midi',  label: 'MIDI',  direction: 'input' });
+  if (p.midiOutputs  > 0) ports.push({ type: 'midi',  label: 'MIDI',  direction: 'output' });
+  (p.valueInputTypes  ?? []).forEach(tag => {
+    const m = VALUE_TAG_TO_PORT[tag] ?? VALUE_TAG_TO_PORT.generic;
+    ports.push({ ...m, direction: 'input' });
+  });
+  (p.valueOutputTypes ?? []).forEach(tag => {
+    const m = VALUE_TAG_TO_PORT[tag] ?? VALUE_TAG_TO_PORT.generic;
+    ports.push({ ...m, direction: 'output' });
+  });
+  return ports;
+}
+
+// Grouped by detected category (via detectPaxCategoryKey), not raw
+// ngaType — a Pax's declared descriptor nodeType (1-4) is just a rough
+// starting point for its default port layout, not what it actually does;
+// grouping by that instead of the real auto-detected category put e.g. a
+// pure-sink Pax with mixed input types (falling back to Hybrid/orange)
+// in the same section as genuine Converters, purely because both happen
+// to have nodeType=4. category key must match detectPaxCategoryKey's
+// return values exactly.
 const PLUGIN_GROUPS = [
-  { label: 'MIDI',         ngaType: 1, accent: 'var(--midi)',  dim: 'var(--midi-dim)'  },
-  { label: 'Audio',        ngaType: 2, accent: 'var(--audio)', dim: 'var(--audio-dim)' },
-  { label: 'Hybrid',       ngaType: 3, accent: 'var(--av)',    dim: 'var(--av-dim)'    },
+  { label: 'MIDI',      category: 'midi',      accent: 'var(--midi)',    dim: 'var(--midi-dim)'    },
+  { label: 'Audio',     category: 'audio',     accent: 'var(--audio)',   dim: 'var(--audio-dim)'   },
+  { label: 'Hybrid',    category: 'hybrid',    accent: 'var(--av)',      dim: 'var(--av-dim)'      },
+  { label: 'Converter', category: 'converter', accent: 'var(--value)',  dim: 'var(--value-dim)'  },
+  { label: 'OSC',       category: 'osc',       accent: 'var(--osc)',     dim: 'var(--osc-dim)'     },
+  { label: 'DMX',       category: 'dmx',       accent: 'var(--dmx)',     dim: 'var(--dmx-dim)'     },
+  { label: 'ArtNet',    category: 'artnet',    accent: 'var(--artnet)',  dim: 'var(--artnet-dim)'  },
+  { label: 'MQTT',      category: 'mqtt',      accent: 'var(--mqtt)',    dim: 'var(--mqtt-dim)'    },
+  { label: 'UDP',       category: 'udp',       accent: 'var(--udp)',     dim: 'var(--udp-dim)'     },
+  { label: 'Generic',   category: 'generic',   accent: 'var(--generic)', dim: 'var(--generic-dim)' },
 ];
 
 function DragItem({ nodeType, label, desc, accent, dim, icon, paxName = '', paxInfo }: {
@@ -95,12 +146,19 @@ function DragItem({ nodeType, label, desc, accent, dim, icon, paxName = '', paxI
   const nodeHint = NODE_HINTS[paxName ?? ''] ?? NODE_HINTS[label] ?? NODE_HINTS[label.toUpperCase()] ?? null;
   const buildHint = () => {
     if (paxInfo) {
-      const typeLabel = paxInfo.nodeType === 1 ? 'MIDI' : paxInfo.nodeType === 2 ? 'Audio' : 'Hybrid';
+      const categoryKey = detectPaxCategoryKey(paxInfoToPorts(paxInfo), paxInfo.colourCategory);
+      const CATEGORY_DISPLAY: Record<string,string> = {
+        midi:'MIDI', audio:'Audio', hybrid:'Hybrid', converter:'Converter',
+        osc:'OSC', dmx:'DMX', artnet:'ArtNet', mqtt:'MQTT', udp:'UDP', generic:'Generic',
+      };
+      const typeLabel = CATEGORY_DISPLAY[categoryKey] ?? 'Plugin';
       const ports = [];
       if (paxInfo.audioInputs)  ports.push(`${paxInfo.audioInputs} audio in`);
       if (paxInfo.audioOutputs) ports.push(`${paxInfo.audioOutputs} audio out`);
       if (paxInfo.midiInputs)   ports.push(`${paxInfo.midiInputs} MIDI in`);
       if (paxInfo.midiOutputs)  ports.push(`${paxInfo.midiOutputs} MIDI out`);
+      if (paxInfo.valueInputs)  ports.push(`${paxInfo.valueInputs} value in`);
+      if (paxInfo.valueOutputs) ports.push(`${paxInfo.valueOutputs} value out`);
       return {
         title: label,
         body: (nodeHint?.body ?? '') +
@@ -237,15 +295,18 @@ export default function Sidebar() {
             </div>
           </div>
           {PLUGIN_GROUPS.map(group => {
-            const items = paxItems.filter(p => p.nodeType === group.ngaType);
+            const items = paxItems.filter(p => detectPaxCategoryKey(paxInfoToPorts(p), p.colourCategory) === group.category);
             if (items.length === 0) return null;
             return (
               <Section key={group.label} label={group.label} accent={group.accent}>
-                {items.map(p => (
-                  <DragItem key={p.name} nodeType={p.nodeType} label={p.name}
-                    desc={p.vendor || 'Pax'} accent={group.accent} dim={group.dim}
-                    icon="⬡" paxName={p.name} paxInfo={p} />
-                ))}
+                {items.map(p => {
+                  const itemTheme = detectPaxTheme(paxInfoToPorts(p), p.colourCategory);
+                  return (
+                    <DragItem key={p.name} nodeType={p.nodeType} label={p.name}
+                      desc={p.vendor || 'Pax'} accent={itemTheme.accent} dim={itemTheme.dim}
+                      icon="⬡" paxName={p.name} paxInfo={p} />
+                  );
+                })}
               </Section>
             );
           })}
@@ -269,7 +330,16 @@ export default function Sidebar() {
         <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: '0.08em' }}>
           PORT TYPES
         </div>
-        {[{ color: 'var(--midi)', label: 'MIDI' }, { color: 'var(--audio)', label: 'Audio' }].map(({ color, label }) => (
+        {[
+          { color: 'var(--midi)',    label: 'MIDI' },
+          { color: 'var(--audio)',   label: 'Audio' },
+          { color: 'var(--osc)',     label: 'OSC' },
+          { color: 'var(--dmx)',     label: 'DMX' },
+          { color: 'var(--artnet)',  label: 'ArtNet' },
+          { color: 'var(--mqtt)',    label: 'MQTT' },
+          { color: 'var(--udp)',     label: 'UDP' },
+          { color: 'var(--generic)', label: 'Value' },
+        ].map(({ color, label }) => (
           <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
             <div style={{
               width: 10, height: 10, borderRadius: '50%', background: color,

@@ -39,6 +39,7 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
     edges.clear();
     nodeMap.clear();
     labelMap.clear();
+    valuePortIndexMap.clear();
     sortedNodes.clear();
     auto* registry = reg;
 
@@ -124,6 +125,33 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
 
             nodeMap[id]  = proc.get();
             labelMap[id] = nd->getProperty ("label").toString();
+
+            // Build the raw declaration index for this node's value-ish
+            // ports — separate running counters for input vs output side,
+            // in port-array order (which preserves true creation order).
+            // "Value-ish" here matches toVar()'s counting definition
+            // (value/osc/dmx/mqtt/udp — deliberately excludes midi, same
+            // narrow documented limitation as elsewhere: a MIDI-typed
+            // value port is indistinguishable from a legacy MIDI port at
+            // this level, so it's routed via the legacy blind-copy path
+            // instead — harmless, no existing Pax combines both).
+            if (auto* portsArr = nd->getProperty ("ports").getArray())
+            {
+                int valueInIdx = 0, valueOutIdx = 0;
+                for (auto& pv : *portsArr)
+                {
+                    auto* po = pv.getDynamicObject();
+                    if (! po) continue;
+                    juce::String pType = po->getProperty ("type").toString();
+                    bool isValueLike = (pType == "value" || pType == "osc" || pType == "dmx" ||
+                                        pType == "mqtt"  || pType == "udp");
+                    if (! isValueLike) continue;
+                    juce::String pId  = po->getProperty ("id").toString();
+                    bool isOut = po->getProperty ("direction").toString() == "output";
+                    valuePortIndexMap[pId] = isOut ? valueOutIdx++ : valueInIdx++;
+                }
+            }
+
             nodes.push_back (std::move (proc));
         }
     }
@@ -328,12 +356,40 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
                 for (auto meta : src->outputMidi)
                     n->inputMidi.addEvent (meta.getMessage(), meta.samplePosition);
 
-                // ── Propagate value events ────────────────────────────────
+                // ── Propagate value events, filtered by source port index ──
+                // Was a blind copy of every value to every downstream node
+                // regardless of which port-to-port connection the edge
+                // represents — harmless for any node with a single value
+                // output (the overwhelming majority, built-in and Pax
+                // alike), but wrong the moment a node has more than one.
+                // Mirrors audio's per-port routing above, except the index
+                // comes from valuePortIndexMap (built fresh each rebuild()
+                // from the node snapshot's port order) rather than parsed
+                // from label text — label numbering counts "same-type
+                // occurrences" for UI clarity, which only equals the raw
+                // declaration index for audio because every audio port
+                // shares one type; value ports can mix types, so those
+                // two numbers genuinely diverge (see the map's own comment
+                // in ProcessingGraph.h for a worked example).
+                auto srcIdxIt   = valuePortIndexMap.find (e.srcPortId);
+                int  srcPortIdx = (srcIdxIt != valuePortIndexMap.end()) ? srcIdxIt->second : 0;
+                auto dstIdxIt   = valuePortIndexMap.find (e.dstPortId);
+                int  dstPortIdx = (dstIdxIt != valuePortIndexMap.end()) ? dstIdxIt->second : 0;
+
                 for (int vi = 0; vi < src->outputValueCount; ++vi)
                 {
+                    if (src->outputValues[static_cast<size_t>(vi)].portIndex != srcPortIdx)
+                        continue;
                     if (n->inputValueCount >= NodeProcessor::kMaxValueEvents) break;
-                    n->inputValues[static_cast<size_t>(n->inputValueCount++)] =
-                        src->outputValues[static_cast<size_t>(vi)];
+
+                    // Re-tag with the *destination's* own port index on the
+                    // way in — the source's portIndex is meaningless to the
+                    // receiving node; what matters to a future multi-input
+                    // Pax is which of its own declared input ports this
+                    // arrived through.
+                    PAX_Value routed = src->outputValues[static_cast<size_t>(vi)];
+                    routed.portIndex = static_cast<uint8_t> (dstPortIdx);
+                    n->inputValues[static_cast<size_t>(n->inputValueCount++)] = routed;
                 }
 
                 if (auto* mon = dynamic_cast<MidiMonitorNode*> (n))

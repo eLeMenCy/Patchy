@@ -8,7 +8,7 @@
 /**
  * PaxAPI.h  —  Patchy Pax API v2  (PAX)
  *
- * This is the ONLY file an Xtension author needs.
+ * This is the ONLY file a Pax author needs.
  * No JUCE dependency. No Patchy source dependency.
  *
  * Build your Pax as a shared library:
@@ -24,8 +24,26 @@
  *    parameters — the signature will never grow again; future data types
  *    simply add fields to PAX_ProcessContext
  *  - PAX_Value + PAX_ValueBuffer added for DMX, OSC, MQTT, UDP and other
- *    protocol data types (placeholder — value ports not yet routed by host)
+ *    protocol data types — value ports are live, routed by the host the
+ *    same way audio/MIDI are (see valuesIn/valuesOut below)
  *  - PAX_API_VERSION bumped to 2
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * ── API v3 changes ──────────────────────────────────────────────────────────
+ *  - PAX_Value gained a `portIndex` field — lets a Pax with more than one
+ *    Value output port (see PAX_getValueOutputCount/OutputType) say which
+ *    specific port a written value belongs to, instead of every value
+ *    implicitly going to "the" output. Needed for the host to route values
+ *    to the correct downstream connection when a node has several
+ *    differently-typed output ports (see PaxPortSpec in the host source for
+ *    the design story) — mirrors how audio already routes per-port via
+ *    dedicated buffer slots. 0 = first declared output port, the default
+ *    if never set — correct as-is for every existing single-output Pax,
+ *    no source change needed, just a rebuild (this is a genuine struct
+ *    size change, hence the version bump — an un-rebuilt v2 Pax is cleanly
+ *    rejected by the host's existing apiVersion check, not silently
+ *    miscompiled against the new layout)
+ *  - PAX_API_VERSION bumped to 3
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -39,7 +57,7 @@ extern "C" {
 // ─────────────────────────────────────────────────────────────────────────────
 //  API version — host rejects Pax built against a different major version
 // ─────────────────────────────────────────────────────────────────────────────
-#define PAX_API_VERSION 2
+#define PAX_API_VERSION 3
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Opaque instance handle
@@ -104,7 +122,13 @@ typedef struct {
     uint16_t dataSize;   // Byte length of data[] when dataType != PAX_DATA_FLOAT
     float    value;      // Primary payload (PAX_DATA_FLOAT, default)
     uint8_t  data[56];   // Inline buffer for strings/blobs (no heap alloc)
-                         // Total struct size: 68 bytes, cache-line friendly
+    uint8_t  portIndex;  // Which declared Value output port this belongs to
+                         // (API v3). 0 = first port, the correct default
+                         // for any Pax with only one Value output — only
+                         // matters once PAX_getValueOutputCount() > 1.
+                         // Host zero-initializes valuesOut[] each block,
+                         // so an unset portIndex is always a safe 0.
+                         // Total struct size: 69 bytes (was 68 in API v2)
 } PAX_Value;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -132,12 +156,13 @@ typedef struct {
     int                  midiMaxCount; // Max events you may write to midiOut
 
     // ── Values (PAX_Value) ───────────────────────────────────────────────────
-    // [placeholder] — host passes NULL / 0 until value ports are implemented
-    const PAX_Value* valuesIn;       // Input value events (NULL for now)
-    int              valueInCount;   // Number of input value events (0 for now)
-    PAX_Value*       valuesOut;      // Write output value events here (NULL for now)
+    // Value events flow through the graph between Pax nodes that have value ports.
+    // Guard against NULL for forward compatibility with future host versions.
+    const PAX_Value* valuesIn;       // Input value events (may be NULL)
+    int              valueInCount;   // Number of input value events
+    PAX_Value*       valuesOut;      // Write output value events here (may be NULL)
     int*             valueOutCount;  // Set to number of value events written
-    int              valueMaxCount;  // Max value events you may write (0 for now)
+    int              valueMaxCount;  // Max value events you may write
 
 } PAX_ProcessContext;
 
@@ -151,6 +176,14 @@ typedef struct {
     int         nodeType;      // 1 = MIDI only
                                // 2 = Audio only
                                // 3 = MIDI + Audio (AV)
+                               // 4 = Value only (no audio, no MIDI —
+                               //     cross-protocol adapters/converters;
+                               //     port counts come from
+                               //     PAX_getValueInputCount/
+                               //     PAX_getValueOutputCount below, NOT
+                               //     from this descriptor, to avoid an
+                               //     ABI-breaking struct change for
+                               //     already-compiled Pax binaries)
     int         apiVersion;    // Must equal PAX_API_VERSION
 
     // ── Optional port counts (0 = use nodeType defaults) ───────────────────
@@ -199,8 +232,7 @@ void PAX_prepare (PAX_Instance* instance,
  *  *** No heap allocation. No mutexes. No blocking calls. ***
  *
  *  All per-block data is in ctx. Check ctx fields for NULL before use.
- *  Value fields (valuesIn/valuesOut) are NULL until value ports are
- *  implemented by the host — guard with:
+ *  Value fields (valuesIn/valuesOut) are live — guard with:
  *      if (ctx->valuesOut && ctx->valueMaxCount > 0) { ... } */
 void PAX_process (PAX_Instance*           instance,
                   const PAX_ProcessContext* ctx);
@@ -230,6 +262,74 @@ void  PAX_setParameter (PAX_Instance* instance, int index, float value);
 /** Return current audio output port count (for dynamic port Pax).
  *  Called by host after PAX_setParameter(index=0) if exported. */
 int PAX_getAudioOutputCount (PAX_Instance* instance);
+
+/** Return the number of Value input/output ports this Pax has (nodeType 4,
+ *  or any Pax that wants Value ports alongside audio/MIDI). Static — no
+ *  instance needed, called once at scan time, before any instance exists.
+ *  Not exporting these means 0 Value ports (safe default for existing
+ *  Pax binaries that predate Value port support). Fixed at scan time,
+ *  unlike PAX_getAudioOutputCount which can change per-instance after a
+ *  parameter changes — Value port counts for a given Pax don't. */
+int PAX_getValueInputCount  (void);
+int PAX_getValueOutputCount (void);
+
+/** Value port type tags — what a specific Value port actually carries.
+ *  Deliberately separate integer constants, not the internal C++ PortType
+ *  enum — keeps the public Pax ABI decoupled from an internal enum whose
+ *  ordering could change later. The host translates these to its own
+ *  PortType via a small switch.
+ *
+ *  MIDI is included here even though it also has its own legacy
+ *  midiInputs/midiOutputs fields on PAX_Descriptor — those keep working
+ *  unchanged for existing Pax, but PAX_VALUETYPE_MIDI lets a *new* Pax
+ *  mix a MIDI-typed port with other protocol types on ports declared
+ *  through this newer, more general per-port mechanism (e.g. one MIDI
+ *  input feeding differently-typed outputs on the same node). MIDI is
+ *  event-shaped identically to Value (PAX_MidiEvent and PAX_Value are
+ *  both array+count+maxCount) — Audio is not (continuous float buffers,
+ *  no event count), which is why Audio has no equivalent here and never
+ *  will without a much bigger change to the whole audio pipeline. */
+#define PAX_VALUETYPE_GENERIC 0
+#define PAX_VALUETYPE_MQTT    1
+#define PAX_VALUETYPE_OSC     2
+#define PAX_VALUETYPE_DMX     3
+#define PAX_VALUETYPE_UDP     4
+#define PAX_VALUETYPE_ARTNET  5
+#define PAX_VALUETYPE_MIDI    6
+
+/** Return the type tag (PAX_VALUETYPE_*) of the Value port at portIndex
+ *  (0-based, in the same order implied by PAX_getValueInputCount/
+ *  OutputCount). Static, same reasoning as the count functions above.
+ *  Not exporting these, or returning an out-of-range/unrecognised value,
+ *  means every Value port defaults to PAX_VALUETYPE_GENERIC — safe
+ *  default for existing Pax binaries that predate per-port typing. */
+int PAX_getValueInputType  (int portIndex);
+int PAX_getValueOutputType (int portIndex);
+
+/** Colour category override — see Architecture.md's "Hybrid vs Converter
+ *  auto-detection" note for the full rule. By default (not exporting
+ *  this) the host auto-detects: compares the set of port types on the
+ *  input side against the output side. A type present on only one side
+ *  is being converted (Converter/fuchsia); if every type mirrors on
+ *  both sides, one distinct type gets its own native colour, more than
+ *  one gets Hybrid/orange. This override is ONLY consulted in the one
+ *  case the rule genuinely can't resolve — a pure source or pure sink
+ *  Pax, nothing to compare input against output — so an author can
+ *  pick a colour category explicitly rather than have the host guess.
+ *  Not consulted otherwise; the auto-detected rule always wins when it
+ *  can produce an answer, so this can't make an already-clear node's
+ *  colour misrepresent what it actually does. */
+#define PAX_COLOURCAT_AUTO      -1
+#define PAX_COLOURCAT_MIDI       0
+#define PAX_COLOURCAT_AUDIO      1
+#define PAX_COLOURCAT_HYBRID     2
+#define PAX_COLOURCAT_CONVERTER  3
+#define PAX_COLOURCAT_OSC        4
+#define PAX_COLOURCAT_DMX        5
+#define PAX_COLOURCAT_MQTT       6
+#define PAX_COLOURCAT_UDP        7
+#define PAX_COLOURCAT_ARTNET     8
+int PAX_getColourCategory (void);
 
 /** Return FFT magnitude bin count (for spectrum display Pax). */
 int PAX_getFFTSize (PAX_Instance* instance);

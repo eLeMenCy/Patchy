@@ -120,7 +120,7 @@ PaxScanner::ScanResult PaxScanner::tryLoad (const juce::File& file)
         return result;
     }
 
-    if (desc->nodeType < 1 || desc->nodeType > 3)
+    if (desc->nodeType < 1 || desc->nodeType > 4)
     {
         result.errorMsg = "Invalid nodeType " + juce::String (desc->nodeType);
         return result;

@@ -274,19 +274,23 @@ void WebBridge::handleMessage (const juce::String& json)
         pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
         graph.pushSnapshot();
         juce::String paxName = obj->getProperty ("paxName").toString();
-        int audioIn = 0, audioOut = 0, midiIn = 0, midiOut = 0;
+        PaxPortSpec portSpec;
 
-        // Look up port counts from registry for addon nodes
+        // Look up port counts + per-port types from registry for addon nodes
         if (registry && paxName.isNotEmpty())
         {
             for (const auto& e : registry->getEntries())
             {
                 if (e.name == paxName)
                 {
-                    audioIn  = e.audioInputs;
-                    audioOut = e.audioOutputs;
-                    midiIn   = e.midiInputs;
-                    midiOut  = e.midiOutputs;
+                    portSpec.audioIn  = e.audioInputs;
+                    portSpec.audioOut = e.audioOutputs;
+                    portSpec.midiIn   = e.midiInputs;
+                    portSpec.midiOut  = e.midiOutputs;
+                    portSpec.valueIn  = e.valueInputs;
+                    portSpec.valueOut = e.valueOutputs;
+                    for (int tag : e.valueInputTypes)  portSpec.valueInTypes.push_back  (paxValueTypeFromTag (tag));
+                    for (int tag : e.valueOutputTypes) portSpec.valueOutTypes.push_back (paxValueTypeFromTag (tag));
                     break;
                 }
             }
@@ -296,7 +300,7 @@ void WebBridge::handleMessage (const juce::String& json)
             (int)   obj->getProperty ("nodeType"),
             (float) obj->getProperty ("x"),
             (float) obj->getProperty ("y"),
-            paxName, audioIn, audioOut, midiIn, midiOut);
+            paxName, portSpec);
 
         // Initialize DMX Monitor/Console with default settingsJson so undo doesn't wipe settings
         int nodeType = (int) obj->getProperty ("nodeType");
@@ -756,13 +760,19 @@ void WebBridge::handleMessage (const juce::String& json)
             float        x        = (float) (double) nObj->getProperty ("x");
             float        y        = (float) (double) nObj->getProperty ("y");
             juce::String paxName= nObj->getProperty ("paxName").toString();
-            int audioIn  = (int) nObj->getProperty ("audioInputs");
-            int audioOut = (int) nObj->getProperty ("audioOutputs");
-            int midiIn   = (int) nObj->getProperty ("midiInputs");
-            int midiOut  = (int) nObj->getProperty ("midiOutputs");
+            PaxPortSpec spec;
+            spec.audioIn  = (int) nObj->getProperty ("audioInputs");
+            spec.audioOut = (int) nObj->getProperty ("audioOutputs");
+            spec.midiIn   = (int) nObj->getProperty ("midiInputs");
+            spec.midiOut  = (int) nObj->getProperty ("midiOutputs");
+            spec.valueIn  = (int) nObj->getProperty ("valueInputs");
+            spec.valueOut = (int) nObj->getProperty ("valueOutputs");
+            if (auto* arr = nObj->getProperty ("valueInputTypes").getArray())
+                for (auto& v : *arr) spec.valueInTypes.push_back (parseValueTypeTag (v.toString()));
+            if (auto* arr = nObj->getProperty ("valueOutputTypes").getArray())
+                for (auto& v : *arr) spec.valueOutTypes.push_back (parseValueTypeTag (v.toString()));
 
-            auto& nd = graph.restoreNode (savedId, nodeType, x, y, paxName,
-                                          audioIn, audioOut, midiIn, midiOut);
+            auto& nd = graph.restoreNode (savedId, nodeType, x, y, paxName, spec);
             // Restore device selection if present
             juce::String devId = nObj->getProperty ("selectedDeviceId").toString();
             if (devId.isNotEmpty()) nd.selectedDeviceId = devId;
@@ -830,6 +840,23 @@ void WebBridge::pushPaxList()
         obj->setProperty ("audioOutputs", e.audioOutputs > 0 ? e.audioOutputs : (ngaType == 2 || ngaType == 3 ? 1 : 0));
         obj->setProperty ("midiInputs",   e.midiInputs   > 0 ? e.midiInputs   : (ngaType == 1 || ngaType == 3 ? 1 : 0));
         obj->setProperty ("midiOutputs",  e.midiOutputs  > 0 ? e.midiOutputs  : (ngaType == 1 || ngaType == 3 ? 1 : 0));
+        // Value ports have no nodeType-implied default (see GraphModel.cpp's
+        // portsForType) — purely whatever the Pax exported via
+        // PAX_getValueInputCount/PAX_getValueOutputCount.
+        obj->setProperty ("valueInputs",  e.valueInputs);
+        obj->setProperty ("valueOutputs", e.valueOutputs);
+        // Per-port types + colour category override, threaded through so
+        // the sidebar can show each Pax's actual auto-detected colour
+        // (Hybrid/Converter/native-type) rather than a generic per-ngaType
+        // bucket colour — keeps sidebar and placed-node colour consistent.
+        {
+            juce::Array<juce::var> inTags, outTags;
+            for (int tag : e.valueInputTypes)  inTags.add  (tagForValueType (paxValueTypeFromTag (tag)));
+            for (int tag : e.valueOutputTypes) outTags.add (tagForValueType (paxValueTypeFromTag (tag)));
+            obj->setProperty ("valueInputTypes",  inTags);
+            obj->setProperty ("valueOutputTypes", outTags);
+        }
+        obj->setProperty ("colourCategory", e.colourCategory);
 
         // Include parameter descriptors so UI can render sliders
         juce::Array<juce::var> params;

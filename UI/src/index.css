@@ -44,9 +44,21 @@
   --udp-dim:     #1a2d4a;
   --udp-glow:    rgba(96,165,250,.35);
 
-  --value:       #c084fc;   /* soft violet/lavender */
-  --value-dim:   #2e1a4a;
-  --value-glow:  rgba(192,132,252,.35);
+  --value:       #e879f9;   /* fuchsia/magenta — Converter colour specifically */
+  --value-dim:   #3d1a45;
+  --value-glow:  rgba(232,121,249,.35);
+
+  /* Plain Generic Value's own native colour — NOT the same as --value
+     above, which is specifically Converter's colour now. A node whose
+     only type, mirrored on both sides, is plain Generic Value needs its
+     own colour or it'd be visually indistinguishable from a genuine
+     Converter. Proposed: slate grey — every other colour in this palette
+     is vibrant/saturated (protocol-specific), so a neutral, muted tone
+     both stays visually distinct from all of them and fits "generic"
+     semantically. Open to change if a different colour is preferred. */
+  --generic:      #94a3b8;
+  --generic-dim:  #262c36;
+  --generic-glow: rgba(148,163,184,.35);
 
   --error:       #f87171;   /* red — reserved for errors/warnings */
   --error-dim:   #4a1010;

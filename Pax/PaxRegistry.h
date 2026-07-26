@@ -1,8 +1,10 @@
 #pragma once
 #include "PaxScanner.h"
 #include "../Source/NodeProcessor.h"
+#include "../Source/GraphModel.h"
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 /**
  * PaxRegistry
@@ -15,6 +17,14 @@
  *   - Provide a factory: createNode(paxName) → NodeProcessor*
  *   - Tell the UI which Pax names are available per nodeType
  */
+/** Translates a PAX_VALUETYPE_* int (as returned by a Pax's
+ *  PAX_getValueInputType/OutputType) into the internal PaxValueType enum.
+ *  Centralised here rather than duplicated in WebBridge.cpp and
+ *  PatchyProcessor.cpp, which both need it to build a PaxPortSpec from
+ *  registry data. Unrecognised/out-of-range values default to Generic —
+ *  same safe-default reasoning as everywhere else in this mechanism. */
+PaxValueType paxValueTypeFromTag (int tag);
+
 class PaxRegistry
 {
 public:
@@ -45,6 +55,11 @@ public:
         int                             audioOutputs = 0;
         int                             midiInputs   = 0;
         int                             midiOutputs  = 0;
+        int                             valueInputs  = 0;  // resolved once at load() time from
+        int                             valueOutputs = 0;  // PAX_getValueInputCount/OutputCount, if exported
+        std::vector<int>                valueInputTypes;   // PAX_VALUETYPE_* per port, resolved from
+        std::vector<int>                valueOutputTypes;  // PAX_getValueInputType/OutputType, if exported
+        int                             colourCategory = -1;  // PAX_COLOURCAT_AUTO (-1) = auto-detect
         juce::File                      file;
         std::shared_ptr<juce::DynamicLibrary> lib;
 

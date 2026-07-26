@@ -198,11 +198,16 @@ export interface PaxInfo {
   name:         string;
   vendor:       string;
   version:      string;
-  nodeType:     1 | 2 | 3;
+  nodeType:     1 | 2 | 3 | 4;
   audioInputs:  number;
   audioOutputs: number;
   midiInputs:   number;
   midiOutputs:  number;
+  valueInputs:  number;
+  valueOutputs: number;
+  valueInputTypes:  string[];
+  valueOutputTypes: string[];
+  colourCategory: number;  // PAX_COLOURCAT_AUTO (-1) = auto-detect
   params:       PaxParamInfo[];
 }
 

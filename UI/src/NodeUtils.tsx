@@ -9,8 +9,157 @@
 import { useCallback, useState, useEffect, useContext } from 'react';
 import { Handle, Position, useReactFlow, useUpdateNodeInternals } from '@xyflow/react';
 import { Settings, X } from 'lucide-react';
-import { Bridge } from './Bridge';
+import { Bridge, PaxInfo } from './Bridge';
 import { HintContext, NODE_HINTS, BUTTON_HINTS } from './HintPanel';
+
+// Module-level Pax info map — populated (in App.tsx) when the Pax list
+// arrives from the backend. Stores the full PaxInfo entry per paxName
+// (not just params) so a placed node's colour auto-detection can look up
+// colourCategory — a per-Pax-*type* property (from the registry), not
+// per-node-*instance*. Lives here rather than in App.tsx or GenericNode.tsx
+// directly: both need it, and App.tsx already imports GenericNode to
+// register it as a node type, so declaring it in either would create a
+// circular import. NodeUtils.tsx is a shared, lower-level file both
+// already depend on safely.
+export const _paxInfoMap = new Map<string, PaxInfo>();
+
+// ── Hybrid/Converter colour auto-detection ────────────────────────────────────
+// Rule agreed in conversation (see Architecture.md's "Per-port value typing
+// mechanism" entry for the full design story): compare the set of port
+// types on a node's input side against its output side. A type present on
+// only one side means the node is converting that type — Converter. If
+// every type mirrors on both sides: exactly one distinct type total gets
+// its own native colour; more than one gets Hybrid. Fully automatic from
+// the node's own declared ports — nothing a Pax author has to specify,
+// unless the node is a pure source or pure sink (nothing to compare input
+// against output at all) — the one case the rule genuinely can't resolve,
+// where colourCategory (from the registry, looked up via paxName) is
+// consulted instead.
+//
+// Exported (and living here, not in GenericNode.tsx) so both GenericNode.tsx
+// (placed nodes) and Sidebar.tsx (the pre-placement listing) can use the
+// exact same algorithm — moved here after finding the sidebar was still
+// colouring by a fixed per-ngaType lookup, producing a real, visible
+// mismatch against a placed node's genuinely auto-detected colour.
+//
+// ArtNet and plain DMX share PortType::DMX internally (see the backend's
+// PaxValueType comment) — distinguished here the same way the backend
+// does, by label text, so they're treated as genuinely different types
+// for the mirroring comparison, not silently merged.
+function portGroupKey (p: { type: string; label: string }): string {
+  if (p.type === 'dmx' && p.label.toLowerCase().startsWith ('artdmx')) return 'artnet';
+  return p.type;
+}
+
+const NATIVE_THEME_BY_KEY: Record<string, { accent: string; dim: string; glow: string }> = {
+  midi:   { accent: 'var(--midi)',    dim: 'var(--midi-dim)',    glow: 'var(--midi-glow)' },
+  audio:  { accent: 'var(--audio)',   dim: 'var(--audio-dim)',   glow: 'var(--audio-glow)' },
+  osc:    { accent: 'var(--osc)',     dim: 'var(--osc-dim)',     glow: 'var(--osc-glow)' },
+  dmx:    { accent: 'var(--dmx)',     dim: 'var(--dmx-dim)',     glow: 'var(--dmx-glow)' },
+  artnet: { accent: 'var(--artnet)',  dim: 'var(--artnet-dim)',  glow: 'var(--artnet-glow)' },
+  mqtt:   { accent: 'var(--mqtt)',    dim: 'var(--mqtt-dim)',    glow: 'var(--mqtt-glow)' },
+  udp:    { accent: 'var(--udp)',     dim: 'var(--udp-dim)',     glow: 'var(--udp-glow)' },
+  // Plain Generic Value gets its OWN native colour (--generic), distinct
+  // from --value, which is Converter's colour specifically — see
+  // index.css's --generic comment for why these can't share one colour.
+  value:  { accent: 'var(--generic)', dim: 'var(--generic-dim)', glow: 'var(--generic-glow)' },
+};
+
+const HYBRID_THEME    = { accent: 'var(--av)',    dim: 'var(--av-dim)',    glow: 'var(--av-glow)' };
+const CONVERTER_THEME = { accent: 'var(--value)', dim: 'var(--value-dim)', glow: 'var(--value-glow)' };
+
+// colourCategory override values — mirrors PAX_COLOURCAT_* in PaxAPI.h.
+// Only ever consulted for the pure-source/pure-sink case above; never a
+// general override, so it can't make an already-clear node's colour
+// misrepresent what it actually does.
+const COLOURCAT_THEME: Record<number, { accent: string; dim: string; glow: string }> = {
+  0: NATIVE_THEME_BY_KEY.midi,
+  1: NATIVE_THEME_BY_KEY.audio,
+  2: HYBRID_THEME,
+  3: CONVERTER_THEME,
+  4: NATIVE_THEME_BY_KEY.osc,
+  5: NATIVE_THEME_BY_KEY.dmx,
+  6: NATIVE_THEME_BY_KEY.mqtt,
+  7: NATIVE_THEME_BY_KEY.udp,
+  8: NATIVE_THEME_BY_KEY.artnet,
+};
+
+// colourCategory override values, as category KEYS (not theme objects) —
+// used by detectPaxCategoryKey below. 'generic' is deliberately its own
+// key, distinct from 'value' (portGroupKey's raw type string) — a node's
+// PORT can be type 'value' (generic), but the node's overall CATEGORY,
+// once detected as a single mirrored generic type, is called 'generic'
+// throughout the UI (sidebar section name, tag word) to avoid confusion
+// with 'value' meaning something more specific elsewhere.
+const COLOURCAT_KEY: Record<number, string> = {
+  0: 'midi', 1: 'audio', 2: 'hybrid', 3: 'converter',
+  4: 'osc', 5: 'dmx', 6: 'mqtt', 7: 'udp', 8: 'artnet',
+};
+
+/** The single source of truth for Hybrid-vs-Converter-vs-native-type
+ * detection — returns one of: midi, audio, hybrid, converter, osc, dmx,
+ * artnet, mqtt, udp, generic. detectPaxTheme, detectPaxTagPrefix, and
+ * Sidebar.tsx's section grouping all derive from this one function
+ * rather than each re-implementing the same input/output-set comparison —
+ * refactored into this shape while fixing the sidebar's section grouping
+ * to match a node's actual detected category instead of its raw
+ * (pre-detection) ngaType. */
+export function detectPaxCategoryKey (
+  ports: { type: string; label: string; direction: string }[],
+  colourCategory: number | undefined
+): string {
+  const inputKeys  = new Set (ports.filter (p => p.direction === 'input').map (portGroupKey));
+  const outputKeys = new Set (ports.filter (p => p.direction === 'output').map (portGroupKey));
+  const allKeys     = new Set ([...inputKeys, ...outputKeys]);
+  const isPureSourceOrSink = inputKeys.size === 0 || outputKeys.size === 0;
+
+  const asCategoryKey = (k: string) => (k === 'value' ? 'generic' : k);
+
+  if (isPureSourceOrSink) {
+    if (colourCategory !== undefined && colourCategory >= 0 && COLOURCAT_KEY[colourCategory])
+      return COLOURCAT_KEY[colourCategory];
+    if (allKeys.size === 1) return asCategoryKey ([...allKeys][0]);
+    return 'hybrid';
+  }
+
+  const allMirror = [...allKeys].every (k => inputKeys.has (k) && outputKeys.has (k));
+  if (! allMirror) return 'converter';
+  if (allKeys.size === 1) return asCategoryKey ([...allKeys][0]);
+  return 'hybrid';
+}
+
+const THEME_BY_CATEGORY_KEY: Record<string, { accent: string; dim: string; glow: string }> = {
+  midi: NATIVE_THEME_BY_KEY.midi, audio: NATIVE_THEME_BY_KEY.audio,
+  osc: NATIVE_THEME_BY_KEY.osc, dmx: NATIVE_THEME_BY_KEY.dmx,
+  artnet: NATIVE_THEME_BY_KEY.artnet, mqtt: NATIVE_THEME_BY_KEY.mqtt,
+  udp: NATIVE_THEME_BY_KEY.udp, generic: NATIVE_THEME_BY_KEY.value,
+  hybrid: HYBRID_THEME, converter: CONVERTER_THEME,
+};
+
+export function detectPaxTheme (
+  ports: { type: string; label: string; direction: string }[],
+  colourCategory: number | undefined
+): { accent: string; dim: string; glow: string } {
+  return THEME_BY_CATEGORY_KEY[detectPaxCategoryKey (ports, colourCategory)] ?? HYBRID_THEME;
+}
+
+// Converter has no prefix — the fuchsia colour already conveys "this
+// converts"; unlike the type-specific prefixes below, a "CONVERTER" word
+// adds width without adding information the colour doesn't already carry.
+const TAG_PREFIX_BY_CATEGORY_KEY: Record<string, string> = {
+  midi: 'MIDI', audio: 'AUDIO', hybrid: 'HYBRID', converter: '',
+  osc: 'OSC', dmx: 'DMX', artnet: 'ARTNET', mqtt: 'MQTT', udp: 'UDP',
+  generic: 'VALUE',
+};
+
+export function detectPaxTagPrefix (
+  ports: { type: string; label: string; direction: string }[],
+  colourCategory: number | undefined
+): string {
+  const key = detectPaxCategoryKey (ports, colourCategory);
+  return TAG_PREFIX_BY_CATEGORY_KEY[key] ?? 'PLUGIN';
+}
+
 
 // ── NodeHandle ───────────────────────────────────────────────────────────────
 /**

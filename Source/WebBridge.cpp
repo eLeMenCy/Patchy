@@ -1288,6 +1288,8 @@ void WebBridge::pushPortActivity()
         // Encode RMS as integer (×1000) for compactness
         int lv = juce::jlimit (0, 1000, (int) (a.audioRmsL * 1000.0f));
         int rv = juce::jlimit (0, 1000, (int) (a.audioRmsR * 1000.0f));
+        // Current DMX channel level, same ×1000 integer encoding as RMS above
+        int dv = juce::jlimit (0, 1000, (int) (a.dmxValue * 1000.0f));
         // Encode incoming notes as "s,n s,n ..." e.g. "144,60 128,60"
         juce::String notesStr;
         for (const auto& [st, n] : a.incomingNotes)
@@ -1313,7 +1315,8 @@ void WebBridge::pushPortActivity()
              << Q << "portRms"  << Q << ":" << portRmsStr                  << ","
              << Q << "notes"    << Q << ":" << Q << notesStr        << Q   << ","
              << Q << "bytes"    << Q << ":" << a.udpBytes                  << ","
-             << Q << "isMk2"    << Q << ":" << (a.dmxIsMk2 ? "true" : "false")
+             << Q << "isMk2"    << Q << ":" << (a.dmxIsMk2 ? "true" : "false") << ","
+             << Q << "dmxValue" << Q << ":" << dv
              << "}";
     }
     json << "]";

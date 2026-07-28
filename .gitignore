@@ -41,3 +41,5 @@ Addons/**/*.dll
 # ── Patchy patch files (user data) ────────────────────────────────────────────
 *.patchy
 
+TestMultiOutPax.cpp
+TestReceiverPax.cpp

@@ -40,6 +40,16 @@ struct PortActivity
     std::vector<std::pair<uint8_t,uint8_t>> incomingNotes; // {status, note}
     int               udpBytes      = 0;   // bytes received since last push (UDP In nodes only)
     bool              dmxIsMk2      = false; // true if Enttec Pro Mk2 detected
+    // Current DMX channel level (0.0-1.0), read straight from the node's own
+    // lightweight PAX_Value mirror (outputValues[0].value when its type is
+    // PAX_TYPE_DMX) — works uniformly for built-in DMX nodes and any DMX-
+    // emitting Pax alike, no per-class special-casing needed. Persists
+    // between change-detected updates (built-in nodes only touch
+    // outputValues[0] on an actual change, leaving the slot's last real
+    // value in place otherwise), so this reflects "current channel level",
+    // not "did something just happen" — the two are different questions,
+    // see Architecture.md for why that distinction matters here.
+    float             dmxValue      = 0.f;
 };
 
 struct SpectrumSnapshot

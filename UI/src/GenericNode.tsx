@@ -337,9 +337,12 @@ function GenericNode({ id, data, selected }: NodeProps) {
   useEffect(() => {
     if (paxParams.length > 0 && paramValues.length === 0) {
       const saved = nodeData.settingsJson ? JSON.parse(nodeData.settingsJson) as number[] : null;
-      const vals = saved && saved.length === paxParams.length
-        ? saved
-        : paxParams.map(p => p.defaultValue);
+      // Was: all-or-nothing on saved.length === paxParams.length — any
+      // mismatch (e.g. a param added/removed since this settingsJson was
+      // last written) silently discarded EVERY saved value, not just the
+      // new one. Now maps per-index so existing values survive and only
+      // genuinely-missing indices fall back to their own default.
+      const vals = paxParams.map((p, i) => (saved && saved[i] !== undefined) ? saved[i] : p.defaultValue);
       setParamValues(vals);
       // Restore param values to C++ Pax
       vals.forEach((v, i) => Bridge.setPaxParameter(id, i, v));
@@ -349,10 +352,17 @@ function GenericNode({ id, data, selected }: NodeProps) {
   // Sync paramValues when settingsJson changes externally (e.g. undo/redo).
   useEffect(() => {
     if (paxParams.length === 0) return;
-    const vals = nodeData.settingsJson
+    const raw = nodeData.settingsJson
       ? (() => { try { return JSON.parse(nodeData.settingsJson) as number[]; } catch { return null; } })()
-      : paxParams.map(p => p.defaultValue);
-    if (!vals || vals.length !== paxParams.length) return;
+      : null;
+    // Was: `if (!vals || vals.length !== paxParams.length) return;` — a
+    // settingsJson snapshot with a different length than the Pax's
+    // CURRENT param count (e.g. an older undo entry from before a
+    // parameter was added) silently no-op'd this entire sync, leaving
+    // paramValues — and therefore every displayed control, not just the
+    // new one — stuck out of sync with the graph's actual restored state.
+    // Same per-index defaulting as the mount-time effect above instead.
+    const vals = paxParams.map((p, i) => (raw && raw[i] !== undefined) ? raw[i] : p.defaultValue);
     setParamValues(prev => {
       if (prev.length === vals.length && prev.every((v, i) => v === vals[i])) return prev;
       vals.forEach((v, i) => Bridge.setPaxParameter(id, i, v));
@@ -770,6 +780,30 @@ function GenericNode({ id, data, selected }: NodeProps) {
                     ))}
                   </div>
                 </div>
+              ) : p.name === 'DMX Channel' ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{p.name}</span>
+                <input type="number"
+                  className="nodrag"
+                  min={p.min} max={p.max} step={1}
+                  value={Math.round(paramValues[i] !== undefined ? paramValues[i] : p.defaultValue)}
+                  onChange={e => {
+                    const raw = parseInt(e.target.value, 10);
+                    if (isNaN(raw)) return;
+                    onParamChange(i, Math.min(p.max, Math.max(p.min, raw)));
+                  }}
+                  onBlur={() => Bridge.commitNodeSettings(id)}
+                  onKeyDown={e => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); } }}
+                  onMouseEnter={() => setHint({ title: p.name, body: `1-based DMX channel this node's output writes to (1-${p.max}).` })}
+                  onMouseLeave={() => setHint(null)}
+                  style={{
+                    width: 44, fontSize: 9, textAlign: 'right',
+                    background: 'var(--surface)', color: theme.accent,
+                    border: '1px solid var(--border)', borderRadius: 3,
+                    padding: '2px 4px',
+                  }}
+                />
+              </div>
               ) : (
               <div style={{ position: 'relative' }}>
                 <input type="range"
@@ -788,7 +822,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
 Double-click to reset to default (${p.defaultValue}).` })}
                   onMouseLeave={() => setHint(null)}
                  
-                  style={{ width: '100%', display: 'block' }}
+                  style={{ width: '100%', display: 'block', ['--thumb-color' as any]: theme.accent }}
                 />
                 {p.defaultValue > p.min && p.defaultValue < p.max && (() => {
                   const thumbW = 10;
@@ -811,8 +845,8 @@ Double-click to reset to default (${p.defaultValue}).` })}
                 })()}
               </div>
               )}
-              {/* label + value - only for non-binary params */}
-              {!(p.step >= 1 && p.min === 0 && p.max === 1) && (
+              {/* label + value - only for non-binary, non-DMX-Channel params (DMX Channel renders its own label) */}
+              {!(p.step >= 1 && p.min === 0 && p.max === 1) && p.name !== 'DMX Channel' && (
               <div style={{ display: 'flex', justifyContent: 'space-between',
                             fontSize: 9, marginTop: 9 }}>
                 <span style={{ color: 'var(--text-muted)' }}>{p.name}</span>

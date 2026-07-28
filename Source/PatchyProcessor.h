@@ -688,6 +688,17 @@ public:
             a.nodeId        = node->id;
             a.midiOutEvents = node->drainMidiActivity();
 
+            // Current DMX channel level, for gradual intensity rendering —
+            // works for any node whose lightweight Value mirror is DMX-typed
+            // (built-in DmxIn/DmxConsole, or a Pax like AudioFreqToDmxPax),
+            // not just a hardcoded list of classes. Read unconditionally
+            // (not gated on outputValueCount>0) since built-in nodes only
+            // touch outputValues[0] on an actual change and leave it holding
+            // the last real value otherwise — exactly the "current level"
+            // this is meant to report, not "did it just change".
+            if (node->outputValues[0].type == PAX_TYPE_DMX)
+                a.dmxValue = node->outputValues[0].value;
+
             // Byte-rate for UDP In nodes
             if (auto* udpIn = dynamic_cast<UdpInDeviceNode*> (node.get()))
                 a.udpBytes = udpIn->drainByteActivity();

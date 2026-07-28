@@ -145,16 +145,20 @@ public:
         std::memcpy (lastSent.data(), current.data(), 512);
         pendingOutput.store (false, std::memory_order_relaxed);
 
-        // Build output PAX_Value
+        // Full universe via the dedicated DMX frame path (API v4) — this
+        // used to be squeezed into PAX_Value.data[] (56 bytes), which
+        // silently truncated the console to its first 56 of 512 channels.
+        // See Architecture.md for the discovery.
+        outputDmxFrame      = current;
+        outputDmxFrameValid = true;
+
+        // Lightweight Value mirror alongside it, no blob — same reasoning
+        // as DmxInDeviceNode's own mirror.
         PAX_Value v {};
         v.type     = PAX_TYPE_DMX;
-        v.dataType = PAX_DATA_BLOB;
+        v.dataType = PAX_DATA_FLOAT;
         v.key      = 0;
         v.value    = current[0] / 255.f;
-        v.dataSize = 512;
-        std::memcpy (v.data, current.data(),
-                     std::min ((size_t) 512, sizeof (v.data)));
-        v.dataSize = static_cast<uint16_t> (sizeof (v.data));
 
         outputValues[0] = v;
         outputValueCount = 1;

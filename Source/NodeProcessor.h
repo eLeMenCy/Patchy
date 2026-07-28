@@ -61,6 +61,12 @@ public:
         // Reset value buffers — clear events from previous block
         inputValueCount  = 0;
         outputValueCount = 0;
+
+        // Reset DMX frame valid flags — a stale frame byte array left over
+        // from a previous block is harmless as long as the valid flag says
+        // not to trust it; the flag is the actual reset, not the bytes.
+        inputDmxFrameValid  = false;
+        outputDmxFrameValid = false;
     }
 
     /** Allocate per-port audio buffers (called when port count is known). */
@@ -89,6 +95,18 @@ public:
     std::array<PAX_Value, kMaxValueEvents> outputValues {};
     int inputValueCount  = 0;
     int outputValueCount = 0;
+
+    // ── DMX universe buffer — separate wide-payload path (PaxAPI.h v4) ───────
+    // PAX_Value.data[] (56 bytes) can't carry a full 512-channel universe;
+    // this is a parallel, purpose-built path so DMX nodes (built-in and Pax)
+    // aren't squeezed through that cap. Single slot per direction — matches
+    // today's one-DMX-port-per-node reality (see DmxDeviceNodes.h's own
+    // "single universe per device" convention); can grow to an array keyed
+    // by port index later if a node ever needs more than one DMX port.
+    std::array<uint8_t, 512> inputDmxFrame  {};
+    std::array<uint8_t, 512> outputDmxFrame {};
+    bool inputDmxFrameValid  = false;
+    bool outputDmxFrameValid = false;
 
     const juce::String id;
     const Type         nodeType;

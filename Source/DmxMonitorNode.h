@@ -42,8 +42,9 @@ struct DmxMonitorBuffer
  * DmxMonitorNode  (nodeType 16)
  *
  * DMX In + DMX Out (pass-through, no processing).
- * Captures each incoming universe snapshot into a shared DmxMonitorBuffer.
- * WebBridge 30fps timer drains and pushes to React for display.
+ * Captures each incoming universe via the dedicated DMX frame path
+ * (PaxAPI.h v4) into a shared DmxMonitorBuffer. WebBridge 30fps timer
+ * drains and pushes to React for display.
  */
 class DmxMonitorNode : public NodeProcessor
 {
@@ -54,31 +55,18 @@ public:
 
     void process (int /*numSamples*/) override
     {
-        // Pass values through unchanged
-        outputValueCount = inputValueCount;
-        for (int i = 0; i < inputValueCount; ++i)
-            outputValues[static_cast<size_t> (i)] = inputValues[static_cast<size_t> (i)];
-
-        if (inputValueCount > 0)
+        // Pass the DMX frame through unchanged, and mirror it into the
+        // shared monitor buffer for the UI. No longer reads PAX_Value at
+        // all for the channel payload — the old blob-based path silently
+        // truncated at 56 of 512 channels (see Architecture.md).
+        if (inputDmxFrameValid)
         {
-            recordMidiActivity (inputValueCount);
+            outputDmxFrame      = inputDmxFrame;
+            outputDmxFrameValid = true;
+            recordMidiActivity (1);
 
-            // Push universe snapshot to monitor buffer
             if (buffer != nullptr)
-            {
-                std::array<uint8_t, 512> ch {};
-                const auto& v = inputValues[0];
-                if (v.dataType == PAX_DATA_BLOB && v.dataSize > 0)
-                {
-                    int copyLen = std::min ((int) v.dataSize, 512);
-                    std::memcpy (ch.data(), v.data, (size_t) copyLen);
-                }
-                else if (v.dataType == PAX_DATA_FLOAT)
-                {
-                    ch[0] = (uint8_t) juce::jlimit (0, 255, (int) (v.value * 255.f));
-                }
-                buffer->push (ch);
-            }
+                buffer->push (inputDmxFrame);
         }
     }
 

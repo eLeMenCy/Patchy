@@ -174,13 +174,14 @@ namespace EnttecProCodec
 /**
  * DmxInDeviceNode  (nodeType 14)
  *
- * Receives DMX512 from an Enttec DMX USB Pro interface and emits one
- * PAX_Value per changed universe:
- *   type     = PAX_TYPE_DMX
- *   key      = 0 (universe 0 — single universe per device)
- *   value    = channel[0] / 255.0
- *   data[]   = raw DMX channel bytes (up to 56 channels)
- *   dataSize = number of channels copied
+ * Receives DMX512 from an Enttec DMX USB Pro interface and emits the full
+ * 512-channel universe every block via the dedicated DMX frame path
+ * (PaxAPI.h v4 — outputDmxFrame/outputDmxFrameValid), plus a lightweight
+ * PAX_Value mirror alongside it (type=PAX_TYPE_DMX, dataType=FLOAT,
+ * value=channel[0]/255, no blob) for anything that only wants a plain
+ * scalar. The frame is the real payload now — the old approach of cramming
+ * the universe into PAX_Value.data[] silently truncated at 56 of 512
+ * channels; see Architecture.md for the discovery and the fix.
  */
 class DmxInDeviceNode : public NodeProcessor,
                         private juce::Thread
@@ -256,13 +257,22 @@ public:
         if (hasReceived || gotNew)
         {
             hasReceived = true;
+
+            // Full universe via the dedicated DMX frame path (API v4) — the
+            // real payload now, addresses all 512 channels, not just 56.
+            outputDmxFrame      = lastReceived;
+            outputDmxFrameValid = true;
+
+            // Lightweight Value mirror alongside it — no blob, channel[0]
+            // only, purely for anything that expects a plain scalar on this
+            // edge (e.g. a future DMX→Value adapter). Real channel data no
+            // longer travels via PAX_Value; DmxOutDeviceNode/DmxMonitorNode
+            // read the frame above, not this.
             PAX_Value v {};
             v.type     = PAX_TYPE_DMX;
-            v.dataType = PAX_DATA_BLOB;
+            v.dataType = PAX_DATA_FLOAT;
             v.key      = 0;
             v.value    = lastReceived[0] / 255.f;
-            v.dataSize = static_cast<uint16_t> (std::min (512, (int) sizeof (v.data)));
-            std::memcpy (v.data, lastReceived.data(), v.dataSize);
             outputValues[0]  = v;
             outputValueCount = 1;
         }
@@ -365,11 +375,12 @@ private:
 /**
  * DmxOutDeviceNode  (nodeType 15)
  *
- * Receives PAX_Value blobs from the graph and sends them as DMX512 frames
- * via an Enttec DMX USB Pro interface. Only sends when data changes
- * (memcmp vs last sent frame).
- *
- * PAX_Value::data[] = raw DMX channel bytes (up to 56 channels)
+ * Receives full 512-channel DMX universes via the dedicated DMX frame path
+ * (PaxAPI.h v4 — inputDmxFrame/inputDmxFrameValid) and sends them as
+ * DMX512 frames via an Enttec DMX USB Pro interface. Only sends when data
+ * changes (memcmp vs last sent frame). No longer reads PAX_Value at all
+ * for the channel payload — see Architecture.md for why (the old blob
+ * approach silently truncated at 56 of 512 channels).
  */
 class DmxOutDeviceNode : public NodeProcessor,
                          private juce::Thread
@@ -423,11 +434,11 @@ public:
 
     void process (int /*numSamples*/) override
     {
-        for (int i = 0; i < inputValueCount; ++i)
-            sendQueue.push (inputValues[static_cast<size_t> (i)]);
-
-        if (inputValueCount > 0)
+        if (inputDmxFrameValid)
+        {
+            sendQueue.push (inputDmxFrame);
             sendQueue.signalDataAvailable();
+        }
     }
 
     juce::String      devicePath;
@@ -439,22 +450,16 @@ private:
     {
         std::array<uint8_t, EnttecProCodec::kPktMax> pkt;
         std::array<uint8_t, 512> lastDmx {};
-        std::array<uint8_t, 512> dmx     {};
 
         while (! threadShouldExit())
         {
-            PAX_Value v {};
-            if (! sendQueue.pop (v))
+            std::array<uint8_t, 512> dmx;
+            if (! sendQueue.pop (dmx))
             {
                 sendQueue.waitForData (50);
                 continue;
             }
             if (! serial.isOpen()) continue;
-
-            // Build 512-byte DMX frame from PAX_Value blob
-            int srcLen = std::min ((int) v.dataSize, 512);
-            if (srcLen > 0) std::memcpy (dmx.data(), v.data, (size_t) srcLen);
-            if (srcLen < 512) std::memset (dmx.data() + srcLen, 0, (size_t) (512 - srcLen));
 
             // Change detection — only send when values differ
             if (std::memcmp (dmx.data(), lastDmx.data(), 512) == 0) continue;
@@ -469,28 +474,28 @@ private:
     static constexpr int kFifoSize = 16;
     struct SendFifo
     {
-        void push (const PAX_Value& v)
+        void push (const std::array<uint8_t, 512>& frame)
         {
             int s1, n1, s2, n2;
             fifo.prepareToWrite (1, s1, n1, s2, n2);
-            if (n1 > 0) values[static_cast<size_t> (s1)] = v;
+            if (n1 > 0) frames[static_cast<size_t> (s1)] = frame;
             fifo.finishedWrite (n1);
         }
-        bool pop (PAX_Value& v)
+        bool pop (std::array<uint8_t, 512>& frame)
         {
             int s1, n1, s2, n2;
             fifo.prepareToRead (1, s1, n1, s2, n2);
             if (n1 == 0) return false;
-            v = values[static_cast<size_t> (s1)];
+            frame = frames[static_cast<size_t> (s1)];
             fifo.finishedRead (n1);
             return true;
         }
         void signalDataAvailable() { event.signal(); }
         void waitForData (int ms)  { event.wait (ms); }
 
-        juce::AbstractFifo               fifo { kFifoSize };
-        std::array<PAX_Value, kFifoSize> values;
-        juce::WaitableEvent              event { false };  // auto-reset: resets after each wait()
+        juce::AbstractFifo                            fifo { kFifoSize };
+        std::array<std::array<uint8_t, 512>, kFifoSize> frames;
+        juce::WaitableEvent                            event { false };  // auto-reset: resets after each wait()
     } sendQueue;
 
     SerialPort serial;

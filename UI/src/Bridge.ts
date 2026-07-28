@@ -53,6 +53,7 @@ export interface PortActivityEntry {
   notes:   string;    // "status,note status,note ..." for keyboard nodes
   bytes:   number;    // bytes received since last push (UDP In only, 0 otherwise)
   isMk2:   boolean;  // true if Enttec Pro Mk2 detected (DMX nodes only)
+  dmxValue: number;  // current DMX channel level ×1000, for gradual intensity rendering (0 if not a DMX node)
 }
 type PortActivityCallback = (entries: PortActivityEntry[]) => void;
 const _portActivitySubscribers: PortActivityCallback[] = [];

@@ -188,6 +188,12 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
   const paxValueTimers = useRef<Map<string, number>>(new Map());
   const audioLevels   = useRef<Map<string, number>>(new Map());
   const portRmsLevels = useRef<Map<string, number[]>>(new Map());
+  // Current DMX channel level per node (0-1), from the backend's own
+  // persisted "last real value" slot — see WebBridge.h's PortActivity.
+  // No decay applied, unlike audioLevels: a DMX channel holds a value
+  // rather than firing transient events, so it should read as steady,
+  // not fade out between updates.
+  const dmxValues     = useRef<Map<string, number>>(new Map());
   const edgeList      = useRef(edges);
   const nodesRef      = useRef(nodes);
   useEffect(() => { edgeList.current = edges; }, [edges]);
@@ -242,6 +248,10 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
         } else {
           portRmsLevels.current.delete(entry.id);
         }
+        // Always record — harmless 0 for non-DMX nodes, never read for them
+        // since the render block below gates on actual DMX node/port identity,
+        // not on this map's presence.
+        dmxValues.current.set(entry.id, (entry.dmxValue ?? 0) / 1000);
       });
     });
   }, []);
@@ -281,6 +291,12 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
       const artNetSources = new Set<string>(artNetEdges.map(e => e.source));
       artNetTimers.current.forEach((expiry, id) => { if (expiry > now) artNetSources.add(id); });
       const dmxSources    = new Set<string>(dmxEdges.map(e => e.source));
+      // dmxTimers/dmxSources no longer drive DMX's own rendering (see the
+      // dedicated continuous-intensity block after this loop) — a node
+      // landing in allSources via this set is now a harmless no-op for it,
+      // not incorrect; left in place rather than ripped out, since audio/
+      // midi/etc still need allSources and this is the least-risk way to
+      // keep that working unchanged.
       dmxTimers.current.forEach((expiry, id) => { if (expiry > now) dmxSources.add(id); });
       const mqttSources   = new Set<string>();
       mqttTimers.current.forEach((expiry, id) => { if (expiry > now) mqttSources.add(id); });
@@ -329,11 +345,14 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
         // a port's own id (which already encodes its correct type-specific
         // label thanks to the per-port-typing mechanism) gives the right
         // colour with no separate lookup needed. Audio ports excluded —
-        // already handled by the RMS block above, this is specifically
-        // for MIDI/OSC/DMX/MQTT/UDP/Value-typed ports on a Pax node.
+        // already handled by the RMS block above. DMX-typed ports also
+        // excluded now — a DMX channel holds a continuous value rather
+        // than firing discrete events, so it gets its own gradual-intensity
+        // rendering below instead of this on/off flash treatment.
         const isPaxValueFlash = (paxValueTimers.current.get(id) ?? 0) > now;
         if (isPaxValueFlash) {
-          const valuePorts = ports.filter(p => p.direction === 'output' && p.type !== 'audio');
+          const valuePorts = ports.filter(p => p.direction === 'output' && p.type !== 'audio' &&
+            !((p.id as string).toLowerCase().includes('dmx') && !(p.id as string).toLowerCase().includes('artdmx')));
           valuePorts.forEach(p => {
             const pCol = colourForHandleId(p.id as string);
             css += `[data-handleid="${p.id}"]{background:${pCol}!important;box-shadow:0 0 10px ${pCol}!important;transition:none}`;
@@ -405,17 +424,60 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
           });
         }
 
-        // DMX flash
-        const isDmxFlash = (dmxTimers.current.get(id) ?? 0) > now;
-        if (isDmxFlash) {
-          const nodeDmxEdges = dmxEdges.filter(e => e.source === id);
-          const fc = '#fde68a';
-          css += `[data-handleid="${id}_DMX Out_out"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
-          nodeDmxEdges.forEach(e => {
-            css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${fc}!important;filter:drop-shadow(0 0 4px ${fc});transition:none}`;
-            if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${fc}!important;box-shadow:0 0 10px ${fc}!important;transition:none}`;
-          });
-        }
+      });
+
+      // ── DMX intensity — continuous, not a discrete on/off flash ──────────
+      // A DMX channel holds a value (like a dimmer sitting at some
+      // brightness) rather than firing discrete events the way MIDI/OSC/
+      // UDP/MQTT do, so this reads every node's current channel level
+      // (dmxValues, updated every poll straight from the backend's own
+      // persisted "last real value" slot — see WebBridge.h's PortActivity)
+      // and renders gradual intensity from it directly. Deliberately NOT
+      // gated by allSources/dmxTimers — a channel parked at a steady value
+      // stops generating change-events after ~80ms, which would otherwise
+      // make a steady-but-nonzero channel fade back to idle colour and
+      // misleadingly look "off". Base DMX colour (--dmx, #fbbf24 =
+      // 251,191,36) stays fixed; only alpha/glow size vary with the value —
+      // matching the "intensity, not colour" behaviour asked for, as
+      // distinct from Audio's own hue-shifting VU meter above.
+      const DMX_RGB = '251,191,36';
+      nodesRef.current.forEach((nd: any) => {
+        const id = nd.id;
+        const nodeType = nd.data?.nodeType;
+        const isBuiltInDmx = nodeType === 14 || nodeType === 15 || nodeType === 16 || nodeType === 17;
+        const nodePorts: any[] = nd.data?.ports ?? [];
+        const dmxPaxPorts = nodeType >= 100
+          ? nodePorts.filter(p => p.direction === 'output' && p.type !== 'audio' &&
+              (p.id as string).toLowerCase().includes('dmx') &&
+              !(p.id as string).toLowerCase().includes('artdmx'))
+          : [];
+        if (! isBuiltInDmx && dmxPaxPorts.length === 0) return;
+
+        const v     = Math.max(0, Math.min(1, dmxValues.current.get(id) ?? 0));
+        // Floor raised from 0.15 to 0.4 — at v=0 the old floor was nearly
+        // invisible against the dark canvas background; still clearly
+        // dimmer than a live channel, just no longer "gone".
+        const alpha = 0.4 + v * 0.6;
+        const bg    = `rgba(${DMX_RGB},${alpha})`;
+        const px    = Math.round(4 + v * 10);
+        const glow  = `0 0 ${px}px rgba(${DMX_RGB},${Math.min(1, alpha + 0.1)})`;
+
+        const targetSelectors: string[] = isBuiltInDmx
+          ? [`[data-handleid="${id}_DMX Out_out"]`]
+          : dmxPaxPorts.map(p => `[data-handleid="${p.id}"]`);
+        targetSelectors.forEach(sel => {
+          css += `${sel}{background:${bg}!important;box-shadow:${glow}!important;transition:background 80ms linear,box-shadow 80ms linear}`;
+        });
+
+        const nodeDmxEdges = edgeList.current.filter(e => {
+          if (e.source !== id) return false;
+          const h = (e.sourceHandle ?? '').toLowerCase();
+          return h.includes('dmx') && !h.includes('artdmx');
+        });
+        nodeDmxEdges.forEach(e => {
+          css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${bg}!important;filter:drop-shadow(0 0 ${Math.round(4 + v * 6)}px rgba(${DMX_RGB},${alpha}));transition:stroke 80ms linear}`;
+          if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${bg}!important;box-shadow:${glow}!important;transition:background 80ms linear,box-shadow 80ms linear}`;
+        });
       });
 
       style.textContent = css;

@@ -36,6 +36,7 @@ add_pax(EnvelopePax      EnvelopePax/EnvelopePax.cpp)
 add_pax(StereoSplitterPax StereoSplitterPax/StereoSplitterPax.cpp)
 add_pax(SpectrumyserPax  SpectrumyserPax/SpectrumyserPax.cpp)
 add_pax(MqttToValuePax   MqttToValuePax/MqttToValuePax.cpp)
+add_pax(AudioFreqToDmxPax AudioFreqToDmxPax/AudioFreqToDmxPax.cpp)
 
 # ── Install target (optional) ─────────────────────────────────────────────────
 # cmake --install build --prefix ~ will copy Pax to the right folder.
@@ -47,6 +48,6 @@ else()
     set(PAX_INSTALL_DIR "$ENV{HOME}/.patchy/pax")
 endif()
 
-install(TARGETS LevelPax TransposePax AmpPax EnvelopePax StereoSplitterPax SpectrumyserPax MqttToValuePax
+install(TARGETS LevelPax TransposePax AmpPax EnvelopePax StereoSplitterPax SpectrumyserPax MqttToValuePax AudioFreqToDmxPax
         LIBRARY DESTINATION "${PAX_INSTALL_DIR}"
         RUNTIME DESTINATION "${PAX_INSTALL_DIR}")

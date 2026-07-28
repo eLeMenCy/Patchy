@@ -266,6 +266,19 @@ void DynamicPaxProcessor::process (int numSamples)
     ctx.valueOutCount  = &valueOutCount;
     ctx.valueMaxCount  = kMaxValueEvents;
 
+    // DMX universe (API v4) — separate wide-payload path from Values above.
+    // Zero the output frame and clear the valid flag before each call, same
+    // reasoning as outputValues.fill() just above: a Pax that only writes
+    // one or two channels shouldn't need to zero the other 510 itself, and
+    // an unset flag must never read as "holds real data" left over from a
+    // previous block.
+    outputDmxFrame.fill (0);
+    outputDmxFrameValid = false;
+    ctx.dmxFrameIn        = inputDmxFrameValid ? inputDmxFrame.data() : nullptr;
+    ctx.dmxFrameInValid   = inputDmxFrameValid;
+    ctx.dmxFrameOut       = outputDmxFrame.data();
+    ctx.dmxFrameOutValid  = &outputDmxFrameValid;
+
     fnProcess (instance, &ctx);
     outputValueCount = valueOutCount;
 

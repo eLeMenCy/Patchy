@@ -392,6 +392,20 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
                     n->inputValues[static_cast<size_t>(n->inputValueCount++)] = routed;
                 }
 
+                // ── Propagate DMX universe frame, if the source wrote one ──
+                // Separate wide-payload path from the Value loop just above —
+                // PAX_Value.data[] (56 bytes) can't carry a full 512-channel
+                // universe (see PaxAPI.h v4 / NodeProcessor.h). No port-index
+                // gating yet: every DMX-capable node today has exactly one
+                // DMX port, so "did the source write a frame this block" is
+                // an unambiguous enough test — revisit if a node ever grows
+                // more than one.
+                if (src->outputDmxFrameValid)
+                {
+                    n->inputDmxFrame      = src->outputDmxFrame;
+                    n->inputDmxFrameValid = true;
+                }
+
                 if (auto* mon = dynamic_cast<MidiMonitorNode*> (n))
                 {
                     juce::String srcLabel = labelMap.count (src->id) ? labelMap.at (src->id) : src->id;

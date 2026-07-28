@@ -45,6 +45,19 @@
  *    miscompiled against the new layout)
  *  - PAX_API_VERSION bumped to 3
  * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * ── API v4 changes ──────────────────────────────────────────────────────────
+ *  - PAX_ProcessContext gained a separate DMX universe path (dmxFrameIn/
+ *    dmxFrameOut/dmxFrameInValid/dmxFrameOutValid) — PAX_Value.data[] is
+ *    only 56 bytes, nowhere near enough for a full 512-channel DMX universe,
+ *    which was silently truncating any Pax or built-in node trying to
+ *    address more than the first 56 channels through the general Value
+ *    mechanism. This is a parallel path, not a replacement — Value ports
+ *    (valuesIn/valuesOut) are untouched and still the right choice for
+ *    MQTT/OSC/UDP/single-value DMX; use the DMX frame fields specifically
+ *    when a Pax needs to read or write the full 512-channel universe.
+ *  - PAX_API_VERSION bumped to 4
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 
 #pragma once
@@ -57,7 +70,7 @@ extern "C" {
 // ─────────────────────────────────────────────────────────────────────────────
 //  API version — host rejects Pax built against a different major version
 // ─────────────────────────────────────────────────────────────────────────────
-#define PAX_API_VERSION 3
+#define PAX_API_VERSION 4
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Opaque instance handle
@@ -163,6 +176,19 @@ typedef struct {
     PAX_Value*       valuesOut;      // Write output value events here (may be NULL)
     int*             valueOutCount;  // Set to number of value events written
     int              valueMaxCount;  // Max value events you may write
+
+    // ── DMX universe (API v4) ────────────────────────────────────────────────
+    // A separate wide-payload path from Values above — PAX_Value.data[] is
+    // only 56 bytes, nowhere near enough for a full 512-channel universe.
+    // Single slot per direction (today's convention: one DMX universe per
+    // node — see the host's DmxDeviceNodes.h). Always 512 bytes when
+    // non-NULL. Host zero-fills dmxFrameOut and clears *dmxFrameOutValid
+    // before each block, so you only need to touch the channel(s) you
+    // actually write, not the whole 512.
+    const uint8_t* dmxFrameIn;        // Input universe, 512 bytes (may be NULL)
+    bool           dmxFrameInValid;   // true if dmxFrameIn holds real data this block
+    uint8_t*       dmxFrameOut;       // Write up to 512 channel bytes here (may be NULL)
+    bool*          dmxFrameOutValid;  // Set *dmxFrameOutValid = true if you wrote a frame
 
 } PAX_ProcessContext;
 

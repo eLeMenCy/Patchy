@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.901
+> Version 0.0.902
 
 ---
 
@@ -36,7 +36,9 @@
 - **Visual node graph** — drag, connect and rearrange processing nodes on a zoomable/pannable canvas
 - **Strict port typing** — connections are only valid between matching protocol types (MIDI, Audio, OSC, DMX, ArtNet, MQTT, UDP); a UDP node can never be wired directly into an MQTT node or any other mismatched protocol, by design — cross-protocol bridging is meant to go through dedicated converter Pax, not a raw connection
 - **Centred node drop** — nodes appear centred on the drop point, sized correctly for every node type
-- **Real-time signal flow** — ports and edges animate with live MIDI flash and audio VU colour (green → yellow → red)
+- **Real-time signal flow** — ports and edges animate with live MIDI flash and audio VU colour (green → yellow → red); DMX gets its own treatment, gradual amber intensity tracking the actual channel value rather than a discrete flash, matching its nature as a continuously-held signal rather than a discrete event
+- **512-channel DMX universe** — a dedicated wide-payload path (`PAX_ProcessContext`'s `dmxFrameIn`/`dmxFrameOut`, API v4) separate from the general `PAX_Value` mechanism, whose 56-byte inline buffer previously truncated any DMX-carrying node — built-in and Pax alike — to its first 56 of 512 channels
+- **Multi-source DMX merging** — several sources (Pax or built-in) feeding the same DMX Out combine correctly via HTP (Highest Takes Precedence), the same convention real DMX consoles/mergers use, rather than the last one silently overwriting the others
 - **Colour-coded connection preview** — the dashed line shown while dragging a new connection matches the source port's own protocol colour, not a fixed generic accent
 - **Per-port VU** — multi-output nodes (Splitter, Spectrumyser) colour each output dot independently
 - **Per-port typed Pax flash** — a Pax with multiple differently-typed Value ports (e.g. MQTT + DMX on the same node) flashes each output in its own correct protocol colour, not one blanket colour for the whole node
@@ -118,7 +120,8 @@ Patchy/
 │   ├── EnvelopePax/               Audio envelope → MIDI CC converter
 │   ├── StereoSplitterPax/         Stereo → Left + Right split (1 in / 2 out)
 │   ├── MqttToValuePax/            MQTT → generic Value adapter (first Phase 4 converter)
-│   └── SpectrumyserPax/           FFT spectrum analyser with band outputs
+│   ├── SpectrumyserPax/           FFT spectrum analyser with band outputs
+│   └── AudioToDmxPax/             Audio (RMS or isolated frequency band) → DMX channel, first Pax hosted inside a DAW
 │
 ├── UI/                              React / TypeScript frontend
 │   └── src/
@@ -528,7 +531,7 @@ typedef struct {
 } PAX_ParameterInfo;
 ```
 
-### PAX_Value  *(new in API v2)*
+### PAX_Value  *(new in API v2, gained `portIndex` in API v3)*
 
 ```c
 typedef struct {
@@ -538,10 +541,14 @@ typedef struct {
     uint16_t dataSize;   // Byte length of data[] when dataType != PAX_DATA_FLOAT
     float    value;      // Primary payload (default)
     uint8_t  data[56];   // Inline buffer for strings/blobs
+    uint8_t  portIndex;  // Which declared Value output port this belongs to
+                          // (API v3) — 0 is always a safe default for a Pax
+                          // with only one Value output; only matters once
+                          // PAX_getValueOutputCount() > 1
 } PAX_Value;
 ```
 
-### PAX_ProcessContext  *(new in API v2)*
+### PAX_ProcessContext  *(new in API v2, gained a DMX universe path in API v4)*
 
 ```c
 typedef struct {
@@ -554,11 +561,22 @@ typedef struct {
     PAX_MidiEvent*       midiOut;
     int*                 midiOutCount;
     int                  midiMaxCount;
-    const PAX_Value*     valuesIn;       // NULL until value ports implemented
+    const PAX_Value*     valuesIn;
     int                  valueInCount;
-    PAX_Value*           valuesOut;      // NULL until value ports implemented
+    PAX_Value*           valuesOut;
     int*                 valueOutCount;
     int                  valueMaxCount;
+
+    // DMX universe (API v4) — a separate wide-payload path from Values
+    // above; PAX_Value.data[] is only 56 bytes, nowhere near enough for a
+    // full 512-channel universe. Always 512 bytes when non-NULL. Host
+    // zero-fills dmxFrameOut and clears *dmxFrameOutValid before each
+    // block, so a Pax only needs to touch the channel(s) it actually
+    // writes, not all 512. See `AudioToDmxPax` for a worked example.
+    const uint8_t* dmxFrameIn;
+    bool           dmxFrameInValid;
+    uint8_t*       dmxFrameOut;
+    bool*          dmxFrameOutValid;
 } PAX_ProcessContext;
 ```
 
@@ -612,4 +630,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.901 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.902 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

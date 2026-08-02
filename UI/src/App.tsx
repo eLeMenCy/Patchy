@@ -40,10 +40,11 @@ import { Menu, ChevronsDownUp, ChevronsUpDown, Settings, ChevronLeft } from 'luc
 import Sidebar from './Sidebar';
 import SpectrumyserNode from './SpectrumyserNode';
 import EnvelopeNode     from './EnvelopeNode';
+import AudioToDmxNode from './AudioToDmxNode';
 import { _paxInfoMap } from './NodeUtils';
 
 // ── Node type registry ────────────────────────────────────────────────────────
-const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode };
+const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 // _paxInfoMap lives in NodeUtils.tsx (not declared here) — GenericNode.tsx
@@ -78,7 +79,8 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
             : isMqttMonitor    ? 'mqttMonitor'
             : isMqttConsole    ? 'mqttConsole'
             : raw.paxName === 'Spectrumyser' ? 'spectrumyser'
-            : raw.paxName === 'Envelope'     ? 'envelope' : 'custom',
+            : raw.paxName === 'Envelope'     ? 'envelope'
+            : raw.paxName === 'Audio to DMX' ? 'audioToDmx' : 'custom',
     position: { x: raw.x, y: raw.y },
     data: isMidiMonitor
       ? { label: raw.label, nodeType: 5,  ports: raw.ports, settingsJson: raw.settingsJson } as MidiMonitorNodeData

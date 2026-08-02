@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
 // Patchy — Spectrumyser node UI
 
 import { useEffect, useRef, useState, useCallback, useContext } from 'react';

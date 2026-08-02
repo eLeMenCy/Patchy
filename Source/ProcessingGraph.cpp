@@ -317,6 +317,16 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
     // ── 3. Process each node in topological order ─────────────────────────
     for (auto* n : sortedNodes)
     {
+        // Every source id actually wired into n this block, across all
+        // port types — used after the edge loop below to prune stale
+        // entries out of n->dmxSourceFrames (a source that's since been
+        // disconnected shouldn't keep contributing its last-known frame
+        // forever). Harmless that this includes non-DMX sources too —
+        // dmxSourceFrames only ever contains entries a DMX source itself
+        // put there, so a non-DMX source's id here is simply never looked
+        // up against it.
+        std::unordered_set<juce::String> currentDmxSources;
+
         // Route edges: copy upstream outputAudio → this node's inputAudio
         for (auto& e : edges)
         {
@@ -325,6 +335,7 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
             auto srcIt = nodeMap.find (e.srcNodeId);
             if (srcIt == nodeMap.end()) continue;
             auto* src = srcIt->second;
+            currentDmxSources.insert (src->id);
 
             if (isAudioPort (e.srcPortId))
             {
@@ -392,7 +403,7 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
                     n->inputValues[static_cast<size_t>(n->inputValueCount++)] = routed;
                 }
 
-                // ── Propagate DMX universe frame, if the source wrote one ──
+                // ── Cache the source's DMX frame, if it wrote one ──────────
                 // Separate wide-payload path from the Value loop just above —
                 // PAX_Value.data[] (56 bytes) can't carry a full 512-channel
                 // universe (see PaxAPI.h v4 / NodeProcessor.h). No port-index
@@ -400,11 +411,20 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
                 // DMX port, so "did the source write a frame this block" is
                 // an unambiguous enough test — revisit if a node ever grows
                 // more than one.
+                //
+                // Cached per-source (dmxSourceFrames) rather than merged
+                // directly into n->inputDmxFrame here — the actual HTP merge
+                // across every known source happens once, after this whole
+                // edge loop finishes, from the cache (see below). Merging
+                // inline per-edge from only "sources valid this exact block"
+                // was the original approach and it had a real bug: a source
+                // that only emits on change (DmxConsoleNode) would vanish
+                // from the merge the instant a continuously-emitting source
+                // (AudioToDmxPax, audio-rate) re-initialised it on the very
+                // next block — confirmed via DAW testing as a one-block
+                // flash immediately overridden back to 0 on every fader move.
                 if (src->outputDmxFrameValid)
-                {
-                    n->inputDmxFrame      = src->outputDmxFrame;
-                    n->inputDmxFrameValid = true;
-                }
+                    n->dmxSourceFrames[src->id] = src->outputDmxFrame;
 
                 if (auto* mon = dynamic_cast<MidiMonitorNode*> (n))
                 {
@@ -437,6 +457,45 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
                         udpMon->pushFallbackValue (src->outputValues[0], srcLabel);
                 }
             }
+        }
+
+        // ── DMX: prune stale sources, then HTP-merge every remaining one ──
+        // Runs once per node, after all of n's incoming edges have been
+        // processed above (not per-edge) — the merge needs every currently-
+        // cached source's latest frame, not just whichever one happened to
+        // be processed last.
+        //
+        // Prune first: erase any dmxSourceFrames entry whose source isn't
+        // in currentDmxSources (built from this block's actual edges,
+        // above) — otherwise a disconnected source's last-known frame
+        // would keep contributing to the merge forever.
+        if (! n->dmxSourceFrames.empty())
+        {
+            for (auto it = n->dmxSourceFrames.begin(); it != n->dmxSourceFrames.end(); )
+            {
+                if (currentDmxSources.count (it->first) == 0)
+                    it = n->dmxSourceFrames.erase (it);
+                else
+                    ++it;
+            }
+        }
+
+        // Merge HTP-style (Highest Takes Precedence — the standard
+        // convention real DMX consoles/mergers use for combining multiple
+        // sources on one universe): byte-wise max across every source
+        // currently feeding n. Since a single-channel Pax zeroes every byte
+        // it doesn't own each block (PaxRegistry.cpp's
+        // outputDmxFrame.fill(0) before each PAX_process call), a channel
+        // only one source touches passes straight through untouched, and
+        // only a channel genuinely fought over by two sources at once
+        // resolves via HTP rather than an arbitrary last-writer-wins.
+        if (! n->dmxSourceFrames.empty())
+        {
+            n->inputDmxFrame.fill (0);
+            for (auto& kv : n->dmxSourceFrames)
+                for (size_t b = 0; b < n->inputDmxFrame.size(); ++b)
+                    n->inputDmxFrame[b] = std::max (n->inputDmxFrame[b], kv.second[b]);
+            n->inputDmxFrameValid = true;
         }
 
         // DAW AudioIn: outputAudio already filled in step 2 — skip process()

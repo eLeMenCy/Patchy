@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_core/juce_core.h>
+#include <unordered_map>
 #include "../Pax/PaxAPI.h"
 
 /**
@@ -107,6 +108,23 @@ public:
     std::array<uint8_t, 512> outputDmxFrame {};
     bool inputDmxFrameValid  = false;
     bool outputDmxFrameValid = false;
+
+    // Per-source DMX frame cache, keyed by the upstream node's own id.
+    // Needed for correct HTP merging across multiple sources feeding one
+    // destination (see ProcessingGraph.cpp's routing) — some sources emit
+    // a fresh frame every single block (e.g. AudioToDmxPax, audio-rate),
+    // others only on an actual change (e.g. DmxConsoleNode, discrete
+    // fader moves). Without this cache, merging only "whatever's valid
+    // this exact block" meant a discrete source's contribution vanished
+    // the instant a continuously-emitting source re-initialised the merge
+    // on the very next block — a real bug found via DAW testing: moving a
+    // console fader flashed the new value for one block, then it was
+    // immediately overridden back to 0. Deliberately NOT cleared by
+    // resetBuffers() — the whole point is to persist between a source's
+    // own emission events; ProcessingGraph.cpp prunes entries whose
+    // source is no longer actually connected, each block, so a
+    // disconnected source's last value doesn't linger forever.
+    std::unordered_map<juce::String, std::array<uint8_t, 512>> dmxSourceFrames;
 
     const juce::String id;
     const Type         nodeType;

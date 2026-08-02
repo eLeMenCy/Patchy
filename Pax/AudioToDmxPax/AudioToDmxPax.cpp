@@ -1,5 +1,5 @@
 /**
- * AudioFreqToDmxPax — Audio → DMX converter (Phase 4)
+ * AudioToDmxPax — Audio → DMX converter (Phase 4)
  *
  * Listens to audio, extracts a level from it (either the whole signal's
  * RMS, or a specific isolated frequency band's RMS), scales it by a
@@ -22,7 +22,20 @@
  *   - Attack/Release (Envelope's smoothing stage) deliberately NOT carried
  *     over — removed 2026-07-27 after physical testing showed it made
  *     dialing in a usable setting harder, not easier. Sensitivity's raw
- *     RMS × scalar now drives the DMX value directly, unsmoothed.
+ *     RMS × scalar drove the DMX value directly, unsmoothed, from then
+ *     until Damping was added below.
+ *   - Damping added 2026-08-02, per explicit request — deliberately NOT a
+ *     return to Attack/Release's two-knob asymmetric design. One control,
+ *     one-pole, symmetric (same time constant rising and falling), 0-500ms,
+ *     applied to the final value (post-Sensitivity) rather than the raw
+ *     RMS, identically in both Mode settings — same "Sensitivity already
+ *     treats both modes the same way" reasoning applies here too. Default
+ *     0 (none) preserves prior behaviour exactly for anyone who doesn't
+ *     touch it. Coefficient is block-rate correct (scaled by
+ *     ctx->numSamples, not sample rate alone) — a coefficient meant for
+ *     per-sample application but only ever applied once per block, which
+ *     is what the old Attack/Release did, silently makes the real smoothing
+ *     time depend on host block size; this doesn't.
  *   - Sensitivity switched to dB 2026-07-27, per explicit request — the
  *     linear-multiplier version made it hard to land on a usable setting
  *     without pushing the raw scalar very high, which read as "needing
@@ -58,23 +71,27 @@
  *     FLOAT, value=this node's level, no blob) is still emitted alongside
  *     purely so the existing port/edge-matching machinery keeps working —
  *     DmxOutDeviceNode/DmxMonitorNode read the frame, not this.
- *   - Real caveat still worth knowing before wiring this into a real rig:
- *     DmxOutDeviceNode rebuilds its entire 512-byte frame from whichever
- *     DMX frame it last received (see DmxDeviceNodes.h) — there's no
- *     merging. If more than one source feeds the same DMX Out — this Pax
- *     plus, say, a DMX Console — each new frame resets every channel the
- *     other one was driving. Fine for a single-source rig; not yet a real
- *     multi-source mixer. A property of the DMX frame path generally, not
- *     something specific to this Pax or fixed here.
+ *   - Multi-source merging fixed 2026-08-02, at the graph level not here:
+ *     ProcessingGraph.cpp used to let the last edge processed each block
+ *     simply overwrite a destination's whole frame — confirmed via real
+ *     DAW testing that this broke exactly the intended use case (several
+ *     AudioToDmxPax instances, each on a different channel, feeding one
+ *     DmxOutDeviceNode: each one wiped out whatever the previous one had
+ *     set). Now merges HTP-style (Highest Takes Precedence, the standard
+ *     convention real DMX consoles/mergers use) — byte-wise max across
+ *     every source feeding the same destination in a block, so channels
+ *     each Pax addresses independently combine correctly instead of
+ *     fighting. See ProcessingGraph.cpp's own comment for the full
+ *     reasoning; nothing about this Pax itself changed for the fix.
  *
  * Colour: audio only on the input side, DMX only on the output side —
  * neither mirrors, so the Hybrid/Converter auto-detection rule correctly
  * colours this node Converter/fuchsia with no colourCategory override needed.
  *
  * Build:
- *   macOS:  clang++ -std=c++20 -shared -fPIC AudioFreqToDmxPax.cpp -o AudioFreqToDmxPax.dylib
- *   Linux:  g++     -std=c++20 -shared -fPIC AudioFreqToDmxPax.cpp -o AudioFreqToDmxPax.so
- *   Win:    cl /std=c++20 /LD AudioFreqToDmxPax.cpp /Fe:AudioFreqToDmxPax.dll
+ *   macOS:  clang++ -std=c++20 -shared -fPIC AudioToDmxPax.cpp -o AudioToDmxPax.dylib
+ *   Linux:  g++     -std=c++20 -shared -fPIC AudioToDmxPax.cpp -o AudioToDmxPax.so
+ *   Win:    cl /std=c++20 /LD AudioToDmxPax.cpp /Fe:AudioToDmxPax.dll
  */
 
 #include "../PaxAPI.h"
@@ -103,7 +120,7 @@ struct BandpassFilter
 };
 
 // ── Pax state ─────────────────────────────────────────────────────────────────
-struct AudioFreqToDmxPax
+struct AudioToDmxPax
 {
     // Parameters
     float mode         =    1.f;   // 0 = RMS (whole signal), 1 = Freq Range (bandpass first)
@@ -111,10 +128,12 @@ struct AudioFreqToDmxPax
     float bandLow      =  200.f;   // Hz
     float bandHigh     = 2000.f;   // Hz
     float dmxChannel   =    1.f;   // 1-based, 1-512 — see file header re: the frame path
+    float dampingMs    =    0.f;   // 0 = none (instant, matches pre-existing behaviour)
 
     // DSP state
     double         sampleRate = 44100.0;
     BandpassFilter filterL, filterR;
+    float          dampedValue = 0.f;   // one-pole smoother state, persists across blocks
 
     float bandCentre() const { return std::sqrt (bandLow * bandHigh); }
     float bandQ()      const
@@ -135,25 +154,26 @@ const PAX_Descriptor* PAX_getDescriptor()
     // nodeType 2 (Audio): 1 audio in, 1 audio out (unused-but-declared
     // workaround — see file header). No MIDI. DMX output declared
     // separately below via PAX_getValueOutputCount/Type.
-    static PAX_Descriptor d { "Audio Freq to DMX", "Patchy Examples", "1.0.0", 2, PAX_API_VERSION, 1, 1, 0, 0 };
+    static PAX_Descriptor d { "Audio to DMX", "Patchy Examples", "1.0.0", 2, PAX_API_VERSION, 1, 1, 0, 0 };
     return &d;
 }
 
-PAX_Instance* PAX_create() { return new AudioFreqToDmxPax(); }
+PAX_Instance* PAX_create() { return new AudioToDmxPax(); }
 
-void PAX_destroy (PAX_Instance* i) { delete static_cast<AudioFreqToDmxPax*> (i); }
+void PAX_destroy (PAX_Instance* i) { delete static_cast<AudioToDmxPax*> (i); }
 
 void PAX_prepare (PAX_Instance* i, double sampleRate, int /*blockSize*/)
 {
-    auto* a = static_cast<AudioFreqToDmxPax*> (i);
+    auto* a = static_cast<AudioToDmxPax*> (i);
     a->sampleRate = sampleRate;
     a->filterL.reset();
     a->filterR.reset();
+    a->dampedValue = 0.f;
 }
 
 void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
 {
-    auto* a = static_cast<AudioFreqToDmxPax*> (i);
+    auto* a = static_cast<AudioToDmxPax*> (i);
 
     // Pass audio through unchanged — see file header re: the "audio in,
     // zero audio out" limitation workaround.
@@ -192,7 +212,31 @@ void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
 
     const float rms    = count > 0 ? std::sqrt (sumSq / count) : 0.f;
     const float dmxVal = std::clamp (rms * a->sensitivityGain(), 0.f, 1.f);
-    const uint8_t dmxByte = (uint8_t) std::clamp ((int) std::lround (dmxVal * 255.f), 0, 255);
+
+    // Damping — one pole, symmetric (same time constant rising and
+    // falling), applied to the final value rather than the raw RMS. Not
+    // the old Attack/Release (removed 2026-07-27, "made dialing in a
+    // usable setting harder, not easier") — that was two separate knobs
+    // with different rise/fall times; this is deliberately one simple
+    // control from none to a modest, sensible maximum. Identical
+    // treatment in both Mode settings — damping smooths whatever value
+    // ends up driving DMX, same reasoning as Sensitivity itself already
+    // being mode-agnostic (see file header). Coefficient is block-rate
+    // correct (uses ctx->numSamples, not just sample rate) — a coefficient
+    // derived from sample rate alone but applied once per block, as the
+    // removed Attack/Release did, would make the real smoothing time
+    // silently depend on host block size; this doesn't.
+    if (a->dampingMs > 0.1f)
+    {
+        const float coeff = 1.f - std::exp (-(float) ctx->numSamples / (a->dampingMs * 0.001f * (float) a->sampleRate));
+        a->dampedValue += coeff * (dmxVal - a->dampedValue);
+    }
+    else
+    {
+        a->dampedValue = dmxVal; // none — instant, matches pre-Damping behaviour exactly
+    }
+
+    const uint8_t dmxByte = (uint8_t) std::clamp ((int) std::lround (a->dampedValue * 255.f), 0, 255);
 
     // Real payload: the dedicated DMX frame path (API v4). Host already
     // zeroed ctx->dmxFrameOut and cleared *ctx->dmxFrameOutValid before this
@@ -213,7 +257,7 @@ void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
         out.type      = PAX_TYPE_DMX;
         out.dataType  = PAX_DATA_FLOAT;
         out.key       = 0;
-        out.value     = dmxVal;
+        out.value     = a->dampedValue;
         out.portIndex = 0;
         ctx->valuesOut[0] = out;
         if (ctx->valueOutCount) *ctx->valueOutCount = 1;
@@ -224,7 +268,7 @@ void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
     }
 }
 
-int PAX_getParameterCount (PAX_Instance*) { return 5; }
+int PAX_getParameterCount (PAX_Instance*) { return 6; }
 
 void PAX_getParameterInfo (PAX_Instance*, int index, PAX_ParameterInfo* info)
 {
@@ -235,13 +279,14 @@ void PAX_getParameterInfo (PAX_Instance*, int index, PAX_ParameterInfo* info)
         case 2: info->name="Band Low (Hz)";              info->minValue=20.f; info->maxValue=20000.f; info->defaultValue=200.f;  info->step=1.f; break;
         case 3: info->name="Band High (Hz)";             info->minValue=20.f; info->maxValue=20000.f; info->defaultValue=2000.f; info->step=1.f; break;
         case 4: info->name="DMX Channel";                info->minValue=1.f;  info->maxValue=512.f;   info->defaultValue=1.f;    info->step=1.f; break;
+        case 5: info->name="Damping (ms)";               info->minValue=0.f;  info->maxValue=500.f;   info->defaultValue=0.f;    info->step=0.f; break;
         default: break;
     }
 }
 
 float PAX_getParameter (PAX_Instance* i, int index)
 {
-    auto* a = static_cast<AudioFreqToDmxPax*> (i);
+    auto* a = static_cast<AudioToDmxPax*> (i);
     switch (index)
     {
         case 0: return a->mode;
@@ -249,13 +294,14 @@ float PAX_getParameter (PAX_Instance* i, int index)
         case 2: return a->bandLow;
         case 3: return a->bandHigh;
         case 4: return a->dmxChannel;
+        case 5: return a->dampingMs;
         default: return 0.f;
     }
 }
 
 void PAX_setParameter (PAX_Instance* i, int index, float value)
 {
-    auto* a = static_cast<AudioFreqToDmxPax*> (i);
+    auto* a = static_cast<AudioToDmxPax*> (i);
     switch (index)
     {
         case 0: a->mode        = std::clamp (value, 0.f, 1.f);      break;
@@ -263,6 +309,7 @@ void PAX_setParameter (PAX_Instance* i, int index, float value)
         case 2: a->bandLow     = std::clamp (value, 20.f, 20000.f); a->filterL.reset(); a->filterR.reset(); break;
         case 3: a->bandHigh    = std::clamp (value, 20.f, 20000.f); a->filterL.reset(); a->filterR.reset(); break;
         case 4: a->dmxChannel  = std::clamp (value, 1.f, 512.f);    break;
+        case 5: a->dampingMs   = std::clamp (value, 0.f, 500.f);    break;
         default: break;
     }
 }

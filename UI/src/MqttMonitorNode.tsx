@@ -40,6 +40,12 @@ interface DisplayRow extends RawMqttMonitorEvent {
   timeStr: string;
 }
 
+// MqttMonitorNode.tsx — the simplest of the three protocol event-log
+// monitors (UDP/OSC/MQTT): just topic + payload, no per-protocol filter
+// like OSC's addressFilter. Same scrolling-log shape, same module-level
+// rowKey/prevTs pattern (its own separate pair) as the other two — see
+// UdpMonitorNode.tsx for the full reasoning and the cross-instance
+// "delta" time caveat this creates.
 let rowKey = 0;
 let prevTs = 0;
 
@@ -135,6 +141,7 @@ function SettingsPanel({ s, onChange, onDiscreteChange, onClose, onReset, onComm
 // ── Main component ────────────────────────────────────────────────────────────
 export const MqttMonitorNode = memo(function MqttMonitorNode({ id, data, selected }: NodeProps) {
   const d = data as MqttMonitorNodeData;
+  // settingsJson wins on any overlapping key — it's spread second below.
   const [settings, setSettings] = useState<MqttMonitorSettings>({
     ...DEFAULT_SETTINGS, ...(d.settings ?? {}),
     ...(d.settingsJson ? JSON.parse(d.settingsJson) : {})

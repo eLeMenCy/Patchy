@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
 // Patchy — Custom Standalone Application
 
 #if JUCE_STANDALONE_APPLICATION

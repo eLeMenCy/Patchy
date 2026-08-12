@@ -21,9 +21,15 @@ class ProcessingGraph;
 //    Length      2 bytes   big-endian, number of DMX channels (2–512, even)
 //    Data        N bytes   DMX channel values (1 byte each, 0–255)
 //
-//  We carry the full universe blob in PAX_Value::data (up to 56 bytes = first
-//  56 DMX channels). PAX_Value::key = universe number. PAX_Value::value =
-//  channel[0] normalised to 0.0–1.0 (convenient for single-channel use).
+//  The full universe now travels via the dedicated ArtNet frame path
+//  (NodeProcessor.h's inputArtNetFrame/outputArtNetFrame, plus a paired
+//  universe number) rather than PAX_Value::data — that's only 56 bytes,
+//  which used to silently truncate every universe to its first 56 of 512
+//  channels, the exact same bug DMX had before its own equivalent fix
+//  (see Architecture.md). A lightweight PAX_Value mirror still travels
+//  alongside (type=DMX, dataType=FLOAT, key=universe, value=channel[0]
+//  normalised, no blob) purely so the existing port/edge-matching UI
+//  machinery keeps working.
 // ─────────────────────────────────────────────────────────────────────────────
 namespace ArtNetCodec
 {
@@ -34,8 +40,15 @@ namespace ArtNetCodec
 
     static const char* kArtNetId = "Art-Net";   // 7 chars + null = 8 bytes
 
-    // ── Validate and parse an ArtDmx packet into a PAX_Value ─────────────────
-    static bool parse (const uint8_t* buf, int len, PAX_Value& out)
+    // ── Validate and parse an ArtDmx packet ──────────────────────────────────
+    // Writes a full 512-channel frame into fullOut (zero-padded past
+    // whatever the packet actually carried) — the real payload now, not
+    // the old approach of cramming it into PAX_Value.data[] (56 bytes),
+    // which silently truncated at the first 56 of 512 channels. `out` is
+    // now a lightweight scalar mirror only (no blob), same convention
+    // DMX's own migrated nodes already use, purely so the existing port/
+    // edge-matching UI machinery keeps working.
+    static bool parse (const uint8_t* buf, int len, PAX_Value& out, std::array<uint8_t, 512>& fullOut)
     {
         // Minimum: 18-byte header + 2 DMX bytes
         if (len < kHdrSize + 2) return false;
@@ -58,30 +71,23 @@ namespace ArtNetCodec
 
         out = PAX_Value{};
         out.type     = PAX_TYPE_DMX;
-        out.dataType = PAX_DATA_BLOB;
+        out.dataType = PAX_DATA_FLOAT;
         out.key      = universe;
         out.value    = dmx[0] / 255.f;   // ch1 normalised, convenient shortcut
 
-        // Copy as many channels as fit in data[]
-        uint16_t copyLen = static_cast<uint16_t> (
-            std::min ((int) sizeof (out.data), (int) dmxLen));
-        std::memcpy (out.data, dmx, copyLen);
-        out.dataSize = copyLen;
+        fullOut.fill (0);
+        const int copyLen = std::min ((int) fullOut.size(), (int) dmxLen);
+        std::memcpy (fullOut.data(), dmx, (size_t) copyLen);
 
         return true;
     }
 
-    // ── Serialise a PAX_Value blob into an ArtDmx packet ─────────────────────
+    // ── Serialise a full 512-channel universe into an ArtDmx packet ─────────
     /** Returns byte count, or 0 on failure. buf must be >= kHdrSize + 512. */
-    static int serialise (uint16_t universe, const PAX_Value& v,
+    static int serialise (uint16_t universe, const uint8_t* dmxData /* 512 bytes */,
                           uint8_t* buf, int bufCap)
     {
-        // DMX data comes from v.data[]; pad to even length, minimum 2
-        unsigned dmxLen = v.dataSize > 0 ? (unsigned) v.dataSize : 1u;
-        if (dmxLen & 1u) ++dmxLen;   // must be even
-        dmxLen = std::min (dmxLen, 512u);
-
-        if ((unsigned) bufCap < (unsigned) kHdrSize + dmxLen) return 0;
+        if ((unsigned) bufCap < (unsigned) kHdrSize + 512u) return 0;
 
         // ID "Art-Net\0"
         std::memcpy (buf, kArtNetId, 8);
@@ -102,18 +108,14 @@ namespace ArtNetCodec
         buf[14] = (uint8_t) (universe & 0xFFu);
         buf[15] = (uint8_t) (universe >> 8);
 
-        // Length big-endian
-        buf[16] = (uint8_t) (dmxLen >> 8);
-        buf[17] = (uint8_t) (dmxLen & 0xFFu);
+        // Length big-endian — always the full 512, same convention DMX's
+        // own EnttecProCodec::buildOutputPacket already uses
+        buf[16] = (uint8_t) (512u >> 8);
+        buf[17] = (uint8_t) (512u & 0xFFu);
 
-        // DMX data — copy what we have, zero-pad the rest
-        unsigned srcLen = std::min ((unsigned) v.dataSize, dmxLen);
-        if (srcLen > 0)
-            std::memcpy (buf + kHdrSize, v.data, (size_t) srcLen);
-        if (srcLen < dmxLen)
-            std::memset (buf + kHdrSize + srcLen, 0, (size_t) (dmxLen - srcLen));
+        std::memcpy (buf + kHdrSize, dmxData, 512);
 
-        return (int) (kHdrSize + dmxLen);
+        return (int) (kHdrSize + 512);
     }
 
 } // namespace ArtNetCodec
@@ -124,12 +126,14 @@ namespace ArtNetCodec
  * ArtNetInDeviceNode  (nodeType 12)
  *
  * Listens on UDP port 6454 (Art-Net standard port). Parses incoming ArtDmx
- * packets and emits one PAX_Value per packet:
- *   - type    = PAX_TYPE_DMX
- *   - key     = universe number
- *   - value   = channel[0] / 255.0 (0.0–1.0)
- *   - data[]  = raw DMX channel bytes (up to 56 channels)
- *   - dataSize= number of channels copied
+ * packets and emits the full 512-channel universe every block via the
+ * dedicated ArtNet frame path (NodeProcessor.h — outputArtNetFrame/
+ * outputArtNetFrameValid/outputArtNetUniverse), plus a lightweight
+ * PAX_Value mirror alongside it (type=DMX, dataType=FLOAT, key=universe,
+ * value=channel[0]/255, no blob) for anything that only wants a plain
+ * scalar. The frame is the real payload now — the old approach of
+ * cramming the universe into PAX_Value.data[] silently truncated at 56 of
+ * 512 channels, the exact same bug DMX had before its own fix.
  */
 class ArtNetInDeviceNode : public NodeProcessor,
                            private juce::Thread
@@ -180,6 +184,7 @@ public:
     {
         ParsedPacket pkt;
         int count = 0;
+        bool gotNew = false;
         while (fifo.pop (pkt) && count < kMaxValueEvents)
         {
             // Filter by universe if set (universe == -1 means accept all)
@@ -188,8 +193,29 @@ public:
 
             outputValues[static_cast<size_t>(count)] = pkt.value;
             ++count;
+
+            // Last-known-frame state for the block-rate emission below —
+            // in "accept all universes" mode (-1) this just tracks
+            // whichever universe's packet arrived most recently, same
+            // "shows the latest" convention ArtNetMonitorBuffer already
+            // uses; it was never a genuine simultaneous multi-universe
+            // view even before this fix.
+            lastReceived = pkt.fullData;
+            lastUniverse = (int) pkt.value.key;
+            gotNew = true;
         }
         outputValueCount = count;
+
+        // Always emit the last known frame at audio-block rate — same
+        // convention DmxInDeviceNode already uses, gives downstream
+        // Monitor/Out nodes a steady supply instead of bursty UDP packets.
+        if (hasReceived || gotNew)
+        {
+            hasReceived = true;
+            outputArtNetFrame      = lastReceived;
+            outputArtNetFrameValid = true;
+            outputArtNetUniverse   = lastUniverse;
+        }
     }
 
     int universe = 0;
@@ -219,24 +245,24 @@ private:
             bytesSinceLastPoll.fetch_add (bytesRead, std::memory_order_relaxed);
 
             PAX_Value v {};
-            if (ArtNetCodec::parse (buf.data(), bytesRead, v))
+            std::array<uint8_t, 512> fullFrame {};
+            if (ArtNetCodec::parse (buf.data(), bytesRead, v, fullFrame))
             {
                 // Only flash on actual DMX value changes, not on every refresh packet
-                const uint8_t* dmx = buf.data() + ArtNetCodec::kHdrSize;
-                int dmxLen = std::min ((int) v.dataSize, 512);
-                if (std::memcmp (dmx, lastDmx.data(), (size_t) dmxLen) != 0)
+                if (std::memcmp (fullFrame.data(), lastDmx.data(), 512) != 0)
                 {
-                    std::memcpy (lastDmx.data(), dmx, (size_t) dmxLen);
+                    lastDmx = fullFrame;
                     recordMidiActivity (1);
                 }
                 ParsedPacket pkt;
-                pkt.value = v;
+                pkt.value    = v;
+                pkt.fullData = fullFrame;
                 fifo.push (pkt);
             }
         }
     }
 
-    struct ParsedPacket { PAX_Value value {}; };
+    struct ParsedPacket { PAX_Value value {}; std::array<uint8_t, 512> fullData {}; };
 
     static constexpr int kFifoSize = 64;
     struct PacketFifo
@@ -263,6 +289,12 @@ private:
 
     std::unique_ptr<juce::DatagramSocket> socket;
 
+    // Last-known-frame state — see process()'s comment for why this
+    // persists between UDP packets rather than only existing per-block.
+    std::array<uint8_t, 512> lastReceived {};
+    int                      lastUniverse = 0;
+    bool                     hasReceived  = false;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ArtNetInDeviceNode)
 };
 
@@ -271,11 +303,24 @@ private:
 /**
  * ArtNetOutDeviceNode  (nodeType 13)
  *
- * Receives PAX_Value blobs from the graph and sends them as ArtDmx packets
- * to a configured target host on port 6454.
+ * Receives full 512-channel universes via the dedicated ArtNet frame path
+ * (NodeProcessor.h — inputArtNetFrame/inputArtNetFrameValid) and sends
+ * them as ArtDmx packets to a configured target host on port 6454. Only
+ * sends when data changes (memcmp vs last sent frame) — same convention
+ * DmxOutDeviceNode already uses, added here because the frame path
+ * persists and re-pushes every block once anything's connected (see the
+ * multi-source merge cache in ProcessingGraph.cpp), which would otherwise
+ * mean sending a UDP packet every single block regardless of whether
+ * anything actually changed.
  *
- * PAX_Value::data[] = raw DMX channel bytes (up to 56 channels)
- * PAX_Value::key    = universe override (0 = use configured universe)
+ * Always transmits on this node's own configured universe (the "Universe"
+ * field in its settings panel) — matches DmxOutDeviceNode's own precedent
+ * of universe/hardware-port being a fixed per-instance property, and
+ * matches what a user configuring a specific target universe would
+ * reasonably expect, rather than having it silently overridden by
+ * whatever universe number an upstream source happens to be tagged with.
+ * No longer reads PAX_Value at all for the channel payload — the old
+ * blob approach silently truncated at 56 of 512 channels.
  */
 class ArtNetOutDeviceNode : public NodeProcessor,
                             private juce::Thread
@@ -319,11 +364,11 @@ public:
 
     void process (int /*numSamples*/) override
     {
-        for (int i = 0; i < inputValueCount; ++i)
-            sendQueue.push (inputValues[static_cast<size_t> (i)]);
-
-        if (inputValueCount > 0)
+        if (inputArtNetFrameValid)
+        {
+            sendQueue.push ({ (uint16_t) universe, inputArtNetFrame });
             sendQueue.signalDataAvailable();
+        }
     }
 
     juce::String targetHost;
@@ -334,53 +379,60 @@ private:
     {
         // 18 hdr + 512 DMX
         static constexpr int kBufCap = ArtNetCodec::kHdrSize + 512;
-        std::array<uint8_t, kBufCap> buf;
+        std::array<uint8_t, kBufCap>  buf;
+        Frame                          lastSent {};
+        bool                           hasSent = false;
 
         while (! threadShouldExit())
         {
-            PAX_Value v {};
-            if (! sendQueue.pop (v))
+            Frame f;
+            if (! sendQueue.pop (f))
             {
                 sendQueue.waitForData (100);
                 continue;
             }
             if (socket == nullptr) continue;
 
-            // Allow upstream to override universe via key (if non-zero)
-            uint16_t uni = (v.key != 0) ? (uint16_t) v.key
-                                        : (uint16_t) universe;
+            // Change detection — only send when values or universe differ
+            if (hasSent && f.universe == lastSent.universe
+                && std::memcmp (f.data.data(), lastSent.data.data(), 512) == 0)
+                continue;
+            lastSent = f;
+            hasSent  = true;
 
-            int msgLen = ArtNetCodec::serialise (uni, v, buf.data(), kBufCap);
+            int msgLen = ArtNetCodec::serialise (f.universe, f.data.data(), buf.data(), kBufCap);
             if (msgLen > 0)
                 socket->write (targetHost, ArtNetCodec::kPort, buf.data(), msgLen);
         }
     }
 
+    struct Frame { uint16_t universe = 0; std::array<uint8_t, 512> data {}; };
+
     static constexpr int kFifoSize = 64;
     struct SendFifo
     {
-        void push (const PAX_Value& v)
+        void push (const Frame& f)
         {
             int s1, n1, s2, n2;
             fifo.prepareToWrite (1, s1, n1, s2, n2);
-            if (n1 > 0) values[static_cast<size_t> (s1)] = v;
+            if (n1 > 0) frames[static_cast<size_t> (s1)] = f;
             fifo.finishedWrite (n1 + n2);
         }
-        bool pop (PAX_Value& v)
+        bool pop (Frame& f)
         {
             int s1, n1, s2, n2;
             fifo.prepareToRead (1, s1, n1, s2, n2);
             if (n1 == 0) return false;
-            v = values[static_cast<size_t> (s1)];
+            f = frames[static_cast<size_t> (s1)];
             fifo.finishedRead (n1 + n2);
             return true;
         }
         void signalDataAvailable() { event.signal(); }
         void waitForData (int timeoutMs) { event.wait (timeoutMs); }
 
-        juce::AbstractFifo               fifo { kFifoSize };
-        std::array<PAX_Value, kFifoSize> values;
-        juce::WaitableEvent              event { true };
+        juce::AbstractFifo           fifo { kFifoSize };
+        std::array<Frame, kFifoSize> frames;
+        juce::WaitableEvent          event { true };
     } sendQueue;
 
     std::unique_ptr<juce::DatagramSocket> socket;

@@ -212,15 +212,15 @@ std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
     }
     else if (t >= 100)
     {
-        // Dynamic addon node — ports based on NGA nodeType (t - 100)
+        // Dynamic Pax node — ports based on Pax nodeType (t - 100)
         // with optional override counts from the descriptor.
-        int ngaType = t - 100;
+        int paxType = t - 100;
 
         // Determine effective port counts (descriptor overrides nodeType defaults)
-        int effMidiIn   = portSpec.midiIn   > 0 ? portSpec.midiIn   : ((ngaType == 1 || ngaType == 3) ? 1 : 0);
-        int effMidiOut  = portSpec.midiOut  > 0 ? portSpec.midiOut  : ((ngaType == 1 || ngaType == 3) ? 1 : 0);
-        int effAudioIn  = portSpec.audioIn  > 0 ? portSpec.audioIn  : ((ngaType == 2 || ngaType == 3) ? 1 : 0);
-        int effAudioOut = portSpec.audioOut > 0 ? portSpec.audioOut : ((ngaType == 2 || ngaType == 3) ? 1 : 0);
+        int effMidiIn   = portSpec.midiIn   > 0 ? portSpec.midiIn   : ((paxType == 1 || paxType == 3) ? 1 : 0);
+        int effMidiOut  = portSpec.midiOut  > 0 ? portSpec.midiOut  : ((paxType == 1 || paxType == 3) ? 1 : 0);
+        int effAudioIn  = portSpec.audioIn  > 0 ? portSpec.audioIn  : ((paxType == 2 || paxType == 3) ? 1 : 0);
+        int effAudioOut = portSpec.audioOut > 0 ? portSpec.audioOut : ((paxType == 2 || paxType == 3) ? 1 : 0);
         // Value ports have no nodeType-implied default (unlike audio/midi
         // above) — nodeType 4 (Value only) carries no audio/MIDI default
         // either, so a Value-only Pax needs valueInputs/valueOutputs set
@@ -315,7 +315,7 @@ static juce::String labelForType (int t, const juce::String& paxName)
         case 23: return "MQTT Publish";
         case 24: return "MQTT Monitor";
         case 25: return "MQTT Console";
-        default: return "Addon Node";
+        default: return "Pax Node";
     }
 }
 

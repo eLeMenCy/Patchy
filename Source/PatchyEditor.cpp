@@ -3,7 +3,6 @@
 
 PatchyEditor::PatchyEditor (PatchyProcessor& p)
     : AudioProcessorEditor (&p),
-      proc (p),
       bridge (p.getGraphModel(), &p.getRegistry(),
                [&p](const juce::String& nodeId, const juce::String& devId)
                { p.setMidiDevice (nodeId, devId); },

@@ -5,7 +5,7 @@
  * Use for level control, attenuation and mixing.
  *
  * Build:
- *   macOS:  clang++ -std=c++20 -shared -fPIC LevelPax.cpp -o LevelAddon.dylib
+ *   macOS:  clang++ -std=c++20 -shared -fPIC LevelPax.cpp -o LevelPax.dylib
  *   Linux:  g++     -std=c++20 -shared -fPIC LevelPax.cpp -o LevelPax.so
  *   Win:    cl /std:c++20 /LD LevelPax.cpp /Fe:LevelPax.dll
  */

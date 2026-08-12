@@ -24,9 +24,9 @@ SOFTWARE.
 
 SCOPE OF THIS LICENSE:
 
-This MIT License applies specifically to the Addon API header (AddonAPI.h)
-and the bundled example addons in this directory. Addon developers are free
-to use any license they choose for their own addon code, including proprietary
-licenses. Addons are considered separate works that communicate with Patchy
-at arm's length via the Addon API and are not subject to Patchy's GPL v3
+This MIT License applies specifically to the Pax API header (PaxAPI.h)
+and the bundled example Pax in this directory. Pax developers are free
+to use any license they choose for their own Pax code, including proprietary
+licenses. Pax are considered separate works that communicate with Patchy
+at arm's length via the Pax API and are not subject to Patchy's GPL v3
 license.

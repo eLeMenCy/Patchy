@@ -36,6 +36,11 @@ export interface UdpMonitorNodeData {
   [key: string]: unknown;
 }
 
+// UdpMonitorNode.tsx — a scrolling event-log monitor, structurally
+// different from the DMX/ArtNet family: those show one continuously-
+// updating snapshot of current values; this shows a running history of
+// discrete packets as they arrive, most recent at the bottom.
+
 // Hex string ("48656C6C6F") → grouped hex ("48 65 6C 6C 6F") or ASCII ("Hello", non-printable as '.')
 function formatHex(hex: string, mode: 'hex' | 'ascii'): string {
   const bytes: number[] = [];
@@ -54,6 +59,15 @@ interface DisplayRow extends RawUdpMonitorEvent {
   timeStr: string;
 }
 
+// Module-level, not component state — deliberately shared across every
+// UdpMonitorNode instance on the canvas, not per-node. rowKey being
+// global is harmless (React only needs list-key uniqueness, and a shared
+// counter still gives that). prevTs is the one worth knowing about: with
+// more than one UDP Monitor open at once, "delta" time mode computes each
+// row's gap against whichever event most recently updated prevTs from
+// *any* monitor, not necessarily this node's own previous packet — a
+// genuine cross-instance quirk, not a bug in the usual sense, but worth
+// knowing if delta timing looks off with multiple monitors active.
 let rowKey = 0;
 let prevTs = 0;
 
@@ -150,6 +164,7 @@ function SettingsPanel({ s, onChange, onDiscreteChange, onClose, onReset, onComm
 // ── Main component ────────────────────────────────────────────────────────────
 export const UdpMonitorNode = memo(function UdpMonitorNode({ id, data, selected }: NodeProps) {
   const d = data as UdpMonitorNodeData;
+  // settingsJson wins on any overlapping key — it's spread second below.
   const [settings, setSettings] = useState<UdpMonitorSettings>({
     ...DEFAULT_SETTINGS, ...(d.settings ?? {}),
     ...(d.settingsJson ? JSON.parse(d.settingsJson) : {})

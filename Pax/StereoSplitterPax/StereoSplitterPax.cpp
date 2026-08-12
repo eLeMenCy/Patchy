@@ -12,9 +12,9 @@
  *             Positive: R boosted, L attenuated.
  *
  * Build:
- *   macOS:  clang++ -std=c++20 -shared -fPIC StereoSplitterAddon.cpp -o StereoSplitterAddon.dylib
- *   Linux:  g++     -std=c++20 -shared -fPIC StereoSplitterAddon.cpp -o StereoSplitterAddon.so
- *   Win:    cl /std:c++20 /LD StereoSplitterAddon.cpp /Fe:StereoSplitterAddon.dll
+ *   macOS:  clang++ -std=c++20 -shared -fPIC StereoSplitterPax.cpp -o StereoSplitterPax.dylib
+ *   Linux:  g++     -std=c++20 -shared -fPIC StereoSplitterPax.cpp -o StereoSplitterPax.so
+ *   Win:    cl /std:c++20 /LD StereoSplitterPax.cpp /Fe:StereoSplitterPax.dll
  */
 
 #include "../PaxAPI.h"

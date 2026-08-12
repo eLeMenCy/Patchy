@@ -142,7 +142,7 @@ export interface AudioDeviceList {
   audioOutDevices: AudioDeviceInfo[];
   audioInDevices:  AudioDeviceInfo[];
 }
-type AddonListCallback   = (addons: PaxInfo[]) => void;
+type PaxListCallback   = (pax: PaxInfo[]) => void;
 
 export interface PaxParamInfo {
   index:        number;
@@ -217,7 +217,7 @@ export interface PaxInfo {
 const _graphUpdateSubscribers: GraphUpdateCallback[] = [];
 
 const _midiMonitorSubscribers: MidiMonitorCallback[] = [];
-const _addonListSubscribers: AddonListCallback[] = [];
+const _paxListSubscribers: PaxListCallback[] = [];
 type FileStateCallback      = (s: FileState) => void;
 type AudioSettingsCallback  = (s: AudioSettings) => void;
 type StandaloneModeCallback = (v: boolean) => void;
@@ -506,8 +506,8 @@ function _dispatchClaimed() {
   onPaxList: (json: string) => {
     try {
       const data = JSON.parse(json);
-      const addons = data.paxItems ?? [];
-      _addonListSubscribers.forEach(cb => cb(addons));
+      const pax = data.paxItems ?? [];
+      _paxListSubscribers.forEach(cb => cb(pax));
     } catch (e) {
       console.error('Bridge Pax list parse error', e);
     }
@@ -621,11 +621,11 @@ export const Bridge = {
     sendToJuce({ type: 'importFragmentNodes', nodes, connections });
   },
 
-  onPaxList(cb: AddonListCallback) {
-    _addonListSubscribers.push(cb);
+  onPaxList(cb: PaxListCallback) {
+    _paxListSubscribers.push(cb);
     return () => {
-      const idx = _addonListSubscribers.indexOf(cb);
-      if (idx >= 0) _addonListSubscribers.splice(idx, 1);
+      const idx = _paxListSubscribers.indexOf(cb);
+      if (idx >= 0) _paxListSubscribers.splice(idx, 1);
     };
   },
   onPortActivity(cb: PortActivityCallback) {

@@ -101,7 +101,7 @@ PaxScanner::ScanResult PaxScanner::tryLoad (const juce::File& file)
 
     if (! getDesc || ! create || ! destroy || ! prepare || ! process)
     {
-        result.errorMsg = "Missing required NGA exports";
+        result.errorMsg = "Missing required PAX exports";
         return result;
     }
 

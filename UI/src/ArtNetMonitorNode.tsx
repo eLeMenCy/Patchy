@@ -16,6 +16,15 @@ const ACCENT_C = '#fde68a';  // resolved for canvas
 
 export type { DmxMonitorNodeData };
 
+// ArtNetMonitorNode.tsx — ArtNet's counterpart to DmxMonitorNode.tsx, and
+// shares its core rendering approach: same canvas-over-DOM-faders reasoning,
+// same RAF self-scheduling loop, same window-global-snapshot pattern (here
+// __artNetSnapshots instead of __dmxSnapshots), same 0.4-floor alpha
+// convention — see that file for the full reasoning, not repeated here.
+// What's genuinely new: ArtNet actually has multiple addressable universes,
+// so this node can filter to just one rather than always showing whichever
+// universe happens to arrive — see noDataRef and the filter logic below.
+
 // ── ArtNet-specific settings (extends DMX settings with universe filter) ──────
 interface ArtNetMonitorSettings extends DmxNodeSettings {
   universe:           number;
@@ -118,7 +127,13 @@ export const ArtNetMonitorNode = memo(function ArtNetMonitorNode ({ id, data, se
   const { handleDelete }               = useNodeDelete(id);
   const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
   const portBodyRef                    = useRef<HTMLDivElement>(null);
-  // noDataRef: true when filter is active but no matching universe received yet
+  // A ref rather than state for the same reason channels tracking uses one
+  // elsewhere in this file family — read synchronously inside the RAF
+  // render loop, no re-render needed on every incoming snapshot. "No data"
+  // is its own meaningful state, distinct from "received zeros": with a
+  // filter active, nothing at all may have arrived yet for that specific
+  // universe, and the canvas shows "--" for that (unknown) rather than "0"
+  // (a real, known reading), which noDataRef is what makes possible.
   const noDataRef                      = useRef<boolean>(false);
 
   const [settings, setSettings] = useState<ArtNetMonitorSettings>(() => ({
@@ -140,6 +155,8 @@ export const ArtNetMonitorNode = memo(function ArtNetMonitorNode ({ id, data, se
       if ('customName' in patch) Bridge.setNodeLabel(id, patch.customName ?? '');
       // Update C++ universe filter
       if ('filterUniverse' in patch || 'filterUniverseValue' in patch) {
+        // -1 is the backend's own sentinel for "show all universes" — see
+        // handleSetNodeParam_ArtNetUniverseFilter in WebBridge_Dispatch.cpp.
         const filter = next.filterUniverse ? next.filterUniverseValue : -1;
         Bridge.setNodeParam(id, 'artNetUniverseFilter', String(filter));
       }

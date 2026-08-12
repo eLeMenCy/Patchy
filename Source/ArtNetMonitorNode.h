@@ -52,8 +52,9 @@ struct ArtNetMonitorBuffer
  * ArtNetMonitorNode  (nodeType 18)
  *
  * ArtDMX In + ArtDMX Out (pass-through, no processing).
- * Captures each incoming universe snapshot into a shared ArtNetMonitorBuffer.
- * WebBridge 30fps timer drains and pushes to React for display.
+ * Captures each incoming universe via the dedicated ArtNet frame path
+ * (NodeProcessor.h) into a shared ArtNetMonitorBuffer. WebBridge 30fps
+ * timer drains and pushes to React for display.
  * Optionally filters by universe (universeFilter >= 0).
  */
 class ArtNetMonitorNode : public NodeProcessor
@@ -69,33 +70,24 @@ public:
 
     void process (int /*numSamples*/) override
     {
-        // Pass values through unchanged
-        outputValueCount = inputValueCount;
-        for (int i = 0; i < inputValueCount; ++i)
-            outputValues[static_cast<size_t> (i)] = inputValues[static_cast<size_t> (i)];
-
-        if (inputValueCount > 0)
+        // Pass the ArtNet frame through unchanged, and mirror it into the
+        // shared monitor buffer for the UI. No longer reads PAX_Value at
+        // all for the channel payload — the old blob-based path silently
+        // truncated at 56 of 512 channels (see Architecture.md's DMX
+        // entry — ArtNet had the identical bug).
+        if (inputArtNetFrameValid)
         {
-            recordMidiActivity (inputValueCount);
+            outputArtNetFrame      = inputArtNetFrame;
+            outputArtNetFrameValid = true;
+            outputArtNetUniverse   = inputArtNetUniverse;
+            recordMidiActivity (1);
+
+            int filter = universeFilter.load (std::memory_order_relaxed);
+            if (filter >= 0 && inputArtNetUniverse != filter)
+                return;
 
             if (buffer != nullptr)
-            {
-                const auto& v = inputValues[0];
-                int pktUniverse = (int) v.key;
-                int filter      = universeFilter.load (std::memory_order_relaxed);
-
-                // Apply universe filter (-1 = show all)
-                if (filter >= 0 && pktUniverse != filter)
-                    return;
-
-                std::array<uint8_t, 512> ch {};
-                if (v.dataType == PAX_DATA_BLOB && v.dataSize > 0)
-                {
-                    int copyLen = std::min ((int) v.dataSize, 512);
-                    std::memcpy (ch.data(), v.data, (size_t) copyLen);
-                }
-                buffer->push (ch, pktUniverse);
-            }
+                buffer->push (inputArtNetFrame, inputArtNetUniverse);
         }
     }
 

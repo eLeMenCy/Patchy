@@ -8,7 +8,7 @@
 
 import { useContext } from 'react';
 import { Bridge } from './Bridge';
-import { SettingsPanelHeader } from './NodeUtils';
+import { SettingsPanelHeader, resolveCssColor } from './NodeUtils';
 import { NodeSelect } from './NodeSelect';
 import { HintContext } from './HintPanel';
 
@@ -189,6 +189,9 @@ export function DmxSettingsPanel ({ nodeId, nodeType, devicePath, universe, isMk
 }) {
   const isOut = nodeType === 15;
   const accent = 'var(--dmx)';
+  // FIXED (2026-08-12): resolved once, used only where a hex-alpha suffix
+  // gets concatenated below — same bug class as NodeSelect.tsx.
+  const accentHex = resolveCssColor(accent);
 
   const commit = (u: number) => Bridge.setDmxSettings(nodeId, devicePath, u);
 
@@ -235,7 +238,7 @@ export function DmxSettingsPanel ({ nodeId, nodeType, devicePath, universe, isMk
                 fontSize: 10, borderRadius: 3,
                 cursor: disabled ? 'not-allowed' : 'pointer',
                 border: `1px solid ${active ? accent : 'var(--border)'}`,
-                background: active ? `${accent}22` : 'transparent',
+                background: active ? `${accentHex}22` : 'transparent',
                 color: disabled ? 'var(--text-muted)' : active ? accent : 'var(--text-muted)',
                 opacity: disabled ? 0.35 : 1,
                 transition: 'all .12s',

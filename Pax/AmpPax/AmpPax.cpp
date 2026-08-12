@@ -5,7 +5,7 @@
  * Use to boost signals, drive levels up or compensate for weak sources.
  *
  * Build:
- *   macOS:  clang++ -std=c++20 -shared -fPIC AmpPax.cpp -o AmpAddon.dylib
+ *   macOS:  clang++ -std=c++20 -shared -fPIC AmpPax.cpp -o AmpPax.dylib
  *   Linux:  g++     -std=c++20 -shared -fPIC AmpPax.cpp -o AmpPax.so
  *   Win:    cl /std:c++20 /LD AmpPax.cpp /Fe:AmpPax.dll
  */

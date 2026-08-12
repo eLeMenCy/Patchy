@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge } from './Bridge';
-import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle } from './NodeUtils';
+import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, resolveCssColor } from './NodeUtils';
 import { HintContext } from './HintPanel';
 import { Settings, X } from 'lucide-react';
 
@@ -219,6 +219,12 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
   const { setHint }  = useContext(HintContext);
   const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
   const [showSettings, setShowSettings] = useState(() => _settingsOpen.get(id) ?? false);
+  // FIXED (2026-08-12): resolved once per render, used only where a
+  // hex-alpha suffix gets concatenated onto ACCENT (the header background/
+  // border below) — same bug class as NodeSelect.tsx, and specifically
+  // the header-tint bug an old note already suspected this file had but
+  // never confirmed.
+  const accentHex = resolveCssColor(ACCENT);
 
   // Parameters
   const [mode,       setMode]       = useState(0);    // 0=Amplitude, 1=Spectral
@@ -346,8 +352,8 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
       {/* Header */}
       <div style={{
         display:'flex', alignItems:'center', padding:'4px 8px', gap:4,
-        background:`${ACCENT}18`,
-        borderBottom: collapsed ? 'none' : `1px solid ${ACCENT}44`,
+        background:`${accentHex}18`,
+        borderBottom: collapsed ? 'none' : `1px solid ${accentHex}44`,
         cursor:'pointer',
       }} onDoubleClick={toggleCollapsed}>
 

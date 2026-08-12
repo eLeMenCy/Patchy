@@ -36,6 +36,14 @@ export interface OscMonitorNodeData {
   [key: string]: unknown;
 }
 
+// OscMonitorNode.tsx — the OSC counterpart to UdpMonitorNode.tsx, same
+// scrolling event-log shape and same module-level rowKey/prevTs sharing
+// across every instance of this node type (see that file for the full
+// reasoning — the same cross-instance "delta" time caveat applies here
+// too, tracked separately from UDP's own rowKey/prevTs pair since each
+// monitor type keeps its own module-level state). What's new here:
+// addressFilter, an OSC-address substring filter (passesFilter below).
+
 function passesFilter(ev: RawOscMonitorEvent, s: OscMonitorSettings): boolean {
   if (s.addressFilter.trim() === '') return true;
   return ev.ad.toLowerCase().includes(s.addressFilter.trim().toLowerCase());
@@ -47,6 +55,9 @@ interface DisplayRow extends RawOscMonitorEvent {
   timeStr: string;
 }
 
+// Module-level, shared across every OscMonitorNode instance — see
+// UdpMonitorNode.tsx for the full reasoning and the cross-instance
+// "delta" time caveat this creates.
 let rowKey = 0;
 let prevTs = 0;
 
@@ -152,6 +163,7 @@ function SettingsPanel({ s, onChange, onDiscreteChange, onClose, onReset, onComm
 // ── Main component ────────────────────────────────────────────────────────────
 export const OscMonitorNode = memo(function OscMonitorNode({ id, data, selected }: NodeProps) {
   const d = data as OscMonitorNodeData;
+  // settingsJson wins on any overlapping key — it's spread second below.
   const [settings, setSettings] = useState<OscMonitorSettings>({
     ...DEFAULT_SETTINGS, ...(d.settings ?? {}),
     ...(d.settingsJson ? JSON.parse(d.settingsJson) : {})

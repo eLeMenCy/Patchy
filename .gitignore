@@ -33,13 +33,11 @@ Thumbs.db
 JuceLibraryCode/
 *.textClipping
 
-# ── Addon binaries (built separately) ─────────────────────────────────────────
-Addons/**/*.dylib
-Addons/**/*.so
-Addons/**/*.dll
+# ── Pax binaries (built separately) ─────────────────────────────────────────
+Pax/**/*.dylib
+Pax/**/*.so
+Pax/**/*.dll
 
 # ── Patchy patch files (user data) ────────────────────────────────────────────
 *.patchy
 
-TestMultiOutPax.cpp
-TestReceiverPax.cpp

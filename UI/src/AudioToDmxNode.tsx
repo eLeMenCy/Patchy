@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge } from './Bridge';
-import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, _paxInfoMap, detectPaxTheme } from './NodeUtils';
+import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, _paxInfoMap, detectPaxTheme, resolveCssColor } from './NodeUtils';
 import { HintContext } from './HintPanel';
 import { Settings, X } from 'lucide-react';
 
@@ -20,26 +20,19 @@ const freqLabel = (hz: number) =>
 // the same persisted array.
 const IDX_MODE = 0, IDX_SENS = 1, IDX_BANDLOW = 2, IDX_BANDHIGH = 3, IDX_CHANNEL = 4, IDX_DAMPING = 5;
 
-// Resolve a CSS custom property reference (e.g. "var(--value)", which is
-// exactly what theme.accent returns for this Pax's auto-detected Converter
-// category) to its actual literal colour. Needed because Canvas 2D's
-// fillStyle/strokeStyle cannot interpret var() at all — canvas operates
-// outside the DOM's computed-style cascade. Passing "var(--value)" (or a
-// concatenated "var(--value)55" for alpha) doesn't throw, it just silently
-// fails and keeps whatever fillStyle was already set — defaulting to
-// black — which is exactly why the waveform drew nothing: every *ordinary*
-// DOM use of `color` (port dots, plain 1px borders) resolves fine through
-// normal CSS, which is what made this so easy to miss. EnvelopeDisplay
-// sidesteps this entirely by hardcoding a literal hex for its own canvas
-// work instead of using its CSS var(); this resolves dynamically instead
-// of hardcoding a second copy of the colour that could drift from
-// index.css over time.
-function resolveCssColor(value: string): string {
-  if (!value.startsWith('var(')) return value;
-  const varName = value.slice(4, value.indexOf(')')).split(',')[0].trim();
-  const resolved = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
-  return resolved || '#e879f9'; // fallback: Converter's own fixed hex (--value in index.css)
-}
+// resolveCssColor (imported above) resolves a CSS custom property
+// reference (e.g. "var(--value)", exactly what theme.accent returns for
+// this Pax's auto-detected Converter category) to its actual literal
+// colour — needed because Canvas 2D's fillStyle/strokeStyle can't
+// interpret var() at all. Passing "var(--value)" here silently failed and
+// kept whatever fillStyle was already set — defaulting to black — which
+// is exactly why the waveform originally drew nothing (2026-07-30); every
+// *ordinary* DOM use of the same colour (port dots, plain borders)
+// resolved fine through normal CSS, which is what made this so easy to
+// miss at the time. Extracted into NodeUtils.tsx (2026-08-12) after the
+// same root problem turned up again in NodeSelect.tsx, in a different
+// shape (string-concatenating a hex-alpha suffix onto a var() reference,
+// rather than handing var() to canvas) — see that file's own comments.
 
 // ── Slider row — label on the left, matching EnvelopeNode's layout ──────────
 function SliderRow({ label, value, min, max, step = 0, format, onChange, onDoubleClick, onCommit, color }: {
@@ -86,6 +79,12 @@ function Stepper({ label, value, min, max, width = 28, color, buttons = false, o
   const [editing, setEditing] = useState(false);
   const [draft,   setDraft]   = useState('');
   const dragStart = useRef<{ y: number; v: number } | null>(null);
+  // FIXED (2026-08-12): resolved once, used only where a hex-alpha suffix
+  // gets concatenated below — same bug class as NodeSelect.tsx, found
+  // here while checking for other instances of it. Bare `color` uses
+  // elsewhere in this component (as a plain var() reference, no suffix)
+  // were already correct and stay as-is.
+  const colorHex = resolveCssColor(color);
 
   const commitDraft = () => {
     const n = parseInt(draft, 10);
@@ -153,7 +152,7 @@ function Stepper({ label, value, min, max, width = 28, color, buttons = false, o
             style={{
               minWidth: width, textAlign: 'center', fontSize: 9, color,
               cursor: 'ns-resize', userSelect: 'none', padding: '1px 2px',
-              borderRadius: 2, border: `1px solid ${color}44`, background: 'var(--surface)',
+              borderRadius: 2, border: `1px solid ${colorHex}44`, background: 'var(--surface)',
             }}>
             {value}
           </span>
@@ -289,7 +288,7 @@ function BandDisplay({ mode, bandLow, bandHigh, zoomMin, zoomMax, sensitivityDb,
   // Resolved once per render — see resolveCssColor's comment above for why
   // this is required before anything reaches canvas or a concatenated
   // background string.
-  const hexColor = resolveCssColor(color);
+  const hexColor = resolveCssColor(color, '#e879f9');
 
   const toX = (hz: number) => {
     const clamped = Math.max(FREQ_MIN, Math.min(FREQ_MAX, hz));
@@ -443,7 +442,7 @@ export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
   // Same fix as BandDisplay's hexColor — ACCENT is "var(--value)", and
   // concatenating alpha onto a var() reference (`${ACCENT}18` etc. below)
   // is invalid CSS that fails silently, not just a canvas-only problem.
-  const accentHex = resolveCssColor(ACCENT);
+  const accentHex = resolveCssColor(ACCENT, '#e879f9');
 
   // Parameters (0-4 are real backend params; zoomMin/zoomMax are UI-only —
   // see the settingsJson-restore effect for why they still ride along).

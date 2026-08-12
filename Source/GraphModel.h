@@ -82,7 +82,7 @@ struct NodeData
 {
     juce::String      id, label;
     int               nodeType        = 1;
-    juce::String      paxName;        // empty = built-in, non-empty = dynamic addon
+    juce::String      paxName;        // empty = built-in, non-empty = dynamic Pax
     juce::String      selectedDeviceId;  // for nodeType 4 and 5
     juce::String      settingsJson;      // UI settings blob (JSON string)
     float             x = 100.f, y = 100.f;

@@ -9,7 +9,7 @@
  *
  * Finds all shared libraries in the standard platform Pax folders
  * (plus next to the binary for dev/portable use), attempts to load each
- * one, verifies it exports the required NGA symbols and has a matching
+ * one, verifies it exports the required PAX symbols and has a matching
  * API version, then reports the result via a callback.
  *
  * Loading is done on the MESSAGE thread at startup — never on the audio thread.

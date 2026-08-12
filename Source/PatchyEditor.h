@@ -29,8 +29,7 @@ public:
     WebBridge& getBridge() { return bridge; }
 
 private:
-    PatchyProcessor& proc;
-    WebBridge        bridge;
+    WebBridge bridge;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PatchyEditor)
 };

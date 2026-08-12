@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, SpectrumSnapshot } from './Bridge';
-import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle } from './NodeUtils';
+import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, resolveCssColor } from './NodeUtils';
 import { HintContext } from './HintPanel';
 import { Settings, X } from 'lucide-react';
 
@@ -71,6 +71,11 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
   const { setHint } = useContext(HintContext);
   const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
   const [showSettings, setShowSettings] = useState(() => _settingsOpen.get(id) ?? false);
+  // FIXED (2026-08-12): resolved once per render, used only where a
+  // hex-alpha suffix gets concatenated onto ACCENT (the header background/
+  // border below) — same bug class as NodeSelect.tsx and EnvelopeNode.tsx's
+  // identical header-tint bug.
+  const accentHex = resolveCssColor(ACCENT);
   const [mags,      setMags]      = useState<number[]>(new Array(UI_BINS).fill(0));
   const [bands,     setBands]     = useState(() =>
     DEFAULT_LOW.slice(0,3).map((lo,i) => ({ lo, hi: DEFAULT_HIGH[i] })));
@@ -225,8 +230,8 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
       <div style={{
         display: 'flex', alignItems: 'center',
         padding: '4px 8px', gap: 4,
-        background: `${ACCENT}18`,
-        borderBottom: collapsed ? 'none' : `1px solid ${ACCENT}44`,
+        background: `${accentHex}18`,
+        borderBottom: collapsed ? 'none' : `1px solid ${accentHex}44`,
         cursor: 'pointer',
       }}
         onDoubleClick={toggleCollapsed}

@@ -9,13 +9,13 @@ PatchyProcessor::PatchyProcessor()
           .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true))
 {
-    // Scan for dynamic addons at startup
+    // Scan for dynamic Pax at startup
     auto scanResults = PaxScanner::scan();
     registry.load (scanResults);
     juce::Logger::writeToLog (
         juce::String ("PatchyProcessor: ")
         + juce::String ((int) registry.getEntries().size())
-        + juce::String (" addon(s) loaded"));
+        + juce::String (" Pax loaded"));
 
     // When the graph changes: rebuild processing graph AND push to UI
     graphModel.onChange = [this]

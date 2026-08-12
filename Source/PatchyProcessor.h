@@ -79,7 +79,7 @@ public:
         processingGraph.pruneEdgesForNode (nodeId, validPorts);
     }
 
-    // Returns the current audio output count for a dynamic addon node (e.g. Spectrumyser)
+    // Returns the current audio output count for a dynamic Pax node (e.g. Spectrumyser)
     // Also resizes the live node's output buffers to avoid a full graph rebuild
     int getPaxAudioOutCount (const juce::String& nodeId)
     {
@@ -742,7 +742,7 @@ public:
 
                 if (! node->outputAudioBuffers.empty())
                 {
-                    // Multi-port addon node: report per-port RMS
+                    // Multi-port Pax node: report per-port RMS
                     for (auto& portBuf : node->outputAudioBuffers)
                     {
                         float ps = 0.f;
@@ -837,56 +837,50 @@ public:
         return result;
     }
 
-    /** Called by WebBridge 30fps timer — drains all monitor buffers. */
-    std::vector<MidiMonitorBatch> drainAllMidiMonitorEvents()
+    /**
+     * Shared drain-all-buffers-into-batches pattern, used by the four
+     * drainAllXxxMonitorEvents() functions below. Each protocol's map
+     * differs only in its buffer type — the drain logic itself was
+     * identical, copy-pasted four times before this consolidation
+     * (2026-08-12). BatchType is explicit at the call site (can't be
+     * deduced from the map alone); MapType is deduced from whichever
+     * map is passed in.
+     */
+    template <typename BatchType, typename MapType>
+    static std::vector<BatchType> drainMonitorMap (MapType& buffers)
     {
-        std::vector<MidiMonitorBatch> result;
-        for (auto& [nodeId, buf] : monitorBuffers)
+        std::vector<BatchType> result;
+        for (auto& [nodeId, buf] : buffers)
         {
             auto events = buf->drain();
             if (! events.empty())
                 result.push_back ({ nodeId, std::move (events) });
         }
         return result;
+    }
+
+    /** Called by WebBridge 30fps timer — drains all monitor buffers. */
+    std::vector<MidiMonitorBatch> drainAllMidiMonitorEvents()
+    {
+        return drainMonitorMap<MidiMonitorBatch> (monitorBuffers);
     }
 
     /** Called by WebBridge 30fps timer — drains all OSC monitor buffers. */
     std::vector<OscMonitorBatch> drainAllOscMonitorEvents()
     {
-        std::vector<OscMonitorBatch> result;
-        for (auto& [nodeId, buf] : oscMonitorBuffers)
-        {
-            auto events = buf->drain();
-            if (! events.empty())
-                result.push_back ({ nodeId, std::move (events) });
-        }
-        return result;
+        return drainMonitorMap<OscMonitorBatch> (oscMonitorBuffers);
     }
 
     /** Called by WebBridge 30fps timer — drains all UDP monitor buffers. */
     std::vector<UdpMonitorBatch> drainAllUdpMonitorEvents()
     {
-        std::vector<UdpMonitorBatch> result;
-        for (auto& [nodeId, buf] : udpMonitorBuffers)
-        {
-            auto events = buf->drain();
-            if (! events.empty())
-                result.push_back ({ nodeId, std::move (events) });
-        }
-        return result;
+        return drainMonitorMap<UdpMonitorBatch> (udpMonitorBuffers);
     }
 
     /** Called by WebBridge 30fps timer — drains all MQTT monitor buffers. */
     std::vector<MqttMonitorBatch> drainAllMqttMonitorEvents()
     {
-        std::vector<MqttMonitorBatch> result;
-        for (auto& [nodeId, buf] : mqttMonitorBuffers)
-        {
-            auto events = buf->drain();
-            if (! events.empty())
-                result.push_back ({ nodeId, std::move (events) });
-        }
-        return result;
+        return drainMonitorMap<MqttMonitorBatch> (mqttMonitorBuffers);
     }
 
     /** Called by WebBridge 30fps timer — drains DMX monitor + console snapshots. */

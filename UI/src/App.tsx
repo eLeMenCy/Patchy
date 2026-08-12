@@ -228,7 +228,7 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
           } else if (nodeType === 22 || nodeType === 23 || nodeType === 24 || nodeType === 25) {
             mqttTimers.current.set(entry.id, now + 80);
           } else if (nodeType >= 100) {
-            // Pax node (ngaType = nodeType - 100) — never matches any of
+            // Pax node (paxType = nodeType - 100) — never matches any of
             // the built-in nodeType checks above, so it used to fall
             // through to the generic MIDI bucket regardless of what its
             // actual declared port types are. Own bucket now, coloured
@@ -891,25 +891,25 @@ function FlowCanvas() {
     const raw = e.dataTransfer.getData('text/plain');
     if (!raw) return;
 
-    // Data is JSON { nodeType, paxName, ngaType? }
-    // For Pax: nodeType=0 (sentinel), ngaType=1/2/3/4 (PAX MIDI/Audio/AV/Value)
+    // Data is JSON { nodeType, paxName, paxType? }
+    // For Pax: nodeType=0 (sentinel), paxType=1/2/3/4 (PAX MIDI/Audio/AV/Value)
     // For built-ins: nodeType=1-4, paxName=''
     let nodeType: number = 1;
     let paxName = '';
-    let ngaType: number = 0;
+    let paxType: number = 0;
     try {
       const parsed = JSON.parse(raw);
       nodeType   = parsed.nodeType   as number;
       paxName = parsed.paxName ?? '';
-      ngaType    = parsed.ngaType    ?? 0;
+      paxType    = parsed.paxType    ?? 0;
     } catch {
       nodeType = parseInt(raw, 10);
     }
 
-    // Send ngaType as nodeType to C++ for addons so ports are correct,
+    // Send paxType as nodeType to C++ for Pax so ports are correct,
     // but offset by 100 to guarantee no collision with built-in types 1-4.
     // C++ checks paxName first, so the actual value only matters for port layout.
-    const cppNodeType = paxName ? (100 + ngaType) : nodeType;
+    const cppNodeType = paxName ? (100 + paxType) : nodeType;
 
     const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
     pendingDrop.current = { dropX: position.x, dropY: position.y };

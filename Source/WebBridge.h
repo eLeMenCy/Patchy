@@ -85,7 +85,7 @@ public:
                        std::function<std::vector<PortActivity>()>  getPortActivity   = nullptr,
                        std::function<void(const juce::String&, uint8_t, uint8_t, uint8_t)> onMidiKeyEvent = nullptr,
                        std::function<void(const juce::String&, const juce::String&)>          onSetNodeLabel = nullptr,
-                       std::function<void(const juce::String&, int, float)>                      onSetAddonParameter = nullptr,
+                       std::function<void(const juce::String&, int, float)>                      onSetPaxParameter = nullptr,
                        std::function<void()>                                                          onNewGraph          = nullptr,
                        std::function<void(const juce::String&)>                                       onLoadGraph         = nullptr);
     ~WebBridge() override { stopTimer(); }
@@ -172,6 +172,54 @@ private:
     // ── Message handler ───────────────────────────────────────────────────
     void handleMessage (const juce::String& json);
 
+    // Extracted from handleMessage()'s dispatch chain (2026-08-09) — each
+    // was a branch body inline in that one giant function; now a named
+    // method per message type, verified via exact string-literal-aware
+    // brace-matched extraction (no logic changes, purely mechanical). Kept
+    // in the same relative order as the dispatch chain in handleMessage()
+    // itself, for easy side-by-side navigation.
+    void handleReady ();
+    void handleAddNode (const juce::DynamicObject* obj);
+    void handleSetPaxParameter (const juce::DynamicObject* obj);
+    void handleSetNodeSettings (const juce::DynamicObject* obj);
+    void handleCommitNodeSettings ();
+    void handleCommitSettingsChange (const juce::DynamicObject* obj);
+    void handleSetNodeLabel (const juce::DynamicObject* obj);
+    void handleMidiKeyEvent (const juce::DynamicObject* obj);
+    void handleRemoveNode (const juce::DynamicObject* obj);
+    void handleAddConnection (const juce::DynamicObject* obj);
+    void handleRemoveConnection (const juce::DynamicObject* obj);
+    void handleMoveNode (const juce::DynamicObject* obj);
+    void handleSetViewport (const juce::DynamicObject* obj);
+    void handleSetNodeParam (const juce::DynamicObject* obj);
+
+    // Extracted from handleSetNodeParam()'s own internal nested dispatch on
+    // `key` (2026-08-09, Phase B — same method as the top-level extraction
+    // above). Five of these preserve an early `return;` in the dispatcher
+    // itself (dmxConsoleChannel/dmxBlackout/artNetConsoleChannel/
+    // artNetBlackout/artNetUniverseFilter all deliberately skip the trailing
+    // pushGraphToUI()/pushUndoState() calls in the original) — verified
+    // against the exact original control flow, not just the extracted
+    // bodies, before this was applied.
+    void handleSetNodeParam_MidiDeviceId (const juce::String& nodeId, const juce::String& value);
+    void handleSetNodeParam_AudioDeviceId (const juce::String& nodeId, const juce::String& value);
+    void handleSetNodeParam_AudioDeviceChannels (const juce::String& nodeId, const juce::String& value);
+    void handleSetNodeParam_UdpSettings (const juce::String& nodeId, const juce::String& value);
+    void handleSetNodeParam_OscSettings (const juce::String& nodeId, const juce::String& value);
+    void handleSetNodeParam_MqttSubscribeSettings (const juce::String& nodeId, const juce::String& value);
+    void handleSetNodeParam_MqttPublishSettings (const juce::String& nodeId, const juce::String& value);
+    void handleSetNodeParam_MqttConsoleSend (const juce::String& nodeId, const juce::String& value);
+    void handleSetNodeParam_ArtNetSettings (const juce::String& nodeId, const juce::String& value);
+    void handleSetNodeParam_DmxSettings (const juce::String& nodeId, const juce::String& value);
+    void handleSetNodeParam_DmxConsoleChannel (const juce::String& nodeId, const juce::String& value);
+    void handleSetNodeParam_DmxBlackout (const juce::String& nodeId, const juce::String& value);
+    void handleSetNodeParam_ArtNetConsoleChannel (const juce::String& nodeId, const juce::String& value);
+    void handleSetNodeParam_ArtNetBlackout (const juce::String& nodeId, const juce::String& value);
+    void handleSetNodeParam_ArtNetUniverseFilter (const juce::String& nodeId, const juce::String& value);
+    void handleExportSelection (const juce::DynamicObject* obj);
+    void handleImportFragmentNodes (const juce::DynamicObject* obj);
+    void handleSetAudioEngineSettings (const juce::DynamicObject* obj);
+
     GraphModel& graph;
 
     // Owned zip data (release mode) – keep alive as long as the browser lives
@@ -190,7 +238,7 @@ private:
     std::function<void()> clearGraphTrash;
     std::function<void(const juce::String&, uint8_t, uint8_t, uint8_t)> onMidiKeyEvent;
     std::function<void(const juce::String&, const juce::String&)>          onSetNodeLabel;
-    std::function<void(const juce::String&, int, float)> onSetAddonParameter;
+    std::function<void(const juce::String&, int, float)> onSetPaxParameter;
     std::function<void(const juce::String&, const juce::String&)> onSetMidiDevice;
     std::function<void(const juce::String&, const juce::String&)> onSetAudioDevice;
 

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
 // Patchy — DAW Context (shared state for standalone/DAW mode)
 import { createContext } from 'react';
 

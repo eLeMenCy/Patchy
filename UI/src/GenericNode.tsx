@@ -56,11 +56,11 @@ const PAX_THEME = { accent: 'var(--av)', dim: 'var(--av-dim)', glow: 'var(--av-g
 // ── Main node ─────────────────────────────────────────────────────────────────
 function GenericNode({ id, data, selected }: NodeProps) {
   const nodeData = data as NodeData;
-  // nodeType>=100 means addon
-  const ngaType  = nodeData.nodeType >= 100 ? nodeData.nodeType - 100 : null;
+  // nodeType>=100 means Pax
+  const paxType  = nodeData.nodeType >= 100 ? nodeData.nodeType - 100 : null;
   const paxColourCategory = nodeData.paxName ? _paxInfoMap.get(nodeData.paxName)?.colourCategory : undefined;
   const paxTag = (() => {
-    if (ngaType === null) return null;
+    if (paxType === null) return null;
     const prefix = detectPaxTagPrefix (nodeData.ports, paxColourCategory);
     const labelUp = nodeData.label.toUpperCase();
     // Skip prepending the category if it already appears anywhere in the
@@ -70,7 +70,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
     // missed it and produced "VALUE MQTT TO VALUE".
     return labelUp.includes(prefix) ? labelUp : prefix + ' ' + labelUp;
   })();
-  const theme    = ngaType !== null
+  const theme    = paxType !== null
     ? { ...detectPaxTheme (nodeData.ports, paxColourCategory), tag: paxTag! }
     : (THEME[nodeData.nodeType] ?? PAX_THEME);
 
@@ -79,7 +79,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
 
   const { handleDelete } = useNodeDelete(id);
   const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
-  const isPax = ngaType !== null;
+  const isPax = paxType !== null;
   const isAudioDevice = nodeData.nodeType === 3 || nodeData.nodeType === 4;
   const isUdpDevice    = nodeData.nodeType === 8  || nodeData.nodeType === 9;
   const isOscDevice    = nodeData.nodeType === 10 || nodeData.nodeType === 11;

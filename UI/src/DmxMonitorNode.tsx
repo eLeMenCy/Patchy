@@ -11,6 +11,14 @@ import {
 
 export type { DmxMonitorNodeData };
 
+// DmxMonitorNode.tsx — the read-only counterpart to DmxConsoleNode.tsx.
+// Much simpler than Console: nothing here sets a channel value or needs
+// to persist 512 bytes into settingsJson, so there's no
+// channels/channelsRef pair, no blackout, no base64 encoding — just
+// rendering whatever the current snapshot says, on a canvas rather than
+// DOM faders (canvas draws far more cheaply at 60fps for a purely visual
+// display than 512 individual DOM elements would).
+
 // ── Canvas bargraph panel (Monitor — 60fps RAF, reads window.__dmxSnapshots) ──
 function DmxCanvasBargraph ({ nodeId, settingsRef, collapsed }: {
   nodeId:      string;
@@ -23,6 +31,13 @@ function DmxCanvasBargraph ({ nodeId, settingsRef, collapsed }: {
   useEffect(() => {
     if (collapsed) return;
 
+    // window.__dmxSnapshots is Bridge.ts's own central cache, updated
+    // every time a snapshot arrives from the backend and exposed as a
+    // plain global specifically so this loop can read fresh data every
+    // single frame without going through React state — 512 bytes arriving
+    // at whatever rate the backend sends them, then read again 60 times a
+    // second regardless, would mean a lot of avoidable re-renders if this
+    // went through props/state instead of a direct read.
     const render = () => {
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -60,7 +75,15 @@ function DmxCanvasBargraph ({ nodeId, settingsRef, collapsed }: {
 
         if (val > 0) {
           const fillH2 = Math.round(pct * trackH);
+          // Same intensity convention documented for port-handle glow in
+          // Architecture.md's Port Activity pipeline: alpha floors at 0.4
+          // rather than 0 so any nonzero value stays visibly lit, not
+          // washed out to near-invisible at low channel values.
           const alpha  = 0.4 + pct * 0.6;
+          // Full value gets the solid accent colour rather than the
+          // alpha-blended fill everything else uses — a clear, crisp
+          // visual cue that a channel is genuinely maxed out (255), not
+          // just close to it.
           ctx.fillStyle = val === 255 ? ACCENT_C : `rgba(251,191,36,${alpha.toFixed(2)})`;
           ctx.fillRect(x + barX, trackY + trackH - fillH2, barW, fillH2);
         }
@@ -74,6 +97,12 @@ function DmxCanvasBargraph ({ nodeId, settingsRef, collapsed }: {
       rafRef.current = requestAnimationFrame(render);
     };
 
+    // Self-scheduling loop — render() re-requests itself as its own last
+    // step, so it keeps running until the cleanup below cancels it.
+    // requestAnimationFrame rather than setInterval: synced to the
+    // browser's actual repaint timing (no drawing faster than the screen
+    // can show it) and automatically throttles or pauses entirely when
+    // the tab isn't visible, which setInterval wouldn't do on its own.
     rafRef.current = requestAnimationFrame(render);
     return () => cancelAnimationFrame(rafRef.current);
   }, [collapsed, nodeId, settingsRef]);

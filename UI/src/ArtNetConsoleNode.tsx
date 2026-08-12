@@ -15,6 +15,15 @@ const ACCENT = 'var(--artnet)';
 
 export type { DmxMonitorNodeData };
 
+// ArtNetConsoleNode.tsx — ArtNet's counterpart to DmxConsoleNode.tsx, and
+// nearly identical to it: same channels/channelsRef dual-tracking, same
+// settingsJson-restore race guard, same fullSettingsRef role, same
+// blackout behaviour, same base64 universe encoding — see that file for
+// the full reasoning behind each, not repeated here. What's genuinely
+// different: this node needs its own settings panel (below) rather than
+// the shared DmxSettingsPanel, since it has one extra field DMX doesn't
+// — the ArtNet universe number — and its own settings type reflects that.
+
 // ArtNet Console settings — same as DMX Console + universe
 interface ArtNetConsoleSettings extends DmxNodeSettings {
   universe: number;
@@ -32,6 +41,8 @@ export const ArtNetConsoleNode = memo(function ArtNetConsoleNode ({ id, data, se
   const { showSettings, toggleSettings, closeSettings } = useNodeSettings(id);
   const { handleDelete }                         = useNodeDelete(id);
   const { collapsed, toggleCollapsed }           = useNodeCollapsed(id, (data as any)._forceCollapsed);
+  // channels/channelsRef: see DmxConsoleNode.tsx — same dual-tracking
+  // reasoning (state for rendering, ref for synchronous reads in callbacks).
   const [channels, setChannels]                  = useState<number[]>(new Array(512).fill(0));
   const [blackout, setBlackoutState]             = useState(false);
   const channelsRef                              = useRef<number[]>(new Array(512).fill(0));
@@ -94,6 +105,8 @@ export const ArtNetConsoleNode = memo(function ArtNetConsoleNode ({ id, data, se
         return;
       }
       const isBlank = channelsRef.current.every(v => v === 0);
+      // See DmxConsoleNode.tsx — same race-prevention reasoning: only
+      // restore if a live snapshot hasn't already populated this.
       if (!isBlank) return;
       const bin = atob(b64);
       const ch = new Array<number>(512).fill(0);
@@ -154,6 +167,8 @@ export const ArtNetConsoleNode = memo(function ArtNetConsoleNode ({ id, data, se
     }
     const merged = { ...fullSettingsRef.current, artNetChannels: b64 };
     fullSettingsRef.current = merged;
+    // Two calls, two jobs — see DmxConsoleNode.tsx's handleChange for the
+    // full reasoning (persistence vs. real-time transmission).
     Bridge.setNodeSettings(id, merged);
     Bridge.setArtNetConsoleChannel(id, ch, val);
   }, [id]);
@@ -257,6 +272,10 @@ export const ArtNetConsoleNode = memo(function ArtNetConsoleNode ({ id, data, se
 });
 
 // ── ArtNet Console Settings Panel ─────────────────────────────────────────────
+// Not DmxShared's DmxSettingsPanel — that component has no Universe field
+// and no way to add one without affecting every other DMX/ArtNet node that
+// shares it, so ArtNet Console (and ArtNet Monitor) each get their own
+// panel instead, otherwise matching DmxSettingsPanel's layout row-for-row.
 function ArtNetConsoleSettingsPanel ({ settings, onChange, onCommit, onClose }: {
   settings: ArtNetConsoleSettings;
   onChange: (s: Partial<ArtNetConsoleSettings>) => void;
@@ -305,6 +324,9 @@ function ArtNetConsoleSettingsPanel ({ settings, onChange, onCommit, onClose }: 
         />
       ))}
       {row('Universe', (
+        // 0-32767: ArtNet 4's Port-Address is a 15-bit value (Net × 7 bits
+        // + Sub-Net × 4 bits + Universe × 4 bits) — not an arbitrary limit,
+        // it's the actual addressable range the protocol allows.
         <input type="number" min={0} max={32767}
           value={settings.universe}
           onChange={e => onChange({ universe: Number(e.target.value) })}

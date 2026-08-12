@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
 // Patchy — GraphModel unit tests (JUCE UnitTest framework)
 
 #include <juce_core/juce_core.h>
@@ -158,7 +157,7 @@ private:
             [](const Port& p){ return p.type == PortType::Audio
                                    && p.direction == PortDirection::Output; }));
 
-        // Type 102: Addon Audio — should have audio in + out
+        // Type 102: Pax Audio — should have audio in + out
         auto ports102 = GraphModel::portsForType (102, "test102");
         expect (!ports102.empty());
     }
@@ -223,7 +222,7 @@ private:
                             (int)   nd->getProperty ("nodeType"),
                             (float) nd->getProperty ("x"),
                             (float) nd->getProperty ("y"),
-                            nd->getProperty ("addonName").toString());
+                            nd->getProperty ("paxName").toString());
                     }
                 }
             }

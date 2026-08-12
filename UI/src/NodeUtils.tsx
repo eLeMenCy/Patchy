@@ -23,6 +23,27 @@ import { HintContext, NODE_HINTS, BUTTON_HINTS } from './HintPanel';
 // already depend on safely.
 export const _paxInfoMap = new Map<string, PaxInfo>();
 
+// ── Resolve a CSS custom property to its actual computed value ────────────────
+// Needed anywhere a colour has to be combined with something CSS's own
+// var() syntax can't do alone — concatenating a hex-alpha suffix (e.g.
+// `${accent}44` for a translucent tint), or handing a colour to Canvas 2D,
+// which can't resolve CSS custom properties at all. `var(--x)` on its own
+// works fine directly in a style object; the problem is specifically
+// string-concatenating anything onto it, which produces invalid CSS
+// (`var(--x)44` isn't parseable) that the browser silently drops rather
+// than erroring — no crash, just a missing tint/glow that's easy to miss.
+// First written for AudioToDmxNode.tsx's canvas rendering (2026-07-30);
+// extracted here (2026-08-12) after finding NodeSelect.tsx had the exact
+// same unresolved bug in its DOM styles — call this once per render and
+// reuse the result, not inline on every use, since getComputedStyle is a
+// real DOM read, not free.
+export function resolveCssColor (value: string, fallback: string = '#888888'): string {
+  if (!value.startsWith('var(')) return value;
+  const varName = value.slice(4, value.indexOf(')')).split(',')[0].trim();
+  const resolved = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+  return resolved || fallback;
+}
+
 // ── Hybrid/Converter colour auto-detection ────────────────────────────────────
 // Rule agreed in conversation (see Architecture.md's "Per-port value typing
 // mechanism" entry for the full design story): compare the set of port
@@ -39,7 +60,7 @@ export const _paxInfoMap = new Map<string, PaxInfo>();
 // Exported (and living here, not in GenericNode.tsx) so both GenericNode.tsx
 // (placed nodes) and Sidebar.tsx (the pre-placement listing) can use the
 // exact same algorithm — moved here after finding the sidebar was still
-// colouring by a fixed per-ngaType lookup, producing a real, visible
+// colouring by a fixed per-paxType lookup, producing a real, visible
 // mismatch against a placed node's genuinely auto-detected colour.
 //
 // ArtNet and plain DMX share PortType::DMX internally (see the backend's
@@ -103,7 +124,7 @@ const COLOURCAT_KEY: Record<number, string> = {
  * rather than each re-implementing the same input/output-set comparison —
  * refactored into this shape while fixing the sidebar's section grouping
  * to match a node's actual detected category instead of its raw
- * (pre-detection) ngaType. */
+ * (pre-detection) paxType. */
 export function detectPaxCategoryKey (
   ports: { type: string; label: string; direction: string }[],
   colourCategory: number | undefined
@@ -406,7 +427,15 @@ export function nodeContainerStyle (
   opts?: { bg?: string; glow?: string }
 ): React.CSSProperties {
   const bg   = opts?.bg   ?? 'var(--surface2)';
-  const glow = opts?.glow ?? `${accent}33`;
+  // FIXED (2026-08-12): opts.glow, when a caller provides one, is already
+  // safe to use as-is (GenericNode.tsx does, for example). The *default*
+  // used to concatenate a hex-alpha suffix directly onto accent — which
+  // every caller here passes as a raw CSS var() string — producing
+  // invalid CSS the browser silently dropped, same bug class as
+  // NodeSelect.tsx. resolveCssColor fixes it for every caller that relies
+  // on this default (AudioToDmxNode.tsx, EnvelopeNode.tsx,
+  // SpectrumyserNode.tsx), in one place.
+  const glow = opts?.glow ?? `${resolveCssColor(accent)}33`;
   return {
     background:   bg,
     border:       `1px solid ${selected ? accent : 'var(--border)'}`,

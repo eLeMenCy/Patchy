@@ -5,7 +5,7 @@
  * Demonstrates parameters + the minimal structure of a MIDI-type Pax.
  *
  * Build:
- *   macOS:  clang++ -std=c++20 -shared -fPIC TransposePax.cpp -o TransposeAddon.dylib
+ *   macOS:  clang++ -std=c++20 -shared -fPIC TransposePax.cpp -o TransposePax.dylib
  *   Linux:  g++     -std=c++20 -shared -fPIC TransposePax.cpp -o TransposePax.so
  *   Win:    cl /std:c++20 /LD TransposePax.cpp /Fe:TransposePax.dll
  */

@@ -59,14 +59,14 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
 
         if (paxName.isNotEmpty())
         {
-            // Dynamic addon node — ONLY use registry, never fall through to built-ins.
-            // Addon nodeType (1=MIDI, 2=Audio, 3=AV) is separate from
+            // Dynamic Pax node — ONLY use registry, never fall through to built-ins.
+            // Pax nodeType (1=MIDI, 2=Audio, 3=AV) is separate from
             // built-in nodeType (1=MidiInDevice … 4=AudioOutDevice).
             if (registry != nullptr)
                 proc = registry->createNode (id, paxName);
 
             if (proc == nullptr)
-                juce::Logger::writeToLog ("ProcessingGraph: addon not found: " + paxName);
+                juce::Logger::writeToLog ("ProcessingGraph: Pax not found: " + paxName);
             // Leave proc as nullptr — node will be skipped in processing
         }
         else
@@ -107,7 +107,7 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
 
         if (proc != nullptr)
         {
-            // Restore addon parameters from settingsJson so a graph rebuild
+            // Restore Pax parameters from settingsJson so a graph rebuild
             // (e.g. dropping a node or adding a connection) doesn't reset sliders
             if (auto* dyn = dynamic_cast<DynamicPaxProcessor*> (proc.get()))
             {
@@ -297,7 +297,7 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
         if (dynamic_cast<MidiKeyboardNode*>  (n) != nullptr) continue;
 
         // Only AudioIn device nodes (non-DAW) get host audio as source
-        // Addon/processing nodes with no connections stay silent
+        // Pax/processing nodes with no connections stay silent
         if (hasInput.count (n->id) == 0)
         {
             if (dynamic_cast<AudioInDeviceNode*> (n) != nullptr)
@@ -310,7 +310,7 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
             {
                 n->inputMidi = hostMidi;
             }
-            // Addon/other nodes with no incoming connections stay silent
+            // Pax/other nodes with no incoming connections stay silent
         }
     }
 
@@ -321,11 +321,12 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
         // port types — used after the edge loop below to prune stale
         // entries out of n->dmxSourceFrames (a source that's since been
         // disconnected shouldn't keep contributing its last-known frame
-        // forever). Harmless that this includes non-DMX sources too —
-        // dmxSourceFrames only ever contains entries a DMX source itself
-        // put there, so a non-DMX source's id here is simply never looked
-        // up against it.
-        std::unordered_set<juce::String> currentDmxSources;
+        // forever). Harmless that this includes non-DMX/ArtNet sources
+        // too — dmxSourceFrames/artNetSourceFrames only ever contain
+        // entries their respective source types put there, so an
+        // unrelated source's id here is simply never looked up against
+        // either. Named generically since both prune passes share it.
+        std::unordered_set<juce::String> currentUpstreamSources;
 
         // Route edges: copy upstream outputAudio → this node's inputAudio
         for (auto& e : edges)
@@ -335,7 +336,7 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
             auto srcIt = nodeMap.find (e.srcNodeId);
             if (srcIt == nodeMap.end()) continue;
             auto* src = srcIt->second;
-            currentDmxSources.insert (src->id);
+            currentUpstreamSources.insert (src->id);
 
             if (isAudioPort (e.srcPortId))
             {
@@ -426,6 +427,12 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
                 if (src->outputDmxFrameValid)
                     n->dmxSourceFrames[src->id] = src->outputDmxFrame;
 
+                // Same caching for ArtNet, plus the universe it's tagged
+                // with — see NodeProcessor.h's ArtNetSourceFrame comment
+                // for why merging later must respect that number.
+                if (src->outputArtNetFrameValid)
+                    n->artNetSourceFrames[src->id] = { src->outputArtNetUniverse, src->outputArtNetFrame };
+
                 if (auto* mon = dynamic_cast<MidiMonitorNode*> (n))
                 {
                     juce::String srcLabel = labelMap.count (src->id) ? labelMap.at (src->id) : src->id;
@@ -466,14 +473,14 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
         // be processed last.
         //
         // Prune first: erase any dmxSourceFrames entry whose source isn't
-        // in currentDmxSources (built from this block's actual edges,
+        // in currentUpstreamSources (built from this block's actual edges,
         // above) — otherwise a disconnected source's last-known frame
         // would keep contributing to the merge forever.
         if (! n->dmxSourceFrames.empty())
         {
             for (auto it = n->dmxSourceFrames.begin(); it != n->dmxSourceFrames.end(); )
             {
-                if (currentDmxSources.count (it->first) == 0)
+                if (currentUpstreamSources.count (it->first) == 0)
                     it = n->dmxSourceFrames.erase (it);
                 else
                     ++it;
@@ -496,6 +503,48 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
                 for (size_t b = 0; b < n->inputDmxFrame.size(); ++b)
                     n->inputDmxFrame[b] = std::max (n->inputDmxFrame[b], kv.second[b]);
             n->inputDmxFrameValid = true;
+        }
+
+        // ── ArtNet: same prune-then-merge, plus a universe gate ───────────
+        // Same reasoning and structure as the DMX pass above — the only
+        // real difference is that a merge must only ever combine cached
+        // entries that share the SAME universe (see NodeProcessor.h's
+        // ArtNetSourceFrame comment for why blending different universes'
+        // bytes together would be meaningless). The chosen universe is
+        // whichever the first cached entry happens to have — for a
+        // correctly-wired rig every cached entry already shares one
+        // universe anyway (matching how DMX itself expects one universe
+        // per destination), so which one "picks" is moot; a mismatched
+        // entry stays cached for later but is excluded from this block's
+        // merge rather than blended in wrong.
+        if (! n->artNetSourceFrames.empty())
+        {
+            for (auto it = n->artNetSourceFrames.begin(); it != n->artNetSourceFrames.end(); )
+            {
+                if (currentUpstreamSources.count (it->first) == 0)
+                    it = n->artNetSourceFrames.erase (it);
+                else
+                    ++it;
+            }
+        }
+
+        if (! n->artNetSourceFrames.empty())
+        {
+            const int chosenUniverse = n->artNetSourceFrames.begin()->second.universe;
+            n->inputArtNetFrame.fill (0);
+            bool anyMerged = false;
+            for (auto& kv : n->artNetSourceFrames)
+            {
+                if (kv.second.universe != chosenUniverse) continue;
+                anyMerged = true;
+                for (size_t b = 0; b < n->inputArtNetFrame.size(); ++b)
+                    n->inputArtNetFrame[b] = std::max (n->inputArtNetFrame[b], kv.second.data[b]);
+            }
+            if (anyMerged)
+            {
+                n->inputArtNetFrameValid = true;
+                n->inputArtNetUniverse   = chosenUniverse;
+            }
         }
 
         // DAW AudioIn: outputAudio already filled in step 2 — skip process()
@@ -540,7 +589,7 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
     else
     {
         // Standalone: AudioOutDeviceNode handles its own output via FIFO.
-        // Other sink nodes (monitors, addons) are observers only — they must NOT
+        // Other sink nodes (monitors, Pax) are observers only — they must NOT
         // contribute to hostAudio. Audio only reaches the physical output via
         // an explicit AudioOutDeviceNode connection.
         // hostMidi sinks however are still collected.

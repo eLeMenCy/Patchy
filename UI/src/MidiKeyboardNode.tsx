@@ -5,6 +5,20 @@ import { useNodeSettings, useNodeDelete, NodeHeader, NodeHandle, useNodeCollapse
 import { HintContext } from './HintPanel';
 import { NodeSelect } from './NodeSelect';
 
+// MidiKeyboardNode.tsx — a fully interactive, mouse-playable piano keyboard
+// (click-drag across keys, velocity from click position, pitch + mod
+// wheels) with its own MIDI In/Out ports: it both sends what you play here
+// and lights up keys from upstream MIDI arriving on its In port.
+//
+// Raw MIDI status bytes appear throughout below rather than named
+// constants — standard MIDI convention, kept for anyone unfamiliar: the
+// high nibble is the message type (0x90 note-on, 0x80 note-off, 0xB0
+// control change, 0xE0 pitch bend), the low nibble is the channel
+// (0-indexed, so channel-1 = 0x_0). Pitch bend's value is 14-bit, split
+// across two 7-bit data bytes (MIDI data bytes can only use 7 of 8 bits —
+// the 8th marks status vs. data bytes) — `v & 0x7F` is the LSB, `(v >> 7)
+// & 0x7F` is the MSB.
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 export interface MidiKeyboardSettings {
   octaves:    1 | 2 | 3 | 4;
@@ -165,6 +179,10 @@ function Keyboard ({ nodeId, settings, activeNotes, onNoteOn, onNoteOff }: {
     }
   }
 
+  // Simulates touch-sensitivity with a mouse, which has no pressure/velocity
+  // of its own: in 'mouse' mode, where you click within the key's height
+  // stands in for how hard you'd have struck a real key — near the top
+  // (rel≈0) reads as soft, near the bottom (rel≈1) as hard.
   const getVelocity = (e: React.MouseEvent, keyH: number, keyY: number) => {
     if (settings.velocity !== 'mouse') return Number(settings.velocity);
     const rel = (e.clientY - keyY) / keyH;
@@ -173,6 +191,10 @@ function Keyboard ({ nodeId, settings, activeNotes, onNoteOn, onNoteOff }: {
 
   const svgRef = useRef<SVGSVGElement>(null);
 
+  // A mouse can only "press" one key at a time, unlike real hands on a
+  // real keyboard — so dragging across keys while the button stays down
+  // (a glissando-style sweep) needs the previous note explicitly released
+  // before the new one starts, or notes would pile up as still "on".
   const handleMouseDown = (e: React.MouseEvent, note: number, h: number) => {
     e.stopPropagation();
     e.preventDefault();
@@ -183,6 +205,11 @@ function Keyboard ({ nodeId, settings, activeNotes, onNoteOn, onNoteOff }: {
     onNoteOn(note, vel);
   };
 
+  // Listens on window, not the key element itself, since the mouse can be
+  // released anywhere — dragged off the keyboard entirely, over the
+  // settings panel, wherever — and a note left "on" because its release
+  // happened outside the original element would be a real, audible stuck
+  // note, not just a cosmetic bug.
   useEffect(() => {
     const up = () => {
       if (pressedRef.current !== null) {
@@ -306,7 +333,12 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
     setHint({ title: label === 'P' ? 'Pitch Wheel' : 'Mod Wheel', body: `Range: ${min} to ${max}. Release to reset to centre.` });
   const wheelHintClear = () => setHint(null);
   const portBodyRef = useRef<HTMLDivElement>(null);
-  const noteTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+
+  // patch(): live update, no Undo-history entry — used while a control is
+  // actively being dragged (mod wheel movement, live text typing).
+  // commitPatch(): pushes one Undo-history entry — used for discrete
+  // choices (a dropdown selection) and on drag-release, mirroring the
+  // same drag-then-commit shape sliders use elsewhere in this project.
 
   const patch = (p: Partial<MidiKeyboardSettings>) => {
     setSettings(s => {
@@ -330,9 +362,19 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
 
 
 
+  // Omni (channel 0) is a receiver-side concept — "listen on every
+  // channel" — that has no equivalent for a sender: a single outgoing MIDI
+  // message can only carry one channel number. Since this node is a
+  // source (it sends what you play), Omni falls back to channel 1 for
+  // anything actually transmitted; it only means something for input
+  // filtering elsewhere in the graph.
   const ch = settings.channel === 0 ? 1 : settings.channel;
 
-  // Subscribe to port activity to light up keys from upstream MIDI
+  // This node has both a MIDI In and a MIDI Out port — so beyond the keys
+  // it lights up itself when clicked (onNoteOn/onNoteOff below), it also
+  // needs to reflect notes arriving from *upstream* on its In port. The
+  // wire format here (`entry.notes`, "status,note status,note ...") is a
+  // compact per-block batch of raw MIDI events for this node specifically.
   useEffect(() => {
     const unsub = Bridge.onPortActivity((entries: PortActivityEntry[]) => {
       const entry = entries.find(e => e.id === id);
@@ -357,7 +399,12 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
     return unsub;
   }, [id]);
 
-  // Restore settings from settingsJson on undo/redo
+  // Undo/redo restores the UI's settings state automatically (React state
+  // from JSON), but the backend audio engine's actual mod-wheel value
+  // isn't part of that — it only changes in response to a real MIDI CC
+  // message. Without explicitly re-sending one here, the panel could show
+  // a restored mod wheel position that the audio engine never actually
+  // received, leaving the two silently out of sync.
   useEffect(() => {
     const sj = (data as any)?.settingsJson;
     try {
@@ -380,6 +427,13 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
     Bridge.sendMidiKeyEvent(id, 0x80 | (ch - 1), note, 0);
   }, [id, ch]);
 
+  // Pitch bend and mod wheel behave differently on purpose, matching how
+  // real MIDI controllers themselves distinguish the two: pitch bend is
+  // spring-loaded, always snapping back to centre (8192) the instant it's
+  // released, so its value is never persisted — pointless to save a
+  // position that never stays put. The mod wheel is positional; it stays
+  // wherever it's left, so its value genuinely is part of the node's
+  // saved settings (`modWheel`), not just transient UI state.
   const onPitchChange = useCallback((v: number) => {
     setPitchWheel(v);
     // Pitch bend: status 0xE0, LSB, MSB

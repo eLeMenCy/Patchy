@@ -116,6 +116,10 @@ target_sources(Patchy PRIVATE
     Pax/PaxScanner.cpp
     Source/GraphModel.cpp
     Source/WebBridge.cpp
+    Source/WebBridge_Dispatch.cpp
+    Source/WebBridge_Push.cpp
+    Source/WebBridge_FileIO.cpp
+    Source/WebBridge_Fragments.cpp
     Source/StandaloneApp.cpp
     Source/MidiDeviceNodes.cpp
     Source/AudioDeviceNodes.cpp

@@ -12,6 +12,13 @@ import {
 
 export type { DmxMonitorNodeData };
 
+// DmxConsoleNode.tsx — the interactive, read-write counterpart to
+// DmxMonitorNode.tsx (which only displays incoming values). Shares its
+// fader/settings-panel UI with DmxMonitorNode and both ArtNet variants via
+// DmxShared.tsx; what's unique here is everything to do with actually
+// setting values: dragging a fader, blackout, and persisting 512 channels'
+// worth of state into settingsJson so it survives undo/redo and reload.
+
 // ── DMX Console (nodeType 17) ─────────────────────────────────────────────────
 export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected }: NodeProps) {
   const nodeData = data as DmxMonitorNodeData;
@@ -19,6 +26,11 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
   const { showSettings, toggleSettings, closeSettings } = useNodeSettings(id);
   const { handleDelete }                         = useNodeDelete(id);
   const { collapsed, toggleCollapsed }           = useNodeCollapsed(id, (data as any)._forceCollapsed);
+  // channels (state) drives what's rendered; channelsRef mirrors the same
+  // 512 values for reading synchronously inside callbacks — React state
+  // updates are async/batched, so a callback closing over `channels`
+  // directly could read a stale array from before its own most recent
+  // update. Every write below updates both, in that order.
   const [channels, setChannels]                  = useState<number[]>(new Array(512).fill(0));
   const [blackout, setBlackoutState]             = useState(false);
   const channelsRef                              = useRef<number[]>(new Array(512).fill(0));
@@ -80,6 +92,13 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
         return;
       }
       const isBlank = channelsRef.current.every(v => v === 0);
+      // Only restore from settingsJson if nothing's arrived yet. Two
+      // sources can populate channels — this restore effect, and the live
+      // Bridge.onDmxSnapshot subscription below — and a live snapshot can
+      // easily land first. Restoring unconditionally here would let a
+      // slower settingsJson parse clobber fresher live data that's
+      // already on screen; once anything real is showing, this effect
+      // backs off and leaves it alone.
       if (!isBlank) return;
       const bin = atob(b64);
       const ch = new Array<number>(512).fill(0);
@@ -106,7 +125,14 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
     return unsub;
   }, [id]);
 
-  // fullSettingsRef: always holds latest merged settingsJson, initialized eagerly
+  // fullSettingsRef: always holds latest merged settingsJson, initialized
+  // eagerly. `settings` only covers the UI-editable fields (visibleCount,
+  // startChannel, valueFormat, customName) — the settings panel doesn't
+  // need to know about dmxChannels or blackout, so they're not part of its
+  // type. This ref holds the complete picture, everything actually
+  // persisted, so a channel update (handleChange below) can merge in just
+  // the one field it's changing without needing to reconstruct or guess
+  // at the rest of the saved state.
   const fullSettingsRef = useRef<Record<string, unknown>>((() => {
     try {
       const base = nodeData.settingsJson ? JSON.parse(nodeData.settingsJson as string) : {};
@@ -126,7 +152,9 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
     channelsRef.current = next;
     setChannels([...next]);
 
-    // Encode 512 channels to base64 in React for setNodeSettings (undo snapshot)
+    // Encode all 512 channels to base64 so the full universe survives in
+    // settingsJson — needed for undo/redo and reload to restore exactly
+    // where the fader grid was left, not just the one channel that moved.
     const bytes = new Uint8Array(512);
     for (let i = 0; i < 512; i++) bytes[i] = next[i] ?? 0;
     let b64 = '';
@@ -139,6 +167,12 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
     }
     const merged = { ...fullSettingsRef.current, dmxChannels: b64 };
     fullSettingsRef.current = merged;
+    // Two separate calls doing two separate jobs: setNodeSettings persists
+    // the settingsJson snapshot above (live update, no Undo-history entry
+    // — handleCommit below pushes the actual history entry on release).
+    // setDmxConsoleChannel is the real-time path, sent straight to the
+    // backend so the channel's actual DMX output changes as the fader
+    // moves, independent of whatever the UI persists.
     Bridge.setNodeSettings(id, merged);
     Bridge.setDmxConsoleChannel(id, ch, val);
   }, [id]);
@@ -213,6 +247,11 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
               <DmxFader
                 key={startChannel + i}
                 ch={startChannel + i + 1}
+                // Blackout forces the displayed (and transmitted) value to
+                // 0 without touching the underlying stored channel values
+                // — `val` itself is untouched. Turning blackout back off
+                // restores whatever the faders were actually set to,
+                // rather than every channel having been reset to 0.
                 value={blackout ? 0 : val}
                 format={valueFormat}
                 onChange={handleChange}

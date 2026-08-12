@@ -8,7 +8,7 @@
  * Spectral mode:  bandpass-filters the audio first, then tracks RMS → CC
  *
  * Build:
- *   macOS:  clang++ -std=c++20 -shared -fPIC EnvelopePax.cpp -o EnvelopeAddon.dylib
+ *   macOS:  clang++ -std=c++20 -shared -fPIC EnvelopePax.cpp -o EnvelopePax.dylib
  *   Linux:  g++     -std=c++20 -shared -fPIC EnvelopePax.cpp -o EnvelopePax.so
  *   Win:    cl /std=c++20 /LD EnvelopePax.cpp /Fe:EnvelopePax.dll
  */
@@ -92,7 +92,7 @@ struct EnvelopePax
     }
 };
 
-// ── NGA exports ───────────────────────────────────────────────────────────────
+// ── PAX exports ───────────────────────────────────────────────────────────────
 extern "C" {
 
 const PAX_Descriptor* PAX_getDescriptor()

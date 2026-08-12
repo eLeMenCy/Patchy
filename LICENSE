@@ -41,10 +41,10 @@ under the same GPL v3 terms — source code and pre-built binaries alike.
 
 -------------------------------------------------------------------------------
 
-NOTE ON ADDONS:
+NOTE ON PAX:
 
-The Addon API (Addons/AddonAPI.h) is separately licensed under the MIT
-License (see Addons/LICENSE). Addon developers are free to license their
-own addon code under any terms they choose, including proprietary licenses.
-Addons are considered separate works communicating with Patchy at arm's
-length via the Addon API.
+The Pax API (Pax/PaxAPI.h) is separately licensed under the MIT
+License (see Pax/LICENSE). Pax developers are free to license their
+own Pax code under any terms they choose, including proprietary licenses.
+Pax are considered separate works communicating with Patchy at arm's
+length via the Pax API.

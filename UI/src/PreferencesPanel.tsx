@@ -3,6 +3,18 @@ import { Bridge, AudioSettings } from './Bridge';
 import { DawContext } from './DawContext';
 import { HintContext } from './HintPanel';
 
+// PreferencesPanel.tsx — the standalone/DAW preferences popover, with two
+// tabs on genuinely different persistence paths. Graph tab: browser
+// localStorage, per-install rather than per-project — unlike every node's
+// own settingsJson (which travels inside the saved .patchy project file
+// via the Bridge), these preferences stay on this machine and don't
+// follow the project when it's shared or opened elsewhere. Audio tab
+// (standalone only): sent straight to the backend audio engine via
+// Bridge.setAudioEngineSettings, with no undo/redo integration at all —
+// sample rate/buffer size/mute-feedback are host/device state, not part
+// of the document, so Undo doesn't conceptually apply to them the way it
+// does to graph edits.
+
 // ── Graph preferences ─────────────────────────────────────────────────────────
 export interface GraphPreferences {
   invertZoom: boolean;
@@ -216,6 +228,10 @@ function GraphTab ({ prefs, onChange }: {
         </>
       )}
       <SectionHeader label="Navigation" />
+      {/* Genuinely unimplemented, not just this toggle disabled — invertZoom
+          is declared in GraphPreferences and stored via localStorage, but
+          nothing anywhere else in the codebase reads it back to actually
+          affect zoom direction yet. */}
       <ToggleRow
         label="Invert zoom direction"
         desc="Coming soon — macOS trackpad gestures require deeper integration"
@@ -242,6 +258,10 @@ export default function PreferencesPanel ({
   const [activeTab, setActiveTab] = useState<'graph' | 'audio'>('graph');
   const { setHint } = useContext(HintContext);
 
+  // excludeRef points at the toggle button that opens this panel (App.tsx's
+  // prefsBtnRef) — without excluding it, clicking that button to close an
+  // already-open panel would register as an outside click first (closing
+  // it), then the button's own onClick would immediately reopen it.
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (excludeRef?.current?.contains(e.target as Element)) return;

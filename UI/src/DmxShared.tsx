@@ -2,13 +2,21 @@ import { memo, useCallback, useRef, useState } from 'react';
 import { NodeSelect } from './NodeSelect';
 import { SettingsPanelHeader } from './NodeUtils';
 
+// DmxShared.tsx — shared types, constants, and components for both DMX and
+// ArtNet Monitor/Console nodes (DmxMonitorNode.tsx, DmxConsoleNode.tsx,
+// ArtNetMonitorNode.tsx, ArtNetConsoleNode.tsx all import from here). One
+// shared file rather than four separate copies, since DMX and ArtNet
+// Monitor/Console share an identical UI shape (same fader grid, same
+// settings panel, same channel-range navigation) — only the wire protocol
+// underneath differs, which lives in each consumer's own file, not here.
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 export interface DmxMonitorNodeData {
   label:    string;
-  nodeType: 16 | 17 | 18 | 19;
+  nodeType: 16 | 17 | 18 | 19;   // 16=DMX Monitor, 17=DMX Console, 18=ArtNet Monitor, 19=ArtNet Console
   ports:    { id: string; label: string; type: string; direction: 'input' | 'output' }[];
   settingsJson?: string;
-  [key: string]: unknown;
+  [key: string]: unknown;   // ReactFlow's NodeProps generic constraint requires this
 }
 
 export interface DmxNodeSettings {
@@ -27,9 +35,16 @@ export const DEFAULT_SETTINGS: DmxNodeSettings = {
   blackout:     false,
 };
 
+// Two colour constants, deliberately not just one: ACCENT is a CSS custom
+// property reference for ordinary DOM styling, but Canvas 2D's
+// fillStyle/strokeStyle cannot resolve CSS custom properties at all — it
+// silently fails and defaults to black rather than throwing (this exact
+// bug once made a whole waveform render invisible elsewhere in this
+// project — see AudioToDmxNode.tsx's resolveCssColor). ACCENT_C is the
+// same colour as a literal hex, for anything drawn on a <canvas>.
 export const ACCENT   = 'var(--dmx)';
 export const ACCENT_C = '#fbbf24';   // resolved colour for canvas drawing
-export const CHANNELS = 512;
+export const CHANNELS = 512;         // full DMX/ArtNet universe size
 export const COL_W    = 24;
 export const FADER_H  = 80;
 
@@ -52,6 +67,14 @@ export function navBtnStyle(disabled: boolean): React.CSSProperties {
 }
 
 // ── Vertical fader (Console — interactive DOM element) ────────────────────────
+// HTML <input type="range"> has no native vertical orientation — the
+// writingMode/direction combo below is the standard cross-browser CSS
+// trick to fake one (writingMode rotates the whole box, direction:rtl
+// flips it back so higher values still end up at the top, not the
+// bottom). `ch` here is the 1-based channel number shown to the user
+// (matches DMX's own 1-512 convention); onChange subtracts 1 since the
+// underlying channel array/API is 0-indexed — easy to misread if you're
+// not expecting the shift.
 export function DmxFader ({ ch, value, format, onChange, onCommit, readOnly }: {
   ch:       number;
   value:    number;
@@ -92,6 +115,11 @@ export function DmxFader ({ ch, value, format, onChange, onCommit, readOnly }: {
       <input
         type="range" min={0} max={255} value={value}
         disabled={readOnly}
+        // stopPropagation + className="nodrag" below: without both, ReactFlow
+        // reads a mousedown/pointerdown on this fader as "start dragging the
+        // whole node" rather than "interact with the slider" — nodrag is
+        // ReactFlow's own documented opt-out class, stopPropagation covers
+        // the mouse-drag path nodrag alone doesn't reach.
         onMouseDown={e => { e.stopPropagation(); isDragging.current = true; }}
         onMouseUp={() => { if (isDragging.current) { isDragging.current = false; onCommit(); } }}
         onKeyUp={() => onCommit()}
@@ -139,6 +167,12 @@ export function DmxFader ({ ch, value, format, onChange, onCommit, readOnly }: {
 }
 
 // ── Name input with debounced commit (500ms after last keystroke) ─────────────
+// onChange fires (and pushes to local state) on every keystroke for a
+// responsive-feeling input, but onCommit — which pushes an Undo-history
+// entry — is deliberately debounced rather than firing per-keystroke, or
+// the Undo stack would fill with one step per character typed. handleBlur
+// commits immediately regardless of the timer, so navigating away mid-type
+// doesn't lose the in-progress edit.
 export function NameInput ({ value, placeholder, onChange, onCommit }: {
   value:       string;
   placeholder: string;
@@ -179,6 +213,11 @@ export function NameInput ({ value, placeholder, onChange, onCommit }: {
 }
 
 // ── Shared settings panel ─────────────────────────────────────────────────────
+// One panel serves both roles — Console (read-write, user sets values) and
+// Monitor (read-only, just displays incoming values) — driven entirely by
+// the `isConsole` flag, which only changes the title text here; whether
+// the faders themselves are actually editable is decided by each
+// consumer's own `readOnly` prop passed to DmxFader, not by this panel.
 export function DmxSettingsPanel ({ settings, isConsole, onChange, onCommit, onClose }: {
   settings:  DmxNodeSettings;
   isConsole: boolean;

@@ -2,7 +2,7 @@ import { DragEvent, useEffect, useState, useContext } from 'react';
 import { DawContext } from './DawContext';
 import { HintPanel, NODE_HINTS, HintContext } from './HintPanel';
 import { Bridge, PaxInfo } from './Bridge';
-import { detectPaxTheme, detectPaxCategoryKey } from './NodeUtils';
+import { detectPaxTheme, detectPaxCategoryKey, resolveCssColor } from './NodeUtils';
 
 const BUILTIN_GROUPS = [
   {
@@ -73,7 +73,7 @@ const BUILTIN_GROUPS = [
 // sidebar can build a "ports-like" array from a PaxInfo entry's raw counts
 // and call the exact same auto-detection algorithm a placed node uses —
 // found this was needed after noticing the sidebar was colouring by a
-// fixed per-ngaType lookup, producing a real mismatch against placed
+// fixed per-paxType lookup, producing a real mismatch against placed
 // nodes' genuinely auto-detected colour.
 const VALUE_TAG_TO_PORT: Record<string, { type: string; label: string }> = {
   generic: { type: 'value', label: 'Value' },
@@ -103,7 +103,7 @@ function paxInfoToPorts (p: PaxInfo): { type: string; label: string; direction: 
 }
 
 // Grouped by detected category (via detectPaxCategoryKey), not raw
-// ngaType — a Pax's declared descriptor nodeType (1-4) is just a rough
+// paxType — a Pax's declared descriptor nodeType (1-4) is just a rough
 // starting point for its default port layout, not what it actually does;
 // grouping by that instead of the real auto-detected category put e.g. a
 // pure-sink Pax with mixed input types (falling back to Hybrid/orange)
@@ -133,11 +133,18 @@ function DragItem({ nodeType, label, desc, accent, dim, icon, paxName = '', paxI
   paxName?: string;
   paxInfo?: PaxInfo;
 }) {
+  // FIXED (2026-08-12): resolved once per render, used only where a
+  // hex-alpha suffix gets concatenated below (the hover glow) — same bug
+  // class as NodeSelect.tsx. accent arrives as a raw CSS var() string
+  // from every caller (the protocol group definitions above, and
+  // detectPaxTheme for Pax items).
+  const accentHex = resolveCssColor(accent);
+
   const onDragStart = (e: DragEvent<HTMLDivElement>) => {
     e.dataTransfer.setData('text/plain', JSON.stringify({
       nodeType:  paxName ? 0 : nodeType,
       paxName,
-      ngaType:   paxName ? nodeType : 0,
+      paxType:   paxName ? nodeType : 0,
     }));
     e.dataTransfer.effectAllowed = 'copy';
   };
@@ -184,7 +191,7 @@ Type: ${typeLabel} · ${ports.join(', ')}`
       onMouseEnter={e => {
         const el = e.currentTarget as HTMLDivElement;
         el.style.borderColor = accent; el.style.background = dim;
-        el.style.boxShadow = `0 0 12px ${accent}44`;
+        el.style.boxShadow = `0 0 12px ${accentHex}44`;
         const h = buildHint(); if (h) setHint(h);
       }}
       onMouseLeave={e => {

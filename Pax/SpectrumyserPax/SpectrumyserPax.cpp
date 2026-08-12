@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 /**
  * SpectrumyserPax — Audio spectrum analyser with frequency band outputs
  *
@@ -20,9 +19,9 @@
  *   10 — Band 5 High Hz  (default 20000)
  *
  * Build:
- *   macOS:  clang++ -std=c++20 -shared -fPIC SpectrumyserAddon.cpp -o SpectrumyserAddon.dylib
- *   Linux:  g++     -std=c++20 -shared -fPIC SpectrumyserAddon.cpp -o SpectrumyserAddon.so
- *   Win:    cl /std:c++20 /LD SpectrumyserAddon.cpp /Fe:SpectrumyserAddon.dll
+ *   macOS:  clang++ -std=c++20 -shared -fPIC SpectrumyserPax.cpp -o SpectrumyserPax.dylib
+ *   Linux:  g++     -std=c++20 -shared -fPIC SpectrumyserPax.cpp -o SpectrumyserPax.so
+ *   Win:    cl /std:c++20 /LD SpectrumyserPax.cpp /Fe:SpectrumyserPax.dll
  */
 
 #include "../PaxAPI.h"

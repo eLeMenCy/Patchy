@@ -6,7 +6,12 @@
  * ArtNetConsoleNode  (nodeType 19)
  *
  * ArtDMX Out only — Console is a source node (output-only).
- * - Outputs current fader state as ArtNet universe (PAX_Value::key = universe)
+ * - Outputs current fader state as a full 512-channel universe via the
+ *   dedicated ArtNet frame path (NodeProcessor.h), plus a lightweight
+ *   PAX_Value mirror (type=DMX, dataType=FLOAT, value=channel[0]/255,
+ *   key=universe, no blob) for anything that only wants a plain scalar.
+ *   The frame is the real payload — cramming the universe into
+ *   PAX_Value.data[] used to silently truncate at 56 of 512 channels.
  * - Blackout: when active, outputs all zeros
  * - Outputs only on change (memcmp vs last sent frame)
  * - Universe set from UI settings panel via setUniverse()
@@ -135,15 +140,24 @@ public:
         std::memcpy (lastSent.data(), current.data(), 512);
         pendingOutput.store (false, std::memory_order_relaxed);
 
-        // Build output PAX_Value — ArtNet uses PAX_TYPE_DMX with key = universe
+        // Full universe via the dedicated ArtNet frame path (see
+        // NodeProcessor.h) — this used to be squeezed into
+        // PAX_Value.data[] (56 bytes), which silently truncated the
+        // console to its first 56 of 512 channels, the exact same bug
+        // DMX had before its own fix (see Architecture.md).
+        const int uni = universe.load (std::memory_order_relaxed);
+        outputArtNetFrame      = current;
+        outputArtNetFrameValid = true;
+        outputArtNetUniverse   = uni;
+
+        // Lightweight Value mirror alongside it, no blob — same reasoning
+        // as DmxConsoleNode's own mirror: purely so the existing port/
+        // edge-matching UI machinery keeps working.
         PAX_Value v {};
         v.type     = PAX_TYPE_DMX;
-        v.dataType = PAX_DATA_BLOB;
-        v.key      = (uint32_t) universe.load (std::memory_order_relaxed);
+        v.dataType = PAX_DATA_FLOAT;
+        v.key      = (uint32_t) uni;
         v.value    = current[0] / 255.f;
-        v.dataSize = 512;
-        std::memcpy (v.data, current.data(), std::min ((size_t) 512, sizeof (v.data)));
-        v.dataSize = static_cast<uint16_t> (sizeof (v.data));
 
         outputValues[0] = v;
         outputValueCount = 1;

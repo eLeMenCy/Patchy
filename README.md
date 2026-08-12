@@ -10,24 +10,46 @@
 
 ## Table of Contents
 
-1. [Feature Overview](#feature-overview)
-2. [Project Structure](#project-structure)
-3. [Built-in Nodes](#built-in-nodes)
-4. [Signal Flow Visualisation](#signal-flow-visualisation)
-5. [DAW Mode](#daw-mode)
-6. [Standalone Mode](#standalone-mode)
-7. [Pax System](#pax-system)
-8. [Patch Files](#patch-files)
-9. [Fragment Export / Import](#fragment-export--import)
-10. [Channel Selection](#channel-selection)
-11. [Undo / Redo](#undo--redo)
-12. [Keyboard Shortcuts](#keyboard-shortcuts)
-13. [Building](#building)
-14. [Writing a Pax](#writing-a-pax)
-15. [API Reference](#api-reference)
-16. [Thread Safety](#thread-safety)
-17. [Performance](#performance)
-18. [Licensing](#licensing)
+<!-- TOC -->
+  * [About](#about)
+  * [Table of Contents](#table-of-contents)
+  * [Feature Overview](#feature-overview)
+  * [Project Structure](#project-structure)
+  * [Built-in Nodes](#built-in-nodes)
+  * [Signal Flow Visualisation](#signal-flow-visualisation)
+  * [DAW Mode](#daw-mode)
+    * [Safety locks](#safety-locks)
+  * [Standalone Mode](#standalone-mode)
+  * [Pax System](#pax-system)
+    * [Pax folder locations](#pax-folder-locations)
+    * [Bundled Pax](#bundled-pax)
+    * [Parameter persistence](#parameter-persistence)
+    * [Dynamic port counts](#dynamic-port-counts)
+    * [Building a Pax](#building-a-pax)
+  * [Patch Files](#patch-files)
+    * [Burger menu `☰` (top-right)](#burger-menu--top-right)
+  * [Fragment Export / Import](#fragment-export--import)
+    * [Export](#export)
+    * [Import — Ghost Overlay UX](#import--ghost-overlay-ux)
+  * [Channel Selection](#channel-selection)
+  * [Undo / Redo](#undo--redo)
+  * [Keyboard Shortcuts](#keyboard-shortcuts)
+  * [Building](#building)
+    * [Prerequisites](#prerequisites)
+    * [Host (VST3 / AU / Standalone)](#host-vst3--au--standalone)
+    * [UI dev server (hot reload)](#ui-dev-server-hot-reload)
+  * [Writing a Pax](#writing-a-pax)
+    * [Optional exports](#optional-exports)
+  * [API Reference](#api-reference)
+    * [PAX_Descriptor](#pax_descriptor)
+    * [PAX_MidiEvent](#pax_midievent)
+    * [PAX_ParameterInfo](#pax_parameterinfo)
+    * [PAX_Value  *(new in API v2, gained `portIndex` in API v3)*](#pax_value-new-in-api-v2-gained-portindex-in-api-v3)
+    * [PAX_ProcessContext  *(new in API v2, gained a DMX universe path in API v4)*](#pax_processcontext-new-in-api-v2-gained-a-dmx-universe-path-in-api-v4)
+  * [Thread Safety](#thread-safety)
+  * [Performance](#performance)
+  * [Licensing](#licensing)
+<!-- TOC -->
 
 ---
 
@@ -78,7 +100,12 @@ Patchy/
 ├── Source/                          Core C++ engine
 │   ├── PatchyProcessor.h/.cpp       AudioProcessor — owns all state
 │   ├── PatchyEditor.h/.cpp          AudioProcessorEditor + keyboard shortcuts
-│   ├── WebBridge.h/.cpp             JS↔C++ bridge + 30fps timer + file I/O
+│   ├── WebBridge.h                  JS↔C++ bridge — class declaration (all 5 .cpp below implement it)
+│   ├── WebBridge.cpp                Browser/WebView plumbing + constructor
+│   ├── WebBridge_Dispatch.cpp       Message dispatcher — handleMessage() + all its handlers
+│   ├── WebBridge_Push.cpp           Push-to-UI functions + 30fps timer
+│   ├── WebBridge_FileIO.cpp         File save/open/new + Undo/Redo
+│   ├── WebBridge_Fragments.cpp      Fragment export/import dialogs
 │   ├── GraphModel.h/.cpp            UI data model (message thread)
 │   ├── ProcessingGraph.h/.cpp       Topological sort + audio/MIDI routing
 │   ├── NodeProcessor.h/.cpp         Abstract base — single + multi-port buffers
@@ -111,9 +138,9 @@ Patchy/
 │   └── StandaloneApp.h/.cpp         Standalone wrapper (window bounds, file location)
 │
 ├── Pax/                          Pax ecosystem
-│   ├── PaxAPI.h                   The ONLY header an addon author needs
-│   ├── PaxRegistry.h/.cpp         Loads addons, owns DynamicLibrary handles
-│   ├── PaxScanner.h/.cpp          Discovers addons in platform folders
+│   ├── PaxAPI.h                   The ONLY header a Pax author needs
+│   ├── PaxRegistry.h/.cpp         Loads Pax, owns DynamicLibrary handles
+│   ├── PaxScanner.h/.cpp          Discovers Pax in platform folders
 │   ├── LevelPax/                  Audio level control (-60dB to +6dB)
 │   ├── AmpPax/                    Audio amplifier (0dB to +24dB)
 │   ├── TransposePax/              MIDI transpose (-24 to +24 semitones)
@@ -262,7 +289,7 @@ When launched as a standalone application, Patchy:
 
 ## Pax System
 
-Addons are shared libraries implementing the `PAX_Descriptor` C API in `Pax/PaxAPI.h`. Discovered at startup by `PaxScanner`, loaded by `PaxRegistry`.
+Pax are shared libraries implementing the `PAX_Descriptor` C API in `Pax/PaxAPI.h`. Discovered at startup by `PaxScanner`, loaded by `PaxRegistry`.
 
 ### Pax folder locations
 
@@ -283,6 +310,7 @@ Addons are shared libraries implementing the `PAX_Descriptor` C API in `Pax/PaxA
 | Splitter | Audio | 1in/2out | — (L→out1, R→out2) |
 | Spectrumyser | Audio | 1in/1-5out | Band count (1-5), per-band frequency range |
 | MQTT to Value | Converter | 1 MQTT in / 1 Value out | — (stateless passthrough; first Phase 4 adapter, bridges MQTT payloads into the generic Value graph) |
+| Audio to DMX | Converter | 1 Audio in / 1 DMX out | Mode (RMS/Freq Range), Sensitivity (dB), Damping (0-500ms), DMX Channel (1-512); first Pax hosted inside a DAW, not just standalone |
 
 ### Parameter persistence
 
@@ -295,13 +323,24 @@ Pax parameters are automatically saved in `settingsJson` on every change and res
 
 Pax can change their output port count at runtime by exporting `PAX_getAudioOutputCount`. Patchy updates the node's ports and routing live — without a full graph rebuild or audio interruption — only when the count actually changes.
 
-### Building a Pax (macOS example)
+### Building a Pax
+
+Recommended — `Pax/build_pax.sh` (macOS/Linux) or `Pax/build_pax.bat` (Windows) builds every bundled Pax in one go:
 
 ```bash
-cd Addons/SpectrumyserAddon
-clang++ -std=c++20 -shared -fPIC SpectrumyserAddon.cpp \
-        -o SpectrumyserAddon.dylib
-cp SpectrumyserAddon.dylib ~/Library/Patchy/Pax/
+cd Pax
+./build_pax.sh              # build only, binaries land in Pax/build/pax/
+./build_pax.sh --install    # build + copy straight to the Pax folder for your platform
+./build_pax.sh --clean      # wipe the build directory first
+```
+
+Manual single-Pax build (what the script does under the hood, macOS example):
+
+```bash
+cd Pax/SpectrumyserPax
+clang++ -std=c++20 -shared -fPIC SpectrumyserPax.cpp \
+        -o SpectrumyserPax.dylib
+cp SpectrumyserPax.dylib ~/Library/Patchy/Pax/
 ```
 
 ---
@@ -434,7 +473,7 @@ Include only `Pax/PaxAPI.h`. No JUCE dependency required.
 #include "PaxAPI.h"
 #include <cstring>
 
-struct MyAddon {};
+struct MyPax {};
 
 extern "C" {
 
@@ -448,8 +487,8 @@ const PAX_Descriptor* PAX_getDescriptor() {
     return &d;
 }
 
-PAX_Instance* PAX_create()           { return new MyAddon(); }
-void PAX_destroy (PAX_Instance* i)   { delete (MyAddon*)i; }
+PAX_Instance* PAX_create()           { return new MyPax(); }
+void PAX_destroy (PAX_Instance* i)   { delete (MyPax*)i; }
 void PAX_prepare (PAX_Instance*, double, int) {}
 
 void PAX_process (PAX_Instance*, const PAX_ProcessContext* ctx)
@@ -623,7 +662,7 @@ Patchy uses a **source-open, binary-paid** model:
 |------|------|-------|
 | Source code | Free | GPL v3 — compile it yourself |
 | Official pre-built binary | Paid | Convenience fee — supports development |
-| Addon API (`AddonAPI.h`) | Free | MIT — no strings attached |
+| Pax API (`PaxAPI.h`) | Free | MIT — no strings attached |
 | Bundled example Pax | Free | MIT — use as reference |
 
 Pax developers are free to license their Pax under any terms — proprietary, MIT, GPL, or anything else.

@@ -41,7 +41,7 @@ public:
         inputMidi.clear();
         outputMidi.clear();
 
-        // Resize per-port buffers for addon nodes with variable port counts
+        // Resize per-port buffers for Pax nodes with variable port counts
         for (auto& buf : inputAudioBuffers)
             buf.setSize (2, maxBlockSize, false, true, true);
         for (auto& buf : outputAudioBuffers)
@@ -68,6 +68,12 @@ public:
         // not to trust it; the flag is the actual reset, not the bytes.
         inputDmxFrameValid  = false;
         outputDmxFrameValid = false;
+
+        // Same for ArtNet — universe numbers are left alone deliberately,
+        // same as the byte arrays: harmless stale data as long as the
+        // valid flags say not to trust it.
+        inputArtNetFrameValid  = false;
+        outputArtNetFrameValid = false;
     }
 
     /** Allocate per-port audio buffers (called when port count is known). */
@@ -126,6 +132,36 @@ public:
     // disconnected source's last value doesn't linger forever.
     std::unordered_map<juce::String, std::array<uint8_t, 512>> dmxSourceFrames;
 
+    // ── ArtNet universe buffer — same wide-payload path as DMX above, plus
+    // a universe number alongside each frame. ArtNet genuinely addresses
+    // multiple universes (PAX_Value::key carries it today), unlike plain
+    // DMX — but that's handled the same way DMX's own 2-universe Enttec
+    // Mk2 case already is: one universe is a fixed property of a given
+    // node *instance* (ArtNetConsoleNode's own `universe`,
+    // ArtNetOutDeviceNode's own target), not something one instance juggles
+    // several of internally. So this mirrors the DMX fields exactly, one
+    // slot per direction, with a paired universe number recording which
+    // universe that slot represents — not a universe-keyed map.
+    std::array<uint8_t, 512> inputArtNetFrame  {};
+    std::array<uint8_t, 512> outputArtNetFrame {};
+    bool inputArtNetFrameValid  = false;
+    bool outputArtNetFrameValid = false;
+    int  inputArtNetUniverse    = 0;
+    int  outputArtNetUniverse   = 0;
+
+    // Per-source ArtNet frame cache — same reasoning as dmxSourceFrames
+    // (persists between a discrete source's emission events, pruned each
+    // block against currently-connected sources by ProcessingGraph.cpp),
+    // plus each entry's own universe number. Merging must only ever
+    // combine cached entries that share the SAME universe — two different
+    // universes' bytes have no meaningful combination, the same reason
+    // DMX itself would never wire two different Enttec ports' sources
+    // into one destination. A mismatched-universe entry stays cached
+    // (so it's ready the moment something matching connects) but is
+    // simply excluded from the current merge, not blended in wrong.
+    struct ArtNetSourceFrame { int universe = 0; std::array<uint8_t, 512> data {}; };
+    std::unordered_map<juce::String, ArtNetSourceFrame> artNetSourceFrames;
+
     const juce::String id;
     const Type         nodeType;
 
@@ -136,4 +172,4 @@ protected:
 };
 
 // Built-in stub node types removed — all built-in nodes are now device nodes.
-// Dynamic addon nodes use DynamicPaxProcessor (see PaxRegistry.h).
+// Dynamic Pax nodes use DynamicPaxProcessor (see PaxRegistry.h).

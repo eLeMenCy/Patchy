@@ -165,9 +165,9 @@ DynamicPaxProcessor::DynamicPaxProcessor (const juce::String&             nodeId
     jassert (instance != nullptr);
 
     // Set effective audio port counts
-    int ngaType = e.nodeType;
-    audioInputCount  = e.audioInputs  > 0 ? e.audioInputs  : (ngaType == 2 || ngaType == 3 ? 1 : 0);
-    audioOutputCount = e.audioOutputs > 0 ? e.audioOutputs : (ngaType == 2 || ngaType == 3 ? 1 : 0);
+    int paxType = e.nodeType;
+    audioInputCount  = e.audioInputs  > 0 ? e.audioInputs  : (paxType == 2 || paxType == 3 ? 1 : 0);
+    audioOutputCount = e.audioOutputs > 0 ? e.audioOutputs : (paxType == 2 || paxType == 3 ? 1 : 0);
 
     // Allocate per-port audio buffers (size set properly in prepare())
     allocatePortBuffers (audioInputCount, audioOutputCount, 512);

@@ -76,6 +76,10 @@ void WebBridge::pushPaxList()
                 po->setProperty ("max",          info.maxValue);
                 po->setProperty ("defaultValue", info.defaultValue);
                 po->setProperty ("step",         info.step);
+                // Optional — see PaxAPI.h's PAX_isParameterReadOnly. Not
+                // exported by a Pax means every one of its parameters is
+                // a normal editable control (safe default).
+                po->setProperty ("readOnly",     e.isParamReadOnly ? (e.isParamReadOnly (tmp, p) != 0) : false);
                 params.add (po);
             }
             e.destroy (tmp);
@@ -508,12 +512,31 @@ void WebBridge::pushPortActivity()
         }
         portRmsStr << "]";
 
+        // Build paxReadOnly array — [{index, value}, ...] for this node's
+        // read-only parameters, empty for every node except a Pax that has
+        // at least one. Value sent as a plain float, not the ×1000-integer
+        // compactness convention RMS/DMX use above — those are always
+        // 0.0-1.0 by design, but a read-only parameter could legitimately
+        // be any range (matching whatever min/max the Pax itself declared
+        // for it), and this array is rare/small enough (empty for most
+        // nodes) that precision matters more here than shaving bytes.
+        juce::String paxReadOnlyStr = "[";
+        for (size_t ri = 0; ri < a.paxReadOnlyValues.size(); ++ri)
+        {
+            if (ri > 0) paxReadOnlyStr << ",";
+            paxReadOnlyStr << "{" << Q << "index" << Q << ":" << a.paxReadOnlyValues[ri].first
+                           << "," << Q << "value" << Q << ":"
+                           << juce::String (a.paxReadOnlyValues[ri].second, 4) << "}";
+        }
+        paxReadOnlyStr << "]";
+
         json << "{"
              << Q << "id"       << Q << ":" << Q << a.nodeId       << Q << ","
              << Q << "midi"     << Q << ":" << a.midiOutEvents             << ","
              << Q << "l"        << Q << ":" << lv                          << ","
              << Q << "r"        << Q << ":" << rv                          << ","
              << Q << "portRms"  << Q << ":" << portRmsStr                  << ","
+             << Q << "paxReadOnly" << Q << ":" << paxReadOnlyStr            << ","
              << Q << "notes"    << Q << ":" << Q << notesStr        << Q   << ","
              << Q << "bytes"    << Q << ":" << a.udpBytes                  << ","
              << Q << "isMk2"    << Q << ":" << (a.dmxIsMk2 ? "true" : "false") << ","

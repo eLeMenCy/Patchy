@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, useContext } from 'react';
 import { HintContext, NODE_HINTS, BUTTON_HINTS } from './HintPanel';
 import { DawContext } from './DawContext';
-import { X } from 'lucide-react';
+import { X, Settings } from 'lucide-react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, PaxParamInfo } from './Bridge';
 import { useNodeDelete, NodeHeaderButton, useNodeCollapsed, useNodeSettings, NodeHandle, nodeContainerStyle, portColour, _paxInfoMap, detectPaxTheme, detectPaxTagPrefix } from './NodeUtils';
@@ -332,6 +332,54 @@ function GenericNode({ id, data, selected }: NodeProps) {
   const paxParams = (data.paxParams ?? []) as PaxParamInfo[];
   const [paramValues, setParamValues] = useState<number[]>([]);
 
+  // Live values for this node's read-only parameters (see PaxAPI.h's
+  // PAX_isParameterReadOnly) — keyed by parameter index. Separate
+  // subscription from paramValues above, deliberately: those sync from
+  // settingsJson (the user's own saved settings), this reads live off
+  // Bridge.onPortActivity's 30fps poll instead, since a read-only
+  // parameter's value is never something settingsJson holds — it's
+  // whatever the Pax is currently reporting, moment to moment. Gated on
+  // the settings panel actually being open — no need for every node on
+  // the canvas to process this 30fps stream when its own panel is closed
+  // and nothing would even be shown.
+  const [readOnlyValues, setReadOnlyValues] = useState<Map<number, number>>(new Map());
+  const hasReadOnlyParams = paxParams.some(p => p.readOnly);
+  useEffect(() => {
+    // ROOT CAUSE FOUND AND FIXED (2026-08-19): this used to also gate on
+    // showSettings, on the assumption the read-only display only renders
+    // when a node's settings panel is open — that assumption was wrong.
+    // The parameter list (including this display) actually renders
+    // unconditionally whenever a Pax has any parameters at all, gated
+    // only on `isPax && paxParams.length > 0` — a completely separate
+    // condition, nothing to do with showSettings. For a Pax with no
+    // separate settings-gear toggle at all (like this one), showSettings
+    // never becomes true, so the subscription never activated — while
+    // the display itself sat there visible the whole time, showing only
+    // whatever the separate settingsJson-sync effect last set. Gating
+    // only on hasReadOnlyParams now, matching what the display itself
+    // actually depends on.
+    if (!hasReadOnlyParams) return;
+    return Bridge.onPortActivity((entries) => {
+      const entry = entries.find(e => e.id === id);
+      if (!entry || !entry.paxReadOnly || entry.paxReadOnly.length === 0) return;
+      setReadOnlyValues(prev => {
+        const next = new Map(prev);
+        entry.paxReadOnly.forEach(({ index, value }) => next.set(index, value));
+        return next;
+      });
+      // Persisting the value into settingsJson (so it survives a graph
+      // rebuild) now happens on the backend itself, unconditionally, in
+      // PatchyProcessor::getPortActivity() — not here. An earlier version
+      // of this did it from here instead, syncing paramValues and calling
+      // Bridge.setNodeSettings whenever a live value arrived — but that
+      // only ran while this specific node's settings panel happened to be
+      // open, which real testing showed doesn't reliably keep the
+      // persisted value current: a rebuild can happen at any moment,
+      // almost certainly while nobody has this panel open at all. This
+      // effect now only needs to update the live display.
+    });
+  }, [hasReadOnlyParams, id]);
+
   // Sync paramValues when paxParams arrive (may come after mount)
   // Also restore saved values from settingsJson if available
   useEffect(() => {
@@ -365,7 +413,17 @@ function GenericNode({ id, data, selected }: NodeProps) {
     const vals = paxParams.map((p, i) => (raw && raw[i] !== undefined) ? raw[i] : p.defaultValue);
     setParamValues(prev => {
       if (prev.length === vals.length && prev.every((v, i) => v === vals[i])) return prev;
-      vals.forEach((v, i) => Bridge.setPaxParameter(id, i, v));
+      // Skip read-only parameters here — the backend is already the
+      // source of truth for those (it's the one writing settingsJson in
+      // the first place, from PatchyProcessor::getPortActivity()), so
+      // reading a value back out of settingsJson and sending it straight
+      // back via setPaxParameter is pure round-trip noise for those
+      // specifically. Matters more than it sounds: since the backend now
+      // updates settingsJson on every live value change, this effect
+      // fires continuously for a node with a read-only parameter — with
+      // every editable parameter still round-tripped normally (needed
+      // for undo/redo to actually restore them), just not this one.
+      vals.forEach((v, i) => { if (!paxParams[i]?.readOnly) Bridge.setPaxParameter(id, i, v); });
       return vals;
     });
   }, [nodeData.settingsJson, paxParams.length]);
@@ -378,6 +436,28 @@ function GenericNode({ id, data, selected }: NodeProps) {
     });
     Bridge.setPaxParameter(id, index, value);
   }, [id]);
+  const resetParams = useCallback(() => {
+    const defaults = paxParams.map(p => p.defaultValue);
+    setParamValues(defaults);
+    Bridge.setNodeSettings(id, defaults);
+    defaults.forEach((v, i) => Bridge.setPaxParameter(id, i, v));
+    Bridge.commitNodeSettings(id);
+  }, [id, paxParams]);
+  // Layout rule (see SessionLog.md, 2026-08-19, for the full design):
+  // a Pax with exactly one parameter that's also read-only (a pure
+  // display, nothing to drag) shows compactly in the header, no cog —
+  // e.g. OscToValuePax. A Pax with more than one parameter gets a cog
+  // and a fold — collapsed shows a summary of every parameter except any
+  // with its own dedicated special-case rendering (currently just "DMX
+  // Channel", which already gets its own number-input treatment below),
+  // expanded shows the full list. A Pax with exactly one *editable*
+  // parameter (LevelPax, AmpPax, etc.) is unaffected by any of this —
+  // matches its long-standing existing behaviour exactly.
+  const isSingleReadOnlyPax = isPax && paxParams.length === 1 && paxParams[0].readOnly;
+  const isMultiParamPax = isPax && paxParams.length > 1;
+  const foldedSummaryParams = paxParams
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => p.name !== 'DMX Channel');
   const [customName, setCustomName] = useState('');
   const onNameChange = useCallback((name: string) => {
     setCustomName(name);
@@ -452,6 +532,18 @@ function GenericNode({ id, data, selected }: NodeProps) {
                      color:'var(--text-muted)', fontSize:10, borderRadius:0, outline:'none',
                      padding:'1px 4px', fontFamily:"'JetBrains Mono', monospace",
                      width:100, minWidth:0 }} />
+        )}
+
+        {/* Pax settings cog — only for a Pax with more than one parameter;
+            see the layout-rule comment above onNameChange for why. */}
+        {isMultiParamPax && (
+          <NodeHeaderButton
+            onClick={toggleSettings}
+            active={showSettings}
+            activeAccent={theme.accent}
+            onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.settings), onMouseLeave: () => setHint(null) }}>
+            <Settings size={11} color={showSettings ? theme.accent : 'var(--text-muted)'} />
+          </NodeHeaderButton>
         )}
 
         {/* Audio device settings button */}
@@ -738,27 +830,85 @@ function GenericNode({ id, data, selected }: NodeProps) {
             />
           )}
         </>)}
+
+        {/* Compact header content — single-read-only Pax (no cog at all)
+            or a multi-param Pax while folded (cog present, settings
+            closed). Centred, vertically aligned with the ports since
+            they're absolutely positioned within this same div. */}
+        {(isSingleReadOnlyPax || (isMultiParamPax && !showSettings)) && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        gap: 8, minHeight: 32, padding: '0 8px' }}>
+            {isSingleReadOnlyPax && (() => {
+              const p = paxParams[0];
+              const v = readOnlyValues.get(0) ?? paramValues[0] ?? p.defaultValue;
+              // Short label derived from the parameter's own name (its
+              // last word, lowercased) — "Current Value" -> "value" — so
+              // this stays generic rather than hardcoded per Pax, while
+              // still matching the compact style the folded summary uses.
+              const label = p.name.split(' ').pop()!.toLowerCase();
+              return (
+                <span style={{ fontSize: 9, fontVariantNumeric: 'tabular-nums' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>{label}: </span>
+                  <span style={{ color: theme.accent }}>{p.step >= 1 ? Math.round(v).toString() : v.toFixed(3)}</span>
+                </span>
+              );
+            })()}
+            {isMultiParamPax && !showSettings && (<>
+              {foldedSummaryParams.map(({ p, i }, idx) => {
+                const v = p.readOnly ? (readOnlyValues.get(i) ?? paramValues[i] ?? p.defaultValue) : (paramValues[i] ?? p.defaultValue);
+                const label = p.name.split(' ').pop()!.toLowerCase();
+                return (
+                  <span key={i} style={{ fontSize: 9, fontVariantNumeric: 'tabular-nums' }}>
+                    {idx > 0 && <span style={{ color: 'var(--text-muted)' }}>- </span>}
+                    <span style={{ color: 'var(--text-muted)' }}>{label}: </span>
+                    <span style={{ color: p.readOnly ? theme.accent : 'var(--text-muted)' }}>
+                      {p.step >= 1 ? Math.round(v).toString() : v.toFixed(3)}
+                    </span>
+                  </span>
+                );
+              })}
+              <NodeHeaderButton onClick={resetParams}
+                onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.reset), onMouseLeave: () => setHint(null) }}>
+                <span style={{ fontSize: 11, fontWeight: 700 }}>R</span>
+              </NodeHeaderButton>
+            </>)}
+          </div>
+        )}
       </div>
 
-      {/* Pax parameter sliders — outside port body so padding works correctly */}
-      {isPax && paxParams.length > 0 && (
+      {/* Pax parameter sliders — outside port body so padding works correctly.
+          Single-read-only Pax never reaches here at all (fully handled by
+          the compact header above); a single-editable-param Pax (LevelPax,
+          AmpPax, etc.) renders here exactly as it always has; a multi-param
+          Pax only renders here while unfolded (showSettings true) — folded,
+          its compact header above covers it instead. */}
+      {isPax && paxParams.length > 0 && !isSingleReadOnlyPax && (!isMultiParamPax || showSettings) && (
         <div className="nodrag" style={{ padding: '8px 10px 6px',
                                          borderTop: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 2 }}>
             <NodeHeaderButton
-              onClick={() => {
-                const defaults = paxParams.map(p => p.defaultValue);
-                setParamValues(defaults);
-                Bridge.setNodeSettings(id, defaults);
-                defaults.forEach((v, i) => Bridge.setPaxParameter(id, i, v));
-                Bridge.commitNodeSettings(id);
-              }}
+              onClick={resetParams}
               onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.reset), onMouseLeave: () => setHint(null) }}><span style={{ fontSize: 11, fontWeight: 700 }}>R</span></NodeHeaderButton>
           </div>
           {paxParams.map((p, i) => (
             <div key={i} style={{ marginBottom: 0, paddingTop: 8 }}>
-              {/* Binary toggle for 0/1 integer params */}
-              {p.step >= 1 && p.min === 0 && p.max === 1 ? (
+              {/* Read-only params (see PaxAPI.h's PAX_isParameterReadOnly) —
+                  live display, never an editable control. Checked first,
+                  ahead of binary-toggle/DMX-Channel below, since a
+                  read-only parameter should never fall into either of
+                  those editable treatments even if it happens to share
+                  their shape (e.g. a 0/1 range). */}
+              {p.readOnly ? (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{p.name}</span>
+                  <span style={{ fontSize: 9, color: theme.accent, fontVariantNumeric: 'tabular-nums' }}>
+                    {(() => {
+                      const v = readOnlyValues.get(i) ?? paramValues[i] ?? p.defaultValue;
+                      return p.step >= 1 ? Math.round(v).toString() : v.toFixed(3);
+                    })()}
+                  </span>
+                </div>
+              ) : /* Binary toggle for 0/1 integer params */ p.step >= 1 && p.min === 0 && p.max === 1 ? (
                 <div style={{ display: 'flex', justifyContent: 'space-between',
                               alignItems: 'center' }}>
                   <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{p.name}</span>
@@ -845,8 +995,8 @@ Double-click to reset to default (${p.defaultValue}).` })}
                 })()}
               </div>
               )}
-              {/* label + value - only for non-binary, non-DMX-Channel params (DMX Channel renders its own label) */}
-              {!(p.step >= 1 && p.min === 0 && p.max === 1) && p.name !== 'DMX Channel' && (
+              {/* label + value - only for non-binary, non-DMX-Channel, non-read-only params (each of those renders its own label) */}
+              {!p.readOnly && !(p.step >= 1 && p.min === 0 && p.max === 1) && p.name !== 'DMX Channel' && (
               <div style={{ display: 'flex', justifyContent: 'space-between',
                             fontSize: 9, marginTop: 9 }}>
                 <span style={{ color: 'var(--text-muted)' }}>{p.name}</span>

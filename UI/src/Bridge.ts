@@ -54,6 +54,7 @@ export interface PortActivityEntry {
   bytes:   number;    // bytes received since last push (UDP In only, 0 otherwise)
   isMk2:   boolean;  // true if Enttec Pro Mk2 detected (DMX nodes only)
   dmxValue: number;  // current DMX channel level ×1000, for gradual intensity rendering (0 if not a DMX node)
+  paxReadOnly: { index: number; value: number }[];  // live values for this node's read-only parameters (see PaxAPI.h's PAX_isParameterReadOnly), empty for every node except a Pax that has at least one
 }
 type PortActivityCallback = (entries: PortActivityEntry[]) => void;
 const _portActivitySubscribers: PortActivityCallback[] = [];
@@ -151,6 +152,7 @@ export interface PaxParamInfo {
   max:          number;
   defaultValue: number;
   step:         number;   // 0=continuous, 1=integer, etc.
+  readOnly?:    boolean;  // true = live display, no editable control (see PaxAPI.h's PAX_isParameterReadOnly)
 }
 
 // ── DAW context (shared via React context, not Bridge) ───────────────────────

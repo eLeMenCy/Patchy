@@ -50,6 +50,14 @@ struct PortActivity
     // not "did something just happen" — the two are different questions,
     // see Architecture.md for why that distinction matters here.
     float             dmxValue      = 0.f;
+    // {parameterIndex, currentValue} for each of this node's read-only
+    // parameters (see PaxAPI.h's PAX_isParameterReadOnly) — empty for
+    // every node except a Pax that has at least one. Deliberately
+    // separate from the editable-parameter sync path (settingsJson),
+    // which the user may be actively dragging — this only ever carries
+    // values nothing in the UI lets the user set, so there's no risk of
+    // this live poll racing against a user's own in-progress edit.
+    std::vector<std::pair<int, float>> paxReadOnlyValues;
 };
 
 struct SpectrumSnapshot

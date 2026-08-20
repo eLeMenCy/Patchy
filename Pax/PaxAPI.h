@@ -347,6 +347,29 @@ void  PAX_setParameter (PAX_Instance* instance, int index, float value);
 /// @}
 
 /**
+ * @brief Mark a parameter as read-only (display-only, no editable control).
+ *
+ * Optional — not exporting this means every parameter is a normal,
+ * editable control (safe default for existing Pax binaries predating
+ * this). A deliberately separate optional export, not a new field on
+ * PAX_ParameterInfo — adding a field there would change that struct's
+ * size, an ABI break requiring a PAX_API_VERSION bump for every existing
+ * Pax; a new optional export needs none.
+ *
+ * For a parameter this returns true for, the host still calls
+ * PAX_getParameter() to read its current value (same as any other
+ * parameter) but shows it as a live-updating display rather than a
+ * draggable control, and never calls PAX_setParameter() on it from user
+ * interaction. Intended for values a Pax wants to surface for visibility
+ * — e.g. the current value it last received on a Value input port —
+ * without inviting the user to edit something that's actually just a
+ * live mirror of incoming data, not a real setting.
+ * @param index Which parameter (0-based).
+ * @return true if this parameter should render as read-only.
+ */
+int PAX_isParameterReadOnly (PAX_Instance* instance, int index);
+
+/**
  * @name Optional capability exports
  * The host checks for these symbols at load time and calls them only if
  * present. Pax that don't need them simply don't export them.

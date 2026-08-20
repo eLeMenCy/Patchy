@@ -699,6 +699,52 @@ public:
             if (node->outputValues[0].type == PAX_TYPE_DMX)
                 a.dmxValue = node->outputValues[0].value;
 
+            // Live values for any read-only parameters (see PaxAPI.h's
+            // PAX_isParameterReadOnly) — checked every poll rather than
+            // resolved once, since which indices are read-only doesn't
+            // change per-instance and the check itself is a single cheap
+            // function-pointer call, not worth caching separately.
+            if (auto* dynRO = dynamic_cast<DynamicPaxProcessor*> (node.get()))
+            {
+                int paramCount = dynRO->getParameterCount();
+                static std::unordered_map<juce::String, float> lastReadOnlyValue;
+                for (int p = 0; p < paramCount; ++p)
+                {
+                    if (! dynRO->isParameterReadOnly (p)) continue;
+                    float current = dynRO->getParameter (p);
+                    juce::String key = node->id + "_" + juce::String (p);
+                    auto it = lastReadOnlyValue.find (key);
+                    if (it != lastReadOnlyValue.end() && it->second == current)
+                        continue;   // unchanged since last poll — nothing to persist
+                    lastReadOnlyValue[key] = current;
+
+                    // FIX (2026-08-18): persist the change directly into
+                    // graphModel's own settingsJson, here, unconditionally
+                    // — not gated on any UI state. The original fix for
+                    // this (GenericNode.tsx syncing paramValues into
+                    // settingsJson whenever a live value arrived) only
+                    // ran while that specific node's settings panel
+                    // happened to be open, which real testing showed
+                    // doesn't reliably keep the persisted value current —
+                    // a rebuild (add/delete a node, undo/redo, anywhere
+                    // in the graph) can happen at any moment, almost
+                    // certainly while nobody has this node's panel open
+                    // at all, so the "only sync while watching" approach
+                    // defeated the whole point of the fix. This runs on
+                    // every 30fps poll regardless, on the message thread
+                    // — same thread WebBridge::handleSetNodeSettings
+                    // already safely mutates graphModel from, so no new
+                    // thread-safety concern here.
+                    juce::Array<juce::var> settingsArr;
+                    for (int i = 0; i < paramCount; ++i)
+                        settingsArr.add (dynRO->getParameter (i));
+                    graphModel.setNodeSettings (node->id, juce::JSON::toString (juce::var (settingsArr), true));
+                }
+                for (int p = 0; p < paramCount; ++p)
+                    if (dynRO->isParameterReadOnly (p))
+                        a.paxReadOnlyValues.emplace_back (p, dynRO->getParameter (p));
+            }
+
             // Byte-rate for UDP In nodes
             if (auto* udpIn = dynamic_cast<UdpInDeviceNode*> (node.get()))
                 a.udpBytes = udpIn->drainByteActivity();
@@ -793,8 +839,21 @@ public:
                 }
             }
 
+            // FIX (2026-08-18): this gate predates the paxReadOnlyValues
+            // field entirely, and never accounted for it — a node whose
+            // only "activity" in a given poll is a read-only parameter
+            // change (no MIDI/audio/notes at all, which is exactly
+            // ValueToDMXPax/OscToValuePax's situation) was silently never
+            // added to result at all, meaning it never reached
+            // pushPortActivity()/onPortActivity(), ever — regardless of
+            // how many times the value actually changed. The backend's
+            // own detection+persistence (the loop above) was never
+            // affected by this, since it runs before this gate and reads
+            // the Pax's live state directly — which is exactly why the
+            // rebuild-restoration fix worked while this live-display
+            // channel stayed silent the whole time.
             if (a.midiOutEvents > 0 || a.audioRmsL > 0.f || a.audioRmsR > 0.f
-                || ! a.incomingNotes.empty())
+                || ! a.incomingNotes.empty() || ! a.paxReadOnlyValues.empty())
                 result.push_back (a);
         }
 

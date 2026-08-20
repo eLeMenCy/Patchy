@@ -105,6 +105,7 @@ void PaxRegistry::load (const std::vector<PaxScanner::ScanResult>& results)
         e.getParam      = (Entry::GetParamFn)      lib->getFunction ("PAX_getParameter");
         e.setParam          = (Entry::SetParamFn)          lib->getFunction ("PAX_setParameter");
         e.getAudioOutCount  = (Entry::GetAudioOutCountFn) lib->getFunction ("PAX_getAudioOutputCount");
+        e.isParamReadOnly   = (Entry::IsParamReadOnlyFn)  lib->getFunction ("PAX_isParameterReadOnly");
 
         if (! e.create || ! e.destroy || ! e.prepare || ! e.process)
         {
@@ -158,6 +159,7 @@ DynamicPaxProcessor::DynamicPaxProcessor (const juce::String&             nodeId
       fnGetParam      (e.getParam),
       fnSetParam          (e.setParam),
       fnGetAudioOutCount  (e.getAudioOutCount),
+      fnIsParamReadOnly   (e.isParamReadOnly),
       paxName       (e.name)
 {
     jassert (fnCreate != nullptr);
@@ -348,4 +350,9 @@ void DynamicPaxProcessor::setParameter (int index, float value)
             if (onPortCountChanged) onPortCountChanged();
         }
     }
+}
+
+bool DynamicPaxProcessor::isParameterReadOnly (int index) const
+{
+    return (fnIsParamReadOnly && instance) ? (fnIsParamReadOnly (instance, index) != 0) : false;
 }

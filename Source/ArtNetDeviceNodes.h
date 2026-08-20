@@ -432,7 +432,7 @@ private:
 
         juce::AbstractFifo           fifo { kFifoSize };
         std::array<Frame, kFifoSize> frames;
-        juce::WaitableEvent          event { true };
+        juce::WaitableEvent          event { false };  // auto-reset: resets after each wait()
     } sendQueue;
 
     std::unique_ptr<juce::DatagramSocket> socket;

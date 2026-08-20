@@ -65,6 +65,7 @@
 - **Per-port VU** — multi-output nodes (Splitter, Spectrumyser) colour each output dot independently
 - **Per-port typed Pax flash** — a Pax with multiple differently-typed Value ports (e.g. MQTT + DMX on the same node) flashes each output in its own correct protocol colour, not one blanket colour for the whole node
 - **Automatic Hybrid/Converter node colouring** — a Pax's overall colour is auto-detected from its own declared ports: a type present on only one side (input or output) marks it a Converter (fuchsia); every type mirrored on both sides gives it a single native colour if there's only one, or Hybrid (orange) if there's more than one — e.g. Envelope (Audio+MIDI, mirrored) is Hybrid, `MqttToValuePax` (MQTT in, generic out — not mirrored) is a Converter
+- **Live read-only Pax parameters, folding settings for multi-param Pax** — a Pax can mark a parameter as a live display rather than an editable control (`PAX_isParameterReadOnly`), e.g. `OscToValuePax`/`ValueToDMXPax`'s own "Current Value". A Pax with exactly one such display shows it compactly in the node header, no settings toggle needed; a Pax with more than one parameter gets a settings cog instead, folding its full controls behind a click and showing a labelled summary of the rest when closed (e.g. `ValueToDMXPax` folded: "min: 0.00 - max: 1.00 - value: 0.786") — a Pax with exactly one *editable* parameter (`LevelPax`, `AmpPax`) is unaffected either way, always shown directly
 - **Per-node channel selection** — Audio IN/OUT nodes expose a settings panel to select any combination of physical channels; supports devices up to 256 channels (e.g. Blackhole 16ch)
 - **DAW mode** — full bidirectional audio routing between Patchy and your DAW track via a virtual "DAW" device
 - **Standalone mode** — full standalone app with its own audio device selection, window bounds persistence and last-folder memory
@@ -147,6 +148,8 @@ Patchy/
 │   ├── EnvelopePax/               Audio envelope → MIDI CC converter
 │   ├── StereoSplitterPax/         Stereo → Left + Right split (1 in / 2 out)
 │   ├── MqttToValuePax/            MQTT → generic Value adapter (first Phase 4 converter)
+│   ├── OscToValuePax/             OSC → generic Value adapter
+│   ├── ValueToDMXPax/             Generic Value → DMX channel adapter
 │   ├── SpectrumyserPax/           FFT spectrum analyser with band outputs
 │   └── AudioToDmxPax/             Audio (RMS or isolated frequency band) → DMX channel, first Pax hosted inside a DAW
 │

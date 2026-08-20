@@ -216,6 +216,8 @@ if (PATCHY_BUILD_TESTS)
     add_executable (PatchyTests
         Tests/PatchyTestRunner.cpp
         Tests/GraphModelTests.cpp
+        Tests/MqttConnectionOwnershipTests.cpp
+        Tests/WaitableEventCpuSpinTests.cpp
         Source/GraphModel.cpp
     )
 

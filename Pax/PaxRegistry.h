@@ -74,6 +74,7 @@ public:
         using GetParamFn      = float (*)(PAX_Instance*, int);
         using SetParamFn          = void  (*)(PAX_Instance*, int, float);
         using GetAudioOutCountFn  = int   (*)(PAX_Instance*);
+        using IsParamReadOnlyFn   = int   (*)(PAX_Instance*, int);
 
         CreateFn           create           = nullptr;
         DestroyFn          destroy          = nullptr;
@@ -84,6 +85,7 @@ public:
         GetParamFn         getParam         = nullptr;
         SetParamFn         setParam         = nullptr;
         GetAudioOutCountFn getAudioOutCount = nullptr;
+        IsParamReadOnlyFn  isParamReadOnly  = nullptr;
     };
 
     const std::vector<Entry>& getEntries() const { return entries; }
@@ -122,6 +124,10 @@ public:
     void  getParameterInfo  (int index, PAX_ParameterInfo& info) const;
     float getParameter      (int index) const;
     void  setParameter      (int index, float value);
+    /** True if this parameter should render as a live display rather than
+     *  an editable control — see PaxAPI.h's PAX_isParameterReadOnly doc.
+     *  false (normal, editable) if the Pax doesn't export this at all. */
+    bool  isParameterReadOnly (int index) const;
 
     // Spectrum data access (for Spectrumyser Pax)
     struct SpectrumData
@@ -153,6 +159,7 @@ private:
     PaxRegistry::Entry::GetParamFn      fnGetParam      = nullptr;
     PaxRegistry::Entry::SetParamFn          fnSetParam          = nullptr;
     PaxRegistry::Entry::GetAudioOutCountFn  fnGetAudioOutCount  = nullptr;
+    PaxRegistry::Entry::IsParamReadOnlyFn   fnIsParamReadOnly   = nullptr;
 
     PAX_Instance* instance   = nullptr;
     juce::String  paxName;

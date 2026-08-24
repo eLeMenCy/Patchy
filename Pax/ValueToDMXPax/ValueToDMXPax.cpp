@@ -45,8 +45,11 @@
  *     simple, predictable v1 choice — no averaging or interpolation).
  *   - "Current Value" parameter (index 3, added 2026-08-17) — a read-only
  *     live display (see PaxAPI.h's PAX_isParameterReadOnly) mirroring the
- *     normalized value actually driving DMX. Exists specifically to fix a
- *     real, confirmed bug: ProcessingGraph::rebuild() destroys and
+ *     actual DMX byte (0-255) driving the channel. Originally stored and
+ *     displayed as the intermediate normalized 0.0-1.0 fraction; changed
+ *     2026-08-22 to the real byte value instead, since a decimal has no
+ *     real meaning in a DMX context — the actual unit is a 0-255 byte.
+ *     Exists specifically to fix a real, confirmed bug: ProcessingGraph::rebuild() destroys and
  *     recreates every node instance on any graph change (adding/deleting
  *     a node, undo/redo — anywhere in the graph, not just this node),
  *     which reset this Pax's held value to 0 until the next real incoming
@@ -89,13 +92,16 @@ struct ValueToDMXPax
     // State — persists the last received value across blocks; see file header
     float lastValue = 0.f;
 
-    // Mirrors the normalized 0.0-1.0 value actually driving DMX right now
+    // Mirrors the actual DMX byte (0-255) driving the channel right now
     // — exposed as a read-only parameter (index 3, see PAX_isParameterReadOnly
-    // below) so the settings panel can show it as a live display. Still
-    // genuinely settable via PAX_setParameter, not a dead code path — that's
-    // exactly what lets ProcessingGraph::rebuild()'s existing settingsJson
-    // restoration mechanism (see PaxRegistry.cpp) repopulate it immediately
-    // on reconstruction, rather than sitting at 0 until the next real event
+    // below) so the settings panel can show it as a live display. Stored
+    // as the real 0-255 byte value, not a normalized 0.0-1.0 fraction —
+    // a decimal has no real meaning in a DMX context, where the actual
+    // unit is a 0-255 byte. Still genuinely settable via PAX_setParameter,
+    // not a dead code path — that's exactly what lets
+    // ProcessingGraph::rebuild()'s existing settingsJson restoration
+    // mechanism (see PaxRegistry.cpp) repopulate it immediately on
+    // reconstruction, rather than sitting at 0 until the next real event
     // arrives. "Read-only" here is a UI-level restriction (no slider, no
     // user-initiated edits) — this Pax's own real value being present
     // across a rebuild in the first place is the whole point of the fix.
@@ -145,15 +151,18 @@ void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
         a->lastValue = ctx->valuesIn[ctx->valueInCount - 1].value;
 
         // Map [inputMin, inputMax] to the project's own established
-        // internal 0.0-1.0 convention before scaling to a DMX byte (see
-        // file header).
+        // internal 0.0-1.0 convention (see file header), then scale to
+        // the actual DMX byte (0-255) — currentValue stores that real
+        // byte value directly, not the intermediate normalized fraction,
+        // since a decimal has no real meaning in a DMX context.
         const float range = a->inputMax - a->inputMin;
-        a->currentValue = (range != 0.f)
+        const float normalized = (range != 0.f)
             ? std::clamp ((a->lastValue - a->inputMin) / range, 0.f, 1.f)
             : 0.f;
+        a->currentValue = std::clamp (std::lround (normalized * 255.f), 0L, 255L);
     }
 
-    const uint8_t dmxByte = (uint8_t) std::clamp ((int) std::lround (a->currentValue * 255.f), 0, 255);
+    const uint8_t dmxByte = (uint8_t) std::clamp ((int) a->currentValue, 0, 255);
 
     // Real payload: the dedicated DMX frame path (API v4). Host already
     // zeroed ctx->dmxFrameOut and cleared *ctx->dmxFrameOutValid before
@@ -194,7 +203,7 @@ void PAX_getParameterInfo (PAX_Instance*, int index, PAX_ParameterInfo* info)
         case 0: info->name="DMX Channel";   info->minValue=1.f;     info->maxValue=512.f;  info->defaultValue=1.f; info->step=1.f; break;
         case 1: info->name="Input Min";     info->minValue=-1000.f; info->maxValue=1000.f; info->defaultValue=0.f; info->step=0.f; break;
         case 2: info->name="Input Max";     info->minValue=-1000.f; info->maxValue=1000.f; info->defaultValue=1.f; info->step=0.f; break;
-        case 3: info->name="Current Value"; info->minValue=0.f;     info->maxValue=1.f;    info->defaultValue=0.f; info->step=0.f; break;
+        case 3: info->name="Current Value"; info->minValue=0.f;     info->maxValue=255.f;  info->defaultValue=0.f; info->step=1.f; break;
         default: break;
     }
 }
@@ -222,7 +231,7 @@ void PAX_setParameter (PAX_Instance* i, int index, float value)
         case 2: a->inputMax     = std::clamp (value, -1000.f, 1000.f); break;
         // Genuinely settable, not ignored — see the currentValue member's
         // own comment for why (rebuild-restoration relies on this).
-        case 3: a->currentValue = std::clamp (value, 0.f, 1.f);        break;
+        case 3: a->currentValue = std::clamp (value, 0.f, 255.f);      break;
         default: break;
     }
 }

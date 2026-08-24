@@ -151,7 +151,9 @@ Patchy/
 │   ├── OscToValuePax/             OSC → generic Value adapter
 │   ├── ValueToDMXPax/             Generic Value → DMX channel adapter
 │   ├── SpectrumyserPax/           FFT spectrum analyser with band outputs
-│   └── AudioToDmxPax/             Audio (RMS or isolated frequency band) → DMX channel, first Pax hosted inside a DAW
+│   ├── AudioToDmxPax/             Audio (RMS or isolated frequency band) → DMX channel, first Pax hosted inside a DAW
+│   ├── MidiToDmxPax/              MIDI CC → DMX channel adapter
+│   └── UdpValueToMidiCCPax/       Generic Value → MIDI CC adapter
 │
 ├── UI/                              React / TypeScript frontend
 │   └── src/
@@ -313,7 +315,11 @@ Pax are shared libraries implementing the `PAX_Descriptor` C API in `Pax/PaxAPI.
 | Splitter | Audio | 1in/2out | — (L→out1, R→out2) |
 | Spectrumyser | Audio | 1in/1-5out | Band count (1-5), per-band frequency range |
 | MQTT to Value | Converter | 1 MQTT in / 1 Value out | — (stateless passthrough; first Phase 4 adapter, bridges MQTT payloads into the generic Value graph) |
+| OSC to Value | Converter | 1 OSC in / 1 Value out | Current Value (read-only live display) |
+| Value to DMX | Converter | 1 Value in / 1 DMX out | DMX Channel (1-512), Input Min/Max (default 0.0/1.0), Current Value (read-only live display) |
 | Audio to DMX | Converter | 1 Audio in / 1 DMX out | Mode (RMS/Freq Range), Sensitivity (dB), Damping (0-500ms), DMX Channel (1-512); first Pax hosted inside a DAW, not just standalone |
+| MIDI to DMX | Converter | 1 MIDI in / 1 DMX out | MIDI CC (0-127), DMX Channel (1-512), Current Value (read-only live display) |
+| UDP Value to MIDI CC | Converter | 1 Value in / 1 MIDI out | MIDI CC (0-127), MIDI Channel (1-16), Input Min/Max (default 0.0/1.0), Current Value (read-only live display) |
 
 ### Parameter persistence
 

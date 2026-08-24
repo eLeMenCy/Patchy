@@ -75,6 +75,7 @@ public:
         using SetParamFn          = void  (*)(PAX_Instance*, int, float);
         using GetAudioOutCountFn  = int   (*)(PAX_Instance*);
         using IsParamReadOnlyFn   = int   (*)(PAX_Instance*, int);
+        using IsParamLiveSyncedFn = int   (*)(PAX_Instance*, int);
 
         CreateFn           create           = nullptr;
         DestroyFn          destroy          = nullptr;
@@ -86,6 +87,7 @@ public:
         SetParamFn         setParam         = nullptr;
         GetAudioOutCountFn getAudioOutCount = nullptr;
         IsParamReadOnlyFn  isParamReadOnly  = nullptr;
+        IsParamLiveSyncedFn isParamLiveSynced = nullptr;
     };
 
     const std::vector<Entry>& getEntries() const { return entries; }
@@ -128,6 +130,11 @@ public:
      *  an editable control — see PaxAPI.h's PAX_isParameterReadOnly doc.
      *  false (normal, editable) if the Pax doesn't export this at all. */
     bool  isParameterReadOnly (int index) const;
+    /** True if a backend-side change to this (still editable) parameter
+     *  should be pushed to the frontend live — see PaxAPI.h's
+     *  PAX_isParameterLiveSynced doc. false if the Pax doesn't export
+     *  this at all (safe default, no behaviour change for existing Pax). */
+    bool  isParameterLiveSynced (int index) const;
 
     // Spectrum data access (for Spectrumyser Pax)
     struct SpectrumData
@@ -160,6 +167,7 @@ private:
     PaxRegistry::Entry::SetParamFn          fnSetParam          = nullptr;
     PaxRegistry::Entry::GetAudioOutCountFn  fnGetAudioOutCount  = nullptr;
     PaxRegistry::Entry::IsParamReadOnlyFn   fnIsParamReadOnly   = nullptr;
+    PaxRegistry::Entry::IsParamLiveSyncedFn fnIsParamLiveSynced = nullptr;
 
     PAX_Instance* instance   = nullptr;
     juce::String  paxName;

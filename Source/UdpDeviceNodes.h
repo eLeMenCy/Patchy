@@ -13,6 +13,41 @@ class ProcessingGraph;
 // ─────────────────────────────────────────────────────────────────────────────
 enum class UdpMode { Unicast = 0, Multicast = 1, Broadcast = 2 };
 
+// ── Raw 4-byte float payload byte order — network byte order (big-endian),
+//    the conventional default most external senders assume (e.g. Python's
+//    struct.pack('>f', ...)), and the only sensible fixed choice given UDP
+//    itself defines no float-encoding standard the way OSC does. Bug fix
+//    2026-08-23: both directions previously used a raw memcpy with no byte-
+//    order handling at all, meaning a big-endian sender's floats were
+//    silently misinterpreted on a little-endian host (Apple Silicon/x86) —
+//    e.g. 0.1-0.8 all landed as either huge negative numbers or values so
+//    tiny they normalized to 0, while 0.9 landed as a huge positive number
+//    that clamped to a downstream Pax's own max. These two helpers build/
+//    read the bit pattern explicitly via bit-shifts (endianness-agnostic by
+//    definition, since shifts operate on value not memory layout) before a
+//    plain memcpy reinterpretation — correct regardless of host endianness,
+//    not just a little-endian-specific fix. ─────────────────────────────────
+inline float udpBigEndianFloatFromBytes (const uint8_t* b)
+{
+    uint32_t bits = (static_cast<uint32_t> (b[0]) << 24)
+                  | (static_cast<uint32_t> (b[1]) << 16)
+                  | (static_cast<uint32_t> (b[2]) << 8)
+                  |  static_cast<uint32_t> (b[3]);
+    float result;
+    std::memcpy (&result, &bits, 4);
+    return result;
+}
+
+inline void udpBigEndianBytesFromFloat (float value, uint8_t* outBytes)
+{
+    uint32_t bits;
+    std::memcpy (&bits, &value, 4);
+    outBytes[0] = static_cast<uint8_t> (bits >> 24);
+    outBytes[1] = static_cast<uint8_t> (bits >> 16);
+    outBytes[2] = static_cast<uint8_t> (bits >> 8);
+    outBytes[3] = static_cast<uint8_t> (bits);
+}
+
 // ── Raw packet — full detail (sender IP/port + byte preview), used only for
 //    the UDP Monitor display; independent of the routed PAX_Value. ───────────
 struct RawUdpPacket
@@ -35,8 +70,10 @@ struct RawUdpPacket
  * once per audio block.
  *
  * Payload mapping: a datagram of exactly 4 bytes is interpreted as a raw
- * float (PAX_DATA_FLOAT); any other size is carried as a blob (PAX_DATA_BLOB,
- * truncated to 56 bytes — the inline capacity of PAX_Value::data).
+ * float (PAX_DATA_FLOAT) in network byte order (big-endian) — see
+ * udpBigEndianFloatFromBytes() above; any other size is carried as a blob
+ * (PAX_DATA_BLOB, truncated to 56 bytes — the inline capacity of
+ * PAX_Value::data).
  */
 class UdpInDeviceNode : public NodeProcessor,
                          private juce::Thread
@@ -106,7 +143,7 @@ public:
             if (pkt.size == 4)
             {
                 v.dataType = PAX_DATA_FLOAT;
-                std::memcpy (&v.value, pkt.data.data(), 4);
+                v.value = udpBigEndianFloatFromBytes (pkt.data.data());
             }
             else
             {
@@ -258,7 +295,10 @@ private:
  * Sends each value as a UDP datagram to a configured target (Unicast IP:port,
  * Multicast group, or Broadcast). Sends happen on process() (message-rate,
  * not audio-rate — UDP send is non-blocking and cheap, but we still avoid
- * doing it from the audio thread by queuing to a background thread).
+ * doing it from the audio thread by queuing to a background thread). A
+ * PAX_DATA_FLOAT value is sent as 4 bytes in network byte order (big-endian)
+ * — see udpBigEndianBytesFromFloat() above — matching UdpInDeviceNode's own
+ * read-side convention.
  */
 class UdpOutDeviceNode : public NodeProcessor,
                           private juce::Thread
@@ -315,7 +355,7 @@ public:
             if (v.dataType == PAX_DATA_FLOAT || v.dataSize == 0)
             {
                 pkt.size = 4;
-                std::memcpy (pkt.data.data(), &v.value, 4);
+                udpBigEndianBytesFromFloat (v.value, pkt.data.data());
             }
             else
             {

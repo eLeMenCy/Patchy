@@ -58,6 +58,19 @@ struct PortActivity
     // values nothing in the UI lets the user set, so there's no risk of
     // this live poll racing against a user's own in-progress edit.
     std::vector<std::pair<int, float>> paxReadOnlyValues;
+    // Set (to the node's freshly-updated settingsJson) when a parameter
+    // marked live-synced (see PaxAPI.h's PAX_isParameterLiveSynced) has
+    // just been changed by the Pax's own backend logic, not by the user —
+    // e.g. UdpValueToMidiCCPax's "MIDI CC" following an incoming 5-byte
+    // packet's own CC-number override. Empty otherwise (the overwhelming
+    // majority of pushes). Deliberately narrow, opt-in per parameter —
+    // unlike paxReadOnlyValues above, this DOES go through the same
+    // settingsJson path a user's own edits use, since the point here is
+    // moving a still-editable slider's on-screen position, not a
+    // display-only mirror — so only a Pax that explicitly opts a specific
+    // parameter in can ever trigger this, keeping every other parameter
+    // free of any risk of racing a user's own in-progress drag.
+    juce::String      liveSyncedSettingsJson;
 };
 
 struct SpectrumSnapshot

@@ -370,6 +370,36 @@ void  PAX_setParameter (PAX_Instance* instance, int index, float value);
 int PAX_isParameterReadOnly (PAX_Instance* instance, int index);
 
 /**
+ * @brief Mark an *editable* parameter as also live-synced to the frontend.
+ *
+ * Optional — not exporting this means no parameter behaves this way
+ * (safe default for existing Pax binaries predating this). A deliberately
+ * separate optional export from PAX_isParameterReadOnly, for a
+ * genuinely different situation: this parameter stays a normal, fully
+ * editable, draggable control — the difference is that when a Pax
+ * changes this parameter's own value internally (via PAX_setParameter
+ * called from its own PAX_process(), not from user interaction), the
+ * host also pushes that new value out to the frontend live, so the
+ * control's on-screen position visually follows it — the same
+ * already-proven push path that restores a slider's position on
+ * undo/redo, just triggered from the backend's own internal change
+ * instead of a user action.
+ *
+ * Deliberately narrow and opt-in, not a blanket "watch every parameter
+ * for backend-side changes" mechanism: doing that generically risks
+ * exactly the race this project already fixed once for read-only
+ * parameters — a backend poll pushing a value back to the frontend while
+ * a user has that exact control mid-drag, causing visible stutter.
+ * Scoping this to only the specific parameter(s) that genuinely need it
+ * keeps every other Pax's editable controls, and every other parameter
+ * on the *same* Pax, completely unaffected.
+ * @param index Which parameter (0-based).
+ * @return true if a backend-side change to this parameter should be
+ *         pushed to the frontend live.
+ */
+int PAX_isParameterLiveSynced (PAX_Instance* instance, int index);
+
+/**
  * @name Optional capability exports
  * The host checks for these symbols at load time and calls them only if
  * present. Pax that don't need them simply don't export them.

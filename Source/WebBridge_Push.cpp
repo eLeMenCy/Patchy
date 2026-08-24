@@ -530,6 +530,20 @@ void WebBridge::pushPortActivity()
         }
         paxReadOnlyStr << "]";
 
+        // Live-synced editable parameters (see PaxAPI.h's
+        // PAX_isParameterLiveSynced, and PatchyProcessor.h's own matching
+        // change-detection loop that sets this field) — deliberately NOT
+        // folded into the onPortActivity JSON payload above the way
+        // paxReadOnly is: this reuses the existing, already-proven
+        // settingsJson push path instead (the same one undo/redo already
+        // restores slider positions through), since the whole point here
+        // is moving a still-editable control's on-screen position, which
+        // is what that path is for — paxReadOnly's own array is for a
+        // separate, display-only live mirror with no editable control to
+        // move at all.
+        if (a.liveSyncedSettingsJson.isNotEmpty())
+            pushSettingsToUI (a.nodeId, a.liveSyncedSettingsJson);
+
         json << "{"
              << Q << "id"       << Q << ":" << Q << a.nodeId       << Q << ","
              << Q << "midi"     << Q << ":" << a.midiOutEvents             << ","

@@ -740,6 +740,46 @@ public:
                         settingsArr.add (dynRO->getParameter (i));
                     graphModel.setNodeSettings (node->id, juce::JSON::toString (juce::var (settingsArr), true));
                 }
+
+                // Live-synced editable parameters (see PaxAPI.h's
+                // PAX_isParameterLiveSynced) — same change-detection and
+                // persist-to-settingsJson pattern as the read-only loop
+                // above, but for a genuinely different situation: this
+                // parameter stays a normal, editable slider — the point
+                // here is a backend-side change (not a user edit) moving
+                // that slider's on-screen position live, e.g.
+                // UdpValueToMidiCCPax's "MIDI CC" following an incoming
+                // 5-byte packet's own CC-number override. Deliberately a
+                // separate loop from the read-only one above rather than
+                // merged into it, even though the persist logic is
+                // identical — keeps the two situations (display-only vs
+                // still-editable-but-pushed) clearly distinct in the code,
+                // matching how differently WebBridge.h's own two fields
+                // for this (paxReadOnlyValues vs liveSyncedSettingsJson)
+                // are documented and used downstream. Sets
+                // a.liveSyncedSettingsJson (see that field's own comment
+                // for why this is deliberately opt-in and narrowly scoped
+                // rather than watching every parameter generically).
+                static std::unordered_map<juce::String, float> lastLiveSyncedValue;
+                for (int p = 0; p < paramCount; ++p)
+                {
+                    if (! dynRO->isParameterLiveSynced (p)) continue;
+                    float current = dynRO->getParameter (p);
+                    juce::String key = node->id + "_" + juce::String (p);
+                    auto it = lastLiveSyncedValue.find (key);
+                    if (it != lastLiveSyncedValue.end() && it->second == current)
+                        continue;   // unchanged since last poll — nothing to push
+
+                    lastLiveSyncedValue[key] = current;
+
+                    juce::Array<juce::var> liveArr;
+                    for (int i = 0; i < paramCount; ++i)
+                        liveArr.add (dynRO->getParameter (i));
+                    juce::String liveJson = juce::JSON::toString (juce::var (liveArr), true);
+                    graphModel.setNodeSettings (node->id, liveJson);
+                    a.liveSyncedSettingsJson = liveJson;
+                }
+
                 for (int p = 0; p < paramCount; ++p)
                     if (dynRO->isParameterReadOnly (p))
                         a.paxReadOnlyValues.emplace_back (p, dynRO->getParameter (p));

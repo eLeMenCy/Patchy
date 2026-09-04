@@ -6,20 +6,30 @@
 //  MidiDeviceManager
 // ─────────────────────────────────────────────────────────────────────────────
 
-void MidiDeviceManager::applyDeviceSelections (ProcessingGraph& graph)
+void MidiDeviceManager::applyDeviceSelections (ProcessingGraph& graph, ProcessingGraph* oldGraph)
 {
     for (const auto& [nodeId, deviceId] : selections)
-        applyToGraph (nodeId, deviceId, graph);
+        applyToGraph (nodeId, deviceId, graph, oldGraph);
 }
 
 bool MidiDeviceManager::applyToGraph (const juce::String& nodeId,
                                        const juce::String& deviceIdentifier,
-                                       ProcessingGraph&    graph)
+                                       ProcessingGraph&    graph,
+                                       ProcessingGraph*    oldGraph)
 {
     if (auto* n = graph.findMidiOutNode (nodeId))
     {
-        if (deviceIdentifier.isEmpty()) n->closeDevice();
-        else                            n->openDevice (deviceIdentifier);
+        if (deviceIdentifier.isEmpty())
+        {
+            n->closeDevice();
+        }
+        else
+        {
+            // Real fix, 2026-09-02 — see MidiOutDeviceNode's own
+            // transferOrConfigure() comment for the full story.
+            auto* oldNode = oldGraph != nullptr ? oldGraph->findMidiOutNode (nodeId) : nullptr;
+            n->transferOrConfigure (deviceIdentifier, oldNode);
+        }
         return true;
     }
     if (auto* n = graph.findMidiInNode (nodeId))

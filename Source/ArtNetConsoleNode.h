@@ -1,5 +1,6 @@
 #pragma once
 #include "ArtNetMonitorNode.h"
+#include <algorithm>
 
 // ─────────────────────────────────────────────────────────────────────────────
 /**
@@ -48,6 +49,11 @@ public:
         blackout.store (prev, std::memory_order_release);
         if (prev) lastSent.fill (0);
     }
+
+    // Force process() to re-emit on its very next call — same reasoning
+    // and same fix as DmxConsoleNode's own (see that file's own comment
+    // for the full story).
+    void forceReEmit() { pendingOutput.store (true, std::memory_order_release); }
 
     std::array<uint8_t, 512> getAllChannels() const
     {
@@ -153,11 +159,24 @@ public:
         // Lightweight Value mirror alongside it, no blob — same reasoning
         // as DmxConsoleNode's own mirror: purely so the existing port/
         // edge-matching UI machinery keeps working.
+        //
+        // Reflects the MAX across all 512 channels (fixed 2026-08-30, as
+        // part of migrating ArtNet from "flash" to DMX's own "continuous
+        // intensity" treatment — see App.tsx and Architecture.md), not
+        // just current[0] (channel 1) as it did before — the exact same
+        // fix already applied to DmxConsoleNode.h earlier the same day,
+        // for the identical reason: current[0] meant this mirror never
+        // updated at all unless channel 1 specifically was the one being
+        // moved. Unlike DMX's own case, this was never actually visible
+        // as a UI bug before now, since ArtNet has never yet driven any
+        // continuous-intensity display from this value — it's only being
+        // fixed here because that's the whole point of the migration
+        // itself, not because it was silently broken in a shipped feature.
         PAX_Value v {};
         v.type     = PAX_TYPE_DMX;
         v.dataType = PAX_DATA_FLOAT;
         v.key      = (uint32_t) uni;
-        v.value    = current[0] / 255.f;
+        v.value    = *std::max_element (current.begin(), current.end()) / 255.f;
 
         outputValues[0] = v;
         outputValueCount = 1;

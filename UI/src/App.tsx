@@ -41,10 +41,11 @@ import Sidebar from './Sidebar';
 import SpectrumyserNode from './SpectrumyserNode';
 import EnvelopeNode     from './EnvelopeNode';
 import AudioToDmxNode from './AudioToDmxNode';
+import AudioPeakToOscNode from './AudioPeakToOscNode';
 import { _paxInfoMap } from './NodeUtils';
 
 // ── Node type registry ────────────────────────────────────────────────────────
-const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode };
+const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 // _paxInfoMap lives in NodeUtils.tsx (not declared here) — GenericNode.tsx
@@ -80,7 +81,8 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
             : isMqttConsole    ? 'mqttConsole'
             : raw.paxName === 'Spectrumyser' ? 'spectrumyser'
             : raw.paxName === 'Envelope'     ? 'envelope'
-            : raw.paxName === 'Audio to DMX' ? 'audioToDmx' : 'custom',
+            : raw.paxName === 'Audio to DMX' ? 'audioToDmx'
+            : raw.paxName === 'Audio Peak to OSC' ? 'audioPeakToOsc' : 'custom',
     position: { x: raw.x, y: raw.y },
     data: isMidiMonitor
       ? { label: raw.label, nodeType: 5,  ports: raw.ports, settingsJson: raw.settingsJson } as MidiMonitorNodeData
@@ -196,6 +198,10 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
   // rather than firing transient events, so it should read as steady,
   // not fade out between updates.
   const dmxValues     = useRef<Map<string, number>>(new Map());
+  // Last CSS string actually written to the DOM (added 2026-08-30, 2nd
+  // pass) — see the comparison right before style.textContent is assigned,
+  // further down in the render loop below, for the full reasoning.
+  const lastAppliedCss = useRef<string>('');
   const edgeList      = useRef(edges);
   const nodesRef      = useRef(nodes);
   useEffect(() => { edgeList.current = edges; }, [edges]);
@@ -455,7 +461,25 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
           : [];
         if (! isBuiltInDmx && dmxPaxPorts.length === 0) return;
 
-        const v     = Math.max(0, Math.min(1, dmxValues.current.get(id) ?? 0));
+        const v = Math.max(0, Math.min(1, dmxValues.current.get(id) ?? 0));
+
+        // Genuinely reverted 2026-08-30 (2nd pass) — a v<=0 skip was tried
+        // here first, but the user correctly caught that it lost the
+        // intended "dim floor glow at rest" look entirely (a v=0 node fell
+        // back to NodeHandle's own solid, fully-opaque default colour, and
+        // the edge fell back to ReactFlow's own plain default stroke —
+        // both a jarring, hard jump away from the dim, translucent look a
+        // barely-nonzero value shows). The right fix for the real
+        // performance bug (see the note further down, right before
+        // style.textContent is actually assigned) is to keep generating
+        // this CSS exactly as before, unconditionally, for every v
+        // including 0 — the floor alpha below already makes idle look
+        // correctly dim — and instead only skip the expensive DOM write
+        // itself when the fully-built CSS string hasn't actually changed
+        // since the last frame. That fixes the real cost (a static,
+        // unchanging string needs writing once, then never again) without
+        // touching the visual behaviour at all.
+
         // Floor raised from 0.15 to 0.4 — at v=0 the old floor was nearly
         // invisible against the dark canvas background; still clearly
         // dimmer than a live channel, just no longer "gone".
@@ -464,8 +488,22 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
         const px    = Math.round(4 + v * 10);
         const glow  = `0 0 ${px}px rgba(${DMX_RGB},${Math.min(1, alpha + 0.1)})`;
 
+        // Includes the DMX In handle too, added 2026-08-30 (3rd pass) —
+        // the user caught that a DmxMonitorNode's own upstream/input port
+        // dot stayed permanently solid, unconnected or not. This block had
+        // only ever targeted "DMX Out", never "DMX In" — for a pass-
+        // through node like DmxMonitorNode, the input port never had any
+        // CSS rule applied to it at all, in either version of today's
+        // earlier fixes, so it always fell back to NodeHandle's own
+        // solid, static default. Harmless no-op for isBuiltInDmx nodes
+        // that don't actually have a "DMX In" handle at all (e.g.
+        // DmxConsoleNode, output-only by design) — a selector matching no
+        // element in the DOM simply does nothing. Same v as the output
+        // side, since a pass-through node's own input and output share
+        // the identical value by construction (DmxMonitorNode.h's own
+        // outputValues[0] mirror is computed directly from inputDmxFrame).
         const targetSelectors: string[] = isBuiltInDmx
-          ? [`[data-handleid="${id}_DMX Out_out"]`]
+          ? [`[data-handleid="${id}_DMX Out_out"]`, `[data-handleid="${id}_DMX In_in"]`]
           : dmxPaxPorts.map(p => `[data-handleid="${p.id}"]`);
         targetSelectors.forEach(sel => {
           css += `${sel}{background:${bg}!important;box-shadow:${glow}!important;transition:background 80ms linear,box-shadow 80ms linear}`;
@@ -482,7 +520,81 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
         });
       });
 
-      style.textContent = css;
+      // ArtNet's own continuous-intensity treatment, added 2026-08-30 —
+      // migrated from "flash" to match DMX's own (see the note above this
+      // whole DMX block for the full "intensity vs still-flashes" history)
+      // per the user's own explicit request. Deliberately a separate,
+      // parallel loop rather than folded into the DMX one above — the
+      // two protocols share the same PAX_TYPE_DMX/PortActivity::dmxValue
+      // field and the same --dmx accent colour by design (see
+      // NodeUtils.tsx's own portColour, which doesn't distinguish them
+      // at all), so this reuses dmxValues.current directly rather than
+      // needing any separate data plumbing — but the node types, handle
+      // labels ("ArtDMX Out"/"ArtDMX In", not "DMX Out"/"DMX In"), and
+      // edge-filter condition (the mirror image of the DMX one — ArtNet
+      // edges specifically, not DMX-excluding-ArtNet) are different
+      // enough that keeping them as two clearly separate blocks reads
+      // more plainly than one block branching on which protocol it's
+      // currently handling. The old artNetTimers/artNetEdges/
+      // isArtNetFlash "flash" mechanism above is left in place rather
+      // than removed, matching this project's own established practice
+      // for superseded-but-harmless code (see dmxTimers/dmxSources'
+      // own precedent) — it's simply never triggered for ArtNet any
+      // more, since this block's own CSS rule always wins by being
+      // generated after it in the same combined string.
+      nodesRef.current.forEach((nd: any) => {
+        const id = nd.id;
+        const nodeType = nd.data?.nodeType;
+        const isBuiltInArtNet = nodeType === 12 || nodeType === 13 || nodeType === 18 || nodeType === 19;
+        const nodePorts: any[] = nd.data?.ports ?? [];
+        const artNetPaxPorts = nodeType >= 100
+          ? nodePorts.filter(p => p.direction === 'output' && p.type !== 'audio' &&
+              (p.id as string).toLowerCase().includes('artdmx'))
+          : [];
+        if (! isBuiltInArtNet && artNetPaxPorts.length === 0) return;
+
+        const v = Math.max(0, Math.min(1, dmxValues.current.get(id) ?? 0));
+
+        const alpha = 0.4 + v * 0.6;
+        const bg    = `rgba(${DMX_RGB},${alpha})`;
+        const px    = Math.round(4 + v * 10);
+        const glow  = `0 0 ${px}px rgba(${DMX_RGB},${Math.min(1, alpha + 0.1)})`;
+
+        const targetSelectors: string[] = isBuiltInArtNet
+          ? [`[data-handleid="${id}_ArtDMX Out_out"]`, `[data-handleid="${id}_ArtDMX In_in"]`]
+          : artNetPaxPorts.map(p => `[data-handleid="${p.id}"]`);
+        targetSelectors.forEach(sel => {
+          css += `${sel}{background:${bg}!important;box-shadow:${glow}!important;transition:background 80ms linear,box-shadow 80ms linear}`;
+        });
+
+        const nodeArtNetEdgesIntensity = edgeList.current.filter(e => {
+          if (e.source !== id) return false;
+          const h = (e.sourceHandle ?? '').toLowerCase();
+          return h.includes('artdmx');
+        });
+        nodeArtNetEdgesIntensity.forEach(e => {
+          css += `g.react-flow__edge[data-id="${e.id}"] path.react-flow__edge-path{stroke:${bg}!important;filter:drop-shadow(0 0 ${Math.round(4 + v * 6)}px rgba(${DMX_RGB},${alpha}));transition:stroke 80ms linear}`;
+          if (e.targetHandle) css += `[data-handleid="${e.targetHandle}"]{background:${bg}!important;box-shadow:${glow}!important;transition:background 80ms linear,box-shadow 80ms linear}`;
+        });
+      });
+
+      // The real performance fix (2026-08-30, 2nd pass) belongs here, not
+      // in how the CSS above gets built — style.textContent forces a full
+      // document style/layout recalculation on every assignment, even to
+      // an identical string, since this is raw DOM manipulation with no
+      // React diffing involved at all. An idle, unchanging DMX node (or
+      // any other idle source) now builds the exact same css string every
+      // single frame — comparing against the last string actually written
+      // means that, once settled, an unchanging scene costs one real DOM
+      // write, then zero more until something genuinely changes, while
+      // fully preserving every visual — including the dim floor glow at
+      // rest a v<=0 skip here would have removed (see that skip's own
+      // revert note further up).
+      if (css !== lastAppliedCss.current)
+      {
+        style.textContent = css;
+        lastAppliedCss.current = css;
+      }
       rafId = requestAnimationFrame(render);
     };
     rafId = requestAnimationFrame(render);

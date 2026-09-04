@@ -1,5 +1,6 @@
 #pragma once
 #include "DmxMonitorNode.h"
+#include <algorithm>
 
 // ─────────────────────────────────────────────────────────────────────────────
 /**
@@ -38,6 +39,25 @@ public:
         blackout.store (prev, std::memory_order_release);
         if (prev) lastSent.fill (0);
     }
+
+    // Force process() to re-emit outputDmxFrame/outputDmxFrameValid on its
+    // very next call, even if current == lastSent (added 2026-08-31, real
+    // bug fix — see PatchyProcessor.cpp's own call site for the full
+    // story). Needed specifically because ProcessingGraph::process()'s
+    // own resetBuffers() unconditionally clears outputDmxFrameValid at
+    // the start of EVERY block, for every node — including right after a
+    // rebuild transfers/restores this console's own state. Since a
+    // reconnection also means any downstream node's own source cache was
+    // pruned to empty during the disconnection, that cache needs a fresh
+    // re-population on the very next block regardless of whether this
+    // console's own value has genuinely changed since its own last
+    // emission — a direct transferOutputFrame()-style fix (setting
+    // outputDmxFrame/outputDmxFrameValid directly, an earlier attempt)
+    // doesn't survive resetBuffers()'s own reset happening first — this
+    // uses the same pendingOutput mechanism process()'s own change-
+    // detection already checks, exactly the way restoreChannels() uses it
+    // when it detects a genuine settingsJson-vs-lastSent difference.
+    void forceReEmit() { pendingOutput.store (true, std::memory_order_release); }
 
     /** Get all 512 channel values (for saving to settingsJson). */
     std::array<uint8_t, 512> getAllChannels() const
@@ -154,11 +174,26 @@ public:
 
         // Lightweight Value mirror alongside it, no blob — same reasoning
         // as DmxInDeviceNode's own mirror.
+        //
+        // Reflects the MAX across all 512 channels (fixed 2026-08-30), not
+        // just current[0] (channel 1) as it did before — that original
+        // choice meant this mirror, and therefore the frontend's own
+        // per-node DMX intensity glow that reads it, never updated at all
+        // unless channel 1 specifically was the one being moved. This went
+        // unnoticed for a long time because a since-fixed frontend bug (see
+        // Architecture.md, 2026-08-30) always showed some dim glow
+        // regardless of the real value, masking the fact that this mirror
+        // was never actually tracking anything beyond channel 1 in the
+        // first place — fixing that frontend bug exposed this real,
+        // separate, pre-existing gap. Max (not e.g. average) chosen to
+        // match "is this console outputting something right now" — a
+        // single channel at full while every other sits at zero should
+        // still read as active, not diluted by the other 511 channels.
         PAX_Value v {};
         v.type     = PAX_TYPE_DMX;
         v.dataType = PAX_DATA_FLOAT;
         v.key      = 0;
-        v.value    = current[0] / 255.f;
+        v.value    = *std::max_element (current.begin(), current.end()) / 255.f;
 
         outputValues[0] = v;
         outputValueCount = 1;

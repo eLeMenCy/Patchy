@@ -153,7 +153,8 @@ Patchy/
 │   ├── SpectrumyserPax/           FFT spectrum analyser with band outputs
 │   ├── AudioToDmxPax/             Audio (RMS or isolated frequency band) → DMX channel, first Pax hosted inside a DAW
 │   ├── MidiToDmxPax/              MIDI CC → DMX channel adapter
-│   └── UdpValueToMidiCCPax/       Generic Value → MIDI CC adapter
+│   ├── UdpValueToMidiCCPax/       Generic Value → MIDI CC adapter
+│   └── AudioPeakToOscPax/         Audio RMS/Peak → OSC float adapter
 │
 ├── UI/                              React / TypeScript frontend
 │   └── src/
@@ -319,7 +320,8 @@ Pax are shared libraries implementing the `PAX_Descriptor` C API in `Pax/PaxAPI.
 | Value to DMX | Converter | 1 Value in / 1 DMX out | DMX Channel (1-512), Input Min/Max (default 0.0/1.0), Current Value (read-only live display) |
 | Audio to DMX | Converter | 1 Audio in / 1 DMX out | Mode (RMS/Freq Range), Sensitivity (dB), Damping (0-500ms), DMX Channel (1-512); first Pax hosted inside a DAW, not just standalone |
 | MIDI to DMX | Converter | 1 MIDI in / 1 DMX out | MIDI CC (0-127), DMX Channel (1-512), Current Value (read-only live display) |
-| UDP Value to MIDI CC | Converter | 1 Value in / 1 MIDI out | MIDI CC (0-127), MIDI Channel (1-16), Input Min/Max (default 0.0/1.0), Current Value (read-only live display) |
+| UDP Value to MIDI CC | Converter | 1 Value in / 1 MIDI out | MIDI CC (0-127), MIDI Channel (1-16), Input Min/Max (default 0.0/1.0), MIDI CC Value (read-only live display) |
+| Audio Peak to OSC | Converter | 1 Audio in / 1 OSC out | Mode (Whole/Freq Range), Measurement (RMS/Peak), Sensitivity (dB), Band Low/High (Hz), Damping (0-500ms), Send Mode (Change/Rate), Max Rate (1-100Hz); Measurement is fully orthogonal to Mode, giving all four combinations; Send Mode controls per-node whether messages only go out on genuine change or continuously at a throttled rate |
 
 ### Parameter persistence
 

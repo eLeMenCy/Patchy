@@ -260,14 +260,18 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
     for (auto* n : sortedNodes)
         n->resetBuffers (numSamples);
 
-    // Build connectivity sets (used in steps 2 and 4)
-    std::unordered_set<juce::String> hasInput;
+    // Build connectivity sets (used in steps 2 and 4) — cleared, not
+    // reconstructed, so the underlying bucket capacity from a previous
+    // block is reused rather than requiring a fresh heap allocation every
+    // single block (see these members' own declaration in
+    // ProcessingGraph.h for the full story).
+    hasInputScratch.clear();
     for (auto& e : edges)
-        hasInput.insert (e.dstNodeId);
+        hasInputScratch.insert (e.dstNodeId);
 
-    std::unordered_set<juce::String> hasOutput;
+    hasOutputScratch.clear();
     for (auto& e : edges)
-        hasOutput.insert (e.srcNodeId);
+        hasOutputScratch.insert (e.srcNodeId);
 
     // ── 2. Feed inputs into source nodes ─────────────────────────────────
 
@@ -298,7 +302,7 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
 
         // Only AudioIn device nodes (non-DAW) get host audio as source
         // Pax/processing nodes with no connections stay silent
-        if (hasInput.count (n->id) == 0)
+        if (hasInputScratch.count (n->id) == 0)
         {
             if (dynamic_cast<AudioInDeviceNode*> (n) != nullptr)
             {
@@ -326,7 +330,9 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
         // entries their respective source types put there, so an
         // unrelated source's id here is simply never looked up against
         // either. Named generically since both prune passes share it.
-        std::unordered_set<juce::String> currentUpstreamSources;
+        // Cleared, not reconstructed, every node every block — see this
+        // member's own declaration in ProcessingGraph.h for the full story.
+        currentUpstreamSourcesScratch.clear();
 
         // Route edges: copy upstream outputAudio → this node's inputAudio
         for (auto& e : edges)
@@ -336,7 +342,7 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
             auto srcIt = nodeMap.find (e.srcNodeId);
             if (srcIt == nodeMap.end()) continue;
             auto* src = srcIt->second;
-            currentUpstreamSources.insert (src->id);
+            currentUpstreamSourcesScratch.insert (src->id);
 
             if (isAudioPort (e.srcPortId))
             {
@@ -473,14 +479,14 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
         // be processed last.
         //
         // Prune first: erase any dmxSourceFrames entry whose source isn't
-        // in currentUpstreamSources (built from this block's actual edges,
+        // in currentUpstreamSourcesScratch (built from this block's actual edges,
         // above) — otherwise a disconnected source's last-known frame
         // would keep contributing to the merge forever.
         if (! n->dmxSourceFrames.empty())
         {
             for (auto it = n->dmxSourceFrames.begin(); it != n->dmxSourceFrames.end(); )
             {
-                if (currentUpstreamSources.count (it->first) == 0)
+                if (currentUpstreamSourcesScratch.count (it->first) == 0)
                     it = n->dmxSourceFrames.erase (it);
                 else
                     ++it;
@@ -504,6 +510,27 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
                     n->inputDmxFrame[b] = std::max (n->inputDmxFrame[b], kv.second[b]);
             n->inputDmxFrameValid = true;
         }
+        else
+        {
+            // Real bug found and fixed 2026-08-30, discovered while
+            // investigating a user report that a console's own port/edge
+            // glow (and a monitor's own bargraph) stayed lit at their last
+            // value forever after disconnection, never dimming back down.
+            // The pruning above (see its own comment) correctly empties
+            // dmxSourceFrames once a source disconnects — but this merge
+            // itself was only ever entered when the cache was non-empty,
+            // meaning inputDmxFrame/inputDmxFrameValid were never actually
+            // reset once the LAST remaining source disconnected — both
+            // simply stuck at whatever they held from the last time a
+            // source really was connected. This isn't just a display
+            // issue: inputDmxFrame is the same frame DmxOutDeviceNode
+            // sends to real hardware, so a disconnected source could leave
+            // a physical fixture holding a stale, frozen DMX value
+            // indefinitely, not just a UI glow. Explicit reset here closes
+            // that gap correctly.
+            n->inputDmxFrame.fill (0);
+            n->inputDmxFrameValid = false;
+        }
 
         // ── ArtNet: same prune-then-merge, plus a universe gate ───────────
         // Same reasoning and structure as the DMX pass above — the only
@@ -521,7 +548,7 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
         {
             for (auto it = n->artNetSourceFrames.begin(); it != n->artNetSourceFrames.end(); )
             {
-                if (currentUpstreamSources.count (it->first) == 0)
+                if (currentUpstreamSourcesScratch.count (it->first) == 0)
                     it = n->artNetSourceFrames.erase (it);
                 else
                     ++it;
@@ -545,6 +572,25 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
                 n->inputArtNetFrameValid = true;
                 n->inputArtNetUniverse   = chosenUniverse;
             }
+            else
+            {
+                // Same real bug as DMX's own merge above (see that
+                // block's own comment for the full story) — a genuinely
+                // empty universe-matched set (either no sources cached
+                // at all, or every cached source belongs to a different
+                // universe than chosenUniverse) never explicitly reset
+                // this node's own frame/valid state before, leaving it
+                // stuck at its last real value indefinitely.
+                n->inputArtNetFrame.fill (0);
+                n->inputArtNetFrameValid = false;
+            }
+        }
+        else
+        {
+            // Same fix, for the case where artNetSourceFrames itself is
+            // already empty before this block even runs.
+            n->inputArtNetFrame.fill (0);
+            n->inputArtNetFrameValid = false;
         }
 
         // DAW AudioIn: outputAudio already filled in step 2 — skip process()
@@ -575,7 +621,7 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
         {
             if (auto* outNode = dynamic_cast<AudioOutDeviceNode*> (n))
             {
-                if (outNode->getIsDawDevice() && hasInput.count (n->id) > 0)
+                if (outNode->getIsDawDevice() && hasInputScratch.count (n->id) > 0)
                 {
                     if (! dawOutFound) { hostAudio.clear(); dawOutFound = true; }
                     int ch = std::min (n->inputAudio.getNumChannels(), hostAudio.getNumChannels());
@@ -595,7 +641,7 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
         // hostMidi sinks however are still collected.
         for (auto* n : sortedNodes)
         {
-            if (hasOutput.count (n->id) > 0) continue;
+            if (hasOutputScratch.count (n->id) > 0) continue;
             if (dynamic_cast<AudioOutDeviceNode*> (n) != nullptr) continue;
             if (dynamic_cast<AudioInDeviceNode*>  (n) != nullptr) continue;
 
@@ -822,6 +868,21 @@ void ProcessingGraph::closeAllProtocolDeviceSockets()
         if (auto* n = dynamic_cast<ArtNetOutDeviceNode*> (node.get())) n->closeSocket();
         if (auto* n = dynamic_cast<DmxInDeviceNode*>     (node.get())) n->closePort();
         if (auto* n = dynamic_cast<DmxOutDeviceNode*>    (node.get())) n->closePort();
+    }
+}
+
+void ProcessingGraph::closeUdpBasedProtocolDeviceSockets()
+{
+    // See this method's own declaration in ProcessingGraph.h for the full
+    // story — deliberately excludes ArtNet and DMX, both of which now have
+    // a genuine connection-transfer mechanism that this same close would
+    // otherwise defeat entirely, every single graph rebuild.
+    for (auto& node : nodes)
+    {
+        if (auto* n = dynamic_cast<UdpInDeviceNode*>  (node.get())) n->closeSocket();
+        if (auto* n = dynamic_cast<UdpOutDeviceNode*> (node.get())) n->closeSocket();
+        if (auto* n = dynamic_cast<OscInDeviceNode*>  (node.get())) n->closeSocket();
+        if (auto* n = dynamic_cast<OscOutDeviceNode*> (node.get())) n->closeSocket();
     }
 }
 

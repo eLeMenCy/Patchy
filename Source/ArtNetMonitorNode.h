@@ -5,6 +5,7 @@
 #include <atomic>
 #include <array>
 #include <vector>
+#include <algorithm>
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  ArtNetSnapshot — one complete 512-channel universe snapshot + universe number
@@ -88,7 +89,38 @@ public:
 
             if (buffer != nullptr)
                 buffer->push (inputArtNetFrame, inputArtNetUniverse);
+
+            // Lightweight Value mirror, added 2026-08-30 as part of
+            // migrating ArtNet from "flash" to DMX's own "continuous
+            // intensity" treatment (see App.tsx and Architecture.md) —
+            // this node never populated outputValues[0] at all before,
+            // the exact same gap DmxMonitorNode had before its own fix
+            // earlier the same day (see that file's own comment). Placed
+            // after the universe filter check above, deliberately — so
+            // this mirror (and the glow it drives) reflects exactly what
+            // the canvas bargraph display itself is showing, not some
+            // other, filtered-out universe's own frame. Max across all
+            // 512 received channels, same reasoning as DmxMonitorNode's
+            // own fix — a single channel at full should still read as
+            // active.
+            PAX_Value v {};
+            v.type     = PAX_TYPE_DMX;
+            v.dataType = PAX_DATA_FLOAT;
+            v.key      = (uint32_t) inputArtNetUniverse;
+            v.value    = *std::max_element (inputArtNetFrame.begin(), inputArtNetFrame.end()) / 255.f;
+
+            outputValues[0] = v;
+            outputValueCount = 1;
         }
+        // Deliberately no else branch — reverted 2026-08-30 (4th pass),
+        // same reasoning and same fix as DmxMonitorNode.h's own revert
+        // (see that file's own comment for the full story) — the user
+        // reconsidered directly after seeing the reset-to-dark behaviour
+        // running: with the console's own output port and the real
+        // hardware output nodes both correctly holding their last state
+        // on disconnect, having the Monitor go dark instead created a
+        // jarring inconsistency across the graph. Now consistently holds
+        // last known state everywhere, matching DmxMonitorNode's own.
     }
 
 private:

@@ -1,4 +1,17 @@
-// Patchy — Audio to DMX node UI
+// Patchy — Audio to OSC node UI (band-style graphic, PRESERVED ALTERNATIVE)
+//
+// Preserved 2026-08-26 when the user asked to try the simpler level-meter
+// design first instead — this file is NOT currently registered in
+// App.tsx's nodeTypes map or paxName-matching condition (see
+// AudioPeakToOscNode.tsx, which now holds the level-meter version). Kept
+// here in full, working order specifically so the user can revert to this
+// "similar in spirit to AudioToDmxNode" graphic if they end up preferring
+// it over the simpler one — swap which file's content lives at
+// AudioPeakToOscNode.tsx to switch back, no App.tsx changes needed either
+// way since only the file path itself matters, not this exported function
+// name (renamed to AudioPeakToOscNode_BandStyle here only to avoid a
+// name collision if this file and the active one are ever both open/
+// imported at once — App.tsx never references this identifier directly).
 
 import { useEffect, useRef, useState, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
@@ -7,67 +20,52 @@ import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow, node
 import { HintContext } from './HintPanel';
 import { Settings, X } from 'lucide-react';
 
+// Bespoke UI for AudioPeakToOscPax (2026-08-26), built per the user's own
+// request after comparing this node's original generic look against
+// EnvelopeNode/AudioToDmxNode/SpectrumyserNode — closely mirrors
+// AudioToDmxNode.tsx throughout (the most directly analogous existing
+// bespoke component: same "audio → non-audio protocol" shape, same
+// Mode/Sensitivity/Damping parameters), including reusing its own
+// dual-head frequency-range slider (now shared via NodeUtils.tsx) rather
+// than rebuilding an equivalent — per the user's own explicit request.
+// Deliberately scoped to visual polish and interaction feel only, per the
+// user's own framing — no DSP/behavioural changes at all; every value
+// this file reads/writes maps 1:1 to AudioPeakToOscPax.cpp's own existing
+// parameters, unchanged.
+
 // Persist settings panel open state across graph updates (survives undo/redo)
 const _settingsOpen = new Map<string, boolean>();
 
-// FREQ_MIN/FREQ_MAX, freqLabel, SliderRow, Stepper, and FreqBandDual all
-// moved to NodeUtils.tsx (2026-08-26) so AudioPeakToOscNode.tsx could reuse
-// the same dual-head frequency slider rather than duplicate it — see that
-// file's own header comment there for the full story. FREQ_MIN/FREQ_MAX
-// stay local here too (not exported) since only FreqBandDual's own Stepper
-// bounds need them internally, and this file's own BandDisplay/toX also
-// reference them directly.
 const FREQ_MIN = 20, FREQ_MAX = 20000;
 
-// Param indices — must match AudioToDmxPax.cpp's PAX_getParameterInfo,
-// plus two UI-only entries (5, 6) that never go to the backend at all —
+// Param indices — must match AudioPeakToOscPax.cpp's PAX_getParameterInfo,
+// plus two UI-only entries (8, 9) that never go to the backend at all —
 // see the settingsJson-restore effect below for why they're still part of
-// the same persisted array.
-const IDX_MODE = 0, IDX_SENS = 1, IDX_BANDLOW = 2, IDX_BANDHIGH = 3, IDX_CHANNEL = 4, IDX_DAMPING = 5;
+// the same persisted array. Unlike AudioToDmxNode.tsx's own history, this
+// Pax is brand new (built 2026-08-25) with no existing saved projects to
+// protect, so all 8 real parameters map directly to array positions 0-7 in
+// their own natural backend order — no AudioToDmxPax-style "append after
+// the UI-only slots" workaround was needed here.
+const IDX_MODE = 0, IDX_MEASUREMENT = 1, IDX_SENS = 2, IDX_BANDLOW = 3,
+      IDX_BANDHIGH = 4, IDX_DAMPING = 5, IDX_SENDMODE = 6, IDX_MAXRATE = 7;
 
-// resolveCssColor (imported above) resolves a CSS custom property
-// reference (e.g. "var(--value)", exactly what theme.accent returns for
-// this Pax's auto-detected Converter category) to its actual literal
-// colour — needed because Canvas 2D's fillStyle/strokeStyle can't
-// interpret var() at all. Passing "var(--value)" here silently failed and
-// kept whatever fillStyle was already set — defaulting to black — which
-// is exactly why the waveform originally drew nothing (2026-07-30); every
-// *ordinary* DOM use of the same colour (port dots, plain borders)
-// resolved fine through normal CSS, which is what made this so easy to
-// miss at the time. Extracted into NodeUtils.tsx (2026-08-12) after the
-// same root problem turned up again in NodeSelect.tsx, in a different
-// shape (string-concatenating a hex-alpha suffix onto a var() reference,
-// rather than handing var() to canvas) — see that file's own comments.
-
-// ── Band display — small always-visible graphic, not inside the foldable
-// settings panel. Redesigned per eLeMenCy's reference image + brief
-// ("Bislider_canvas_-_brief.odt"/"...Pict.jpeg", 2026-07-31): a unified
-// frequency-axis graphic. Back to front:
-//   1. Wave — RMS mode only. A glow/blur version (matching the reference
-//      image) was tried across both modes and then removed entirely —
-//      "confusing, didn't earn its place" plus a stutter. Brought back in
-//      a deliberately different, narrower form: the earlier SHARP style
-//      (solid fill+stroke in the node's own accent colour, no shadowBlur),
-//      shown only in RMS mode — which otherwise has nothing else to look
-//      at, since the Zoom/Band tinting and FILTER curve's shaping are both
-//      FREQ-mode-only. Amplitude is the real sensitivity gain applied to
-//      level (level × 10^(dB/20), the exact formula the backend uses
-//      before clamping to a DMX byte), same as the removed version — an
-//      honest readout, not decoration.
-//   2. Zoom window / active Band tinting — FREQ mode only.
-//   3. FILTER curve — a stylised decorative bump centred on the active
-//      Band (not the real analytic bandpass response — deliberately kept
-//      simple, per discussion), flat in RMS mode since there's no shaping
-//      to show. Purely illustrative, same spirit as the reference image's
-//      "FILTER" curve.
-//   4. Sensitivity line — crisp, on top of everything, unchanged mapping
-//      (-20..+60dB → bottom..top).
-// Giving the body real, constant height also fixes ports rendering outside
-// the node when the settings panel is folded (see port offset comments
-// at the call site).
+// ── Level display — small always-visible graphic, "similar in spirit" to
+// AudioToDmxNode's own BandDisplay per the user's own explicit request
+// (rather than a simpler level-meter alternative) — same four-layer
+// structure (wave / zoom+band tinting / filter curve / sensitivity line),
+// adapted for this Pax's own two independent axes:
+//   - Mode (whole signal vs Freq Range) drives the same wave-vs-band-
+//     tinting choice AudioToDmxPax's own Mode did — Measurement (RMS vs
+//     Peak) doesn't change which layers draw, only what the underlying
+//     level itself represents; the wave shows whichever measurement is
+//     actually active, an honest readout either way rather than a
+//     separate visual per combination.
+//   - No DMX Channel concept for OSC, so there's nothing analogous to
+//     plot as a "channel" readout — the graphic stays purely about the
+//     level and frequency shaping, same as the original for its own Mode.
 const DISPLAY_H = 44;
 const BAND_DISPLAY_W = 260;
-function BandDisplay({ mode, bandLow, bandHigh, zoomMin, zoomMax, sensitivityDb, level, color }: {
+function LevelDisplay({ mode, bandLow, bandHigh, zoomMin, zoomMax, sensitivityDb, level, color }: {
   mode:          number;
   bandLow:       number;
   bandHigh:      number;
@@ -80,9 +78,6 @@ function BandDisplay({ mode, bandLow, bandHigh, zoomMin, zoomMax, sensitivityDb,
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const history    = useRef<number[]>(new Array(BAND_DISPLAY_W).fill(0));
 
-  // Resolved once per render — see resolveCssColor's comment above for why
-  // this is required before anything reaches canvas or a concatenated
-  // background string.
   const hexColor = resolveCssColor(color, '#e879f9');
 
   const toX = (hz: number) => {
@@ -93,7 +88,7 @@ function BandDisplay({ mode, bandLow, bandHigh, zoomMin, zoomMax, sensitivityDb,
   const bandX1 = toX(bandLow), bandX2 = toX(bandHigh);
 
   useEffect(() => {
-    // Real sensitivity gain — same formula as AudioToDmxPax.cpp's
+    // Real sensitivity gain — same formula as AudioPeakToOscPax.cpp's own
     // sensitivityGain(), not a separate display-only curve.
     const sensGain = Math.pow(10, sensitivityDb / 20);
     const gained = Math.min(1, level * sensGain);
@@ -106,7 +101,7 @@ function BandDisplay({ mode, bandLow, bandHigh, zoomMin, zoomMax, sensitivityDb,
     ctx.fillStyle = '#0a0f18';
     ctx.fillRect(0, 0, BAND_DISPLAY_W, DISPLAY_H);
 
-    // ── Layer 1: wave — RMS mode only, sharp (no glow) ─────────────────────
+    // ── Layer 1: wave — whole-signal mode only, sharp (no glow) ───────────
     if (mode === 0) {
       const waveBaseline = DISPLAY_H - 3;
       const waveSpan      = DISPLAY_H - 8;
@@ -144,22 +139,12 @@ function BandDisplay({ mode, bandLow, bandHigh, zoomMin, zoomMax, sensitivityDb,
     }
 
     // ── Layer 3: FILTER curve — stylised, not real filter math ───────────
-    // A smooth raised-cosine bump centred on the active Band, tapering to
-    // the baseline at ~1.5x the band's own width either side. Flat in RMS
-    // mode (there's genuinely no shaping happening to show).
-    //
-    // peakPx scales with Sensitivity — not plotting its dB value as a
-    // curve position (which would be wrong, Sensitivity isn't frequency-
-    // dependent, same reasoning that kept it off this curve entirely and
-    // on its own line), just scaling the decorative bump's overall size
-    // as a stylistic echo of the fader, the same way a VU needle doesn't
-    // need a labelled axis to be useful. Directly visualises "turn
-    // Sensitivity up to compensate for a narrow band's lower energy" —
-    // the curve visibly grows as you do. Range chosen so the default
-    // (+20dB) lands exactly on the old fixed value (11px), for continuity.
+    // Same decorative bump as AudioToDmxNode's own — see that file's own
+    // comment for the full reasoning (scales with Sensitivity, not a real
+    // analytic bandpass response).
     const baseline  = DISPLAY_H / 2;
     const sensNorm  = Math.max(0, Math.min(1, (sensitivityDb + 20) / 80)); // -20..+60 → 0..1
-    const peakPx    = 4 + sensNorm * 14; // 4px..18px, 11px at the +20dB default
+    const peakPx    = 4 + sensNorm * 14;
     const centreX   = mode === 1 ? (bandX1 + bandX2) / 2 : BAND_DISPLAY_W / 2;
     const halfWidth = mode === 1 ? Math.max(8, (bandX2 - bandX1) * 0.9) : BAND_DISPLAY_W;
     ctx.beginPath();
@@ -176,10 +161,6 @@ function BandDisplay({ mode, bandLow, bandHigh, zoomMin, zoomMax, sensitivityDb,
 
   // Sensitivity line — moves with the Sensitivity slider (-20..+60dB),
   // higher dB reads as higher up, same up-is-more convention as a fader.
-  // Kept as a DOM overlay (not drawn on the canvas) — simpler, and it
-  // genuinely needs to sit above everything else including the filter
-  // curve, which is easiest as a separate element rather than having to
-  // re-order canvas draw calls around it.
   const sensPct = ((60 - sensitivityDb) / (60 - (-20))) * 100;
 
   return (
@@ -202,11 +183,6 @@ function BandDisplay({ mode, bandLow, bandHigh, zoomMin, zoomMax, sensitivityDb,
         <span style={{ position: 'absolute', bottom: 1, left: 3, fontSize: 7, color: 'var(--text-muted)' }}>20</span>
         <span style={{ position: 'absolute', bottom: 1, right: 3, fontSize: 7, color: 'var(--text-muted)' }}>20k</span>
 
-        {/* Band Low/High values, at the bottom of their own vertical
-            boundary lines — same size as 20/20k above, so the chosen
-            range is still readable when the settings panel (and its
-            sliders) are folded away. FREQ mode only, matching the band
-            lines themselves, which also only draw in that mode. */}
         {mode === 1 && (
           <>
             <span style={{
@@ -225,7 +201,7 @@ function BandDisplay({ mode, bandLow, bandHigh, zoomMin, zoomMax, sensitivityDb,
 }
 
 // ── Main node ─────────────────────────────────────────────────────────────────
-export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
+export default function AudioPeakToOscNode_BandStyle({ id, data, selected }: NodeProps) {
   const { setHint } = useContext(HintContext);
   const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
   const [showSettings, setShowSettings] = useState(() => _settingsOpen.get(id) ?? false);
@@ -234,39 +210,30 @@ export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
   const paxColourCategory = nodeData.paxName ? _paxInfoMap.get(nodeData.paxName)?.colourCategory : undefined;
   const theme  = detectPaxTheme(nodeData.ports ?? [], paxColourCategory);
   const ACCENT = theme.accent; // Converter -> fuchsia, auto-detected same as every other Pax
-  // Same fix as BandDisplay's hexColor — ACCENT is "var(--value)", and
-  // concatenating alpha onto a var() reference (`${ACCENT}18` etc. below)
-  // is invalid CSS that fails silently, not just a canvas-only problem.
   const accentHex = resolveCssColor(ACCENT, '#e879f9');
 
-  // Parameters (0-4 are real backend params; zoomMin/zoomMax are UI-only —
-  // see the settingsJson-restore effect for why they still ride along).
-  // dampingMs is real (backend index 5) but appended at array position 7,
-  // AFTER zoomMin/zoomMax rather than inserted before them — inserting it
-  // at position 5 would have shifted every existing saved project's
-  // zoomMin/zoomMax into the wrong slots on next load.
-  const [mode,          setMode]          = useState(1);     // 0=RMS, 1=Freq Range
+  // Parameters 0-7 are all real backend params (see IDX_* above); zoomMin/
+  // zoomMax (positions 8-9) are UI-only — see the settingsJson-restore
+  // effect for why they still ride along in the same persisted array.
+  const [mode,          setMode]          = useState(1);     // 0=Whole, 1=Freq Range
+  const [measurement,   setMeasurement]   = useState(0);     // 0=RMS, 1=Peak
   const [sensitivityDb, setSensitivityDb] = useState(20);
   const [bandLow,       setBandLow]       = useState(200);
   const [bandHigh,      setBandHigh]      = useState(2000);
-  const [dmxChannel,    setDmxChannel]    = useState(1);
+  const [dampingMs,     setDampingMs]     = useState(0);      // 0 = none
+  const [sendMode,      setSendMode]      = useState(0);      // 0=Change, 1=Rate
+  const [maxRateHz,     setMaxRateHz]     = useState(30);
   const [zoomMin,       setZoomMin]       = useState(FREQ_MIN);
   const [zoomMax,       setZoomMax]       = useState(FREQ_MAX);
-  const [dampingMs,     setDampingMs]     = useState(0);      // 0 = none
 
   const portBodyRef = useRef<HTMLDivElement>(null);
 
-  // Live audio level for the BandDisplay wave (RMS mode only) — same
-  // source Envelope's own ccValue readout uses (per-node RMS telemetry,
-  // available for any node with audio buffers, not just monitor-specific
-  // nodes). Removed once already when the wave itself was removed;
-  // reinstated now that the wave's back. Gated to RMS mode specifically —
-  // re-subscribes on mode change (cheap; user-triggered, not per-frame),
-  // so no level updates (and therefore no canvas redraws) happen in FREQ
-  // mode, where the wave doesn't render anyway. The earlier stutter
-  // complaint was against the glow/blur version's heavier per-frame
-  // shadowBlur cost, not necessarily this plain fill+stroke — but there's
-  // no reason to redraw 30x/sec for a layer that isn't even visible.
+  // Live audio level for the LevelDisplay wave (whole-signal mode only) —
+  // same source AudioToDmxNode's own BandDisplay wave uses (per-node RMS
+  // telemetry, available for any node with audio buffers). Gated to Mode=0
+  // specifically, same reasoning as the original: no level updates (and
+  // therefore no canvas redraws) happen in Freq Range mode, where the wave
+  // doesn't render anyway.
   const [level, setLevel] = useState(0);
   useEffect(() => {
     if (mode !== 0) { setLevel(0); return; }
@@ -277,80 +244,73 @@ export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
   }, [id, mode]);
 
   // Single source of truth for both mount-time defaults AND undo/redo sync
-  // (same shape as EnvelopeNode.tsx). Deliberately tolerant of a settingsJson
-  // array shorter than expected (pads missing trailing entries with their
-  // own default) rather than discarding the whole restore on a length
-  // mismatch — GenericNode.tsx had exactly that bug (silently dropping an
-  // entire Undo because DMX Channel's addition changed the param count);
-  // built correctly from the start here instead of inheriting it.
+  // (same shape as AudioToDmxNode.tsx's own). Tolerant of a settingsJson
+  // array shorter than expected, same reasoning as that file's own comment.
   useEffect(() => {
     const sj = nodeData?.settingsJson;
-    const defaults = [1, 20, 200, 2000, 1, FREQ_MIN, FREQ_MAX, 0];
+    const defaults = [1, 0, 20, 200, 2000, 0, 0, 30, FREQ_MIN, FREQ_MAX];
     let raw: number[] | null = null;
     try { raw = sj ? (JSON.parse(sj) as number[]) : null; } catch { raw = null; }
     const v = defaults.map((d, i) => (raw && raw[i] !== undefined) ? raw[i] : d);
 
     setMode(Math.round(v[0]));
-    setSensitivityDb(v[1]);
-    setBandLow(v[2]);
-    setBandHigh(v[3]);
-    setDmxChannel(Math.round(v[4]));
-    setZoomMin(v[5]);
-    setZoomMax(v[6]);
-    setDampingMs(v[7]);
-    // First 5 are real Pax parameters at matching backend indices.
-    // Damping is also real, but at array position 7 (backend index 5) —
-    // see the state declarations above for why it isn't at position 5.
-    // zoomMin/zoomMax (positions 5-6) are UI-only, never sent to the
-    // backend.
-    for (let i = 0; i < 5; i++) Bridge.setPaxParameter(id, i, v[i]);
-    Bridge.setPaxParameter(id, IDX_DAMPING, v[7]);
+    setMeasurement(Math.round(v[1]));
+    setSensitivityDb(v[2]);
+    setBandLow(v[3]);
+    setBandHigh(v[4]);
+    setDampingMs(v[5]);
+    setSendMode(Math.round(v[6]));
+    setMaxRateHz(v[7]);
+    setZoomMin(v[8]);
+    setZoomMax(v[9]);
+    // First 8 are real Pax parameters at matching backend indices;
+    // positions 8-9 (zoomMin/zoomMax) are UI-only, never sent to the backend.
+    for (let i = 0; i < 8; i++) Bridge.setPaxParameter(id, i, v[i]);
   }, [nodeData?.settingsJson]);
 
-  // General-purpose committer — takes a partial patch of any of the 7
-  // tracked values, applies it on top of current state, persists the
-  // whole array, and pushes only the real Pax-parameter indices to the
-  // backend. Needed (rather than EnvelopeNode's simpler single-index
-  // setParam) because zoom changes must atomically clamp bandLow/bandHigh
-  // in the same update — doing that as two separate setParam calls would
-  // let the two intermediate states each get its own inconsistent commit.
+  // General-purpose committer — same shape as AudioToDmxNode.tsx's own
+  // applyUpdate, for the same reason: zoom changes must atomically clamp
+  // bandLow/bandHigh in the same update.
   const applyUpdate = useCallback((patch: Partial<{
-    mode: number; sensitivityDb: number; bandLow: number; bandHigh: number;
-    dmxChannel: number; zoomMin: number; zoomMax: number; dampingMs: number;
+    mode: number; measurement: number; sensitivityDb: number; bandLow: number; bandHigh: number;
+    dampingMs: number; sendMode: number; maxRateHz: number; zoomMin: number; zoomMax: number;
   }>) => {
     const next = {
       mode: patch.mode ?? mode,
+      measurement: patch.measurement ?? measurement,
       sensitivityDb: patch.sensitivityDb ?? sensitivityDb,
       bandLow: patch.bandLow ?? bandLow,
       bandHigh: patch.bandHigh ?? bandHigh,
-      dmxChannel: patch.dmxChannel ?? dmxChannel,
+      dampingMs: patch.dampingMs ?? dampingMs,
+      sendMode: patch.sendMode ?? sendMode,
+      maxRateHz: patch.maxRateHz ?? maxRateHz,
       zoomMin: patch.zoomMin ?? zoomMin,
       zoomMax: patch.zoomMax ?? zoomMax,
-      dampingMs: patch.dampingMs ?? dampingMs,
     };
-    setMode(next.mode); setSensitivityDb(next.sensitivityDb);
+    setMode(next.mode); setMeasurement(next.measurement); setSensitivityDb(next.sensitivityDb);
     setBandLow(next.bandLow); setBandHigh(next.bandHigh);
-    setDmxChannel(next.dmxChannel);
+    setDampingMs(next.dampingMs); setSendMode(next.sendMode); setMaxRateHz(next.maxRateHz);
     setZoomMin(next.zoomMin); setZoomMax(next.zoomMax);
-    setDampingMs(next.dampingMs);
 
     Bridge.setNodeSettings(id, [
-      next.mode, next.sensitivityDb, next.bandLow, next.bandHigh,
-      next.dmxChannel, next.zoomMin, next.zoomMax, next.dampingMs,
+      next.mode, next.measurement, next.sensitivityDb, next.bandLow, next.bandHigh,
+      next.dampingMs, next.sendMode, next.maxRateHz, next.zoomMin, next.zoomMax,
     ]);
-    if (patch.mode          !== undefined) Bridge.setPaxParameter(id, IDX_MODE,     next.mode);
-    if (patch.sensitivityDb !== undefined) Bridge.setPaxParameter(id, IDX_SENS,     next.sensitivityDb);
-    if (patch.bandLow       !== undefined) Bridge.setPaxParameter(id, IDX_BANDLOW,  next.bandLow);
-    if (patch.bandHigh      !== undefined) Bridge.setPaxParameter(id, IDX_BANDHIGH, next.bandHigh);
-    if (patch.dmxChannel    !== undefined) Bridge.setPaxParameter(id, IDX_CHANNEL,  next.dmxChannel);
-    if (patch.dampingMs     !== undefined) Bridge.setPaxParameter(id, IDX_DAMPING,  next.dampingMs);
-  }, [id, mode, sensitivityDb, bandLow, bandHigh, dmxChannel, zoomMin, zoomMax, dampingMs]);
+    if (patch.mode          !== undefined) Bridge.setPaxParameter(id, IDX_MODE,        next.mode);
+    if (patch.measurement   !== undefined) Bridge.setPaxParameter(id, IDX_MEASUREMENT, next.measurement);
+    if (patch.sensitivityDb !== undefined) Bridge.setPaxParameter(id, IDX_SENS,        next.sensitivityDb);
+    if (patch.bandLow       !== undefined) Bridge.setPaxParameter(id, IDX_BANDLOW,     next.bandLow);
+    if (patch.bandHigh      !== undefined) Bridge.setPaxParameter(id, IDX_BANDHIGH,    next.bandHigh);
+    if (patch.dampingMs     !== undefined) Bridge.setPaxParameter(id, IDX_DAMPING,     next.dampingMs);
+    if (patch.sendMode      !== undefined) Bridge.setPaxParameter(id, IDX_SENDMODE,    next.sendMode);
+    if (patch.maxRateHz     !== undefined) Bridge.setPaxParameter(id, IDX_MAXRATE,     next.maxRateHz);
+  }, [id, mode, measurement, sensitivityDb, bandLow, bandHigh, dampingMs, sendMode, maxRateHz, zoomMin, zoomMax]);
 
-  // Band handle drag — PUSHES the other handle along when dragged past it,
-  // rather than locking in place at the boundary (the earlier behaviour:
-  // dragging Low up to meet High just stopped Low dead at High-1, which
-  // read as "stuck", not "met"). A 1Hz minimum gap is still enforced on
-  // both handles so they can never fully cross or overlap to zero width.
+  // Band handle drag / Zoom stepper change — identical logic to
+  // AudioToDmxNode.tsx's own onBandChange/onZoomChange, reused verbatim
+  // (not extracted, since both also close over their own file-local
+  // applyUpdate/state — same reasoning FreqBandDual itself didn't need
+  // this duplication, being a pure, self-contained control).
   const onBandChange = useCallback((which: 'low' | 'high', v: number) => {
     if (which === 'low') {
       const newLow  = Math.max(zoomMin, Math.min(v, zoomMax - 1));
@@ -363,10 +323,6 @@ export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
     }
   }, [applyUpdate, bandLow, bandHigh, zoomMin, zoomMax]);
 
-  // Zoom Stepper change — narrows/widens the slider's own span. Clamps
-  // bandLow/bandHigh into the new window in the same update if the window
-  // moved past either of them, so the two handles never end up stranded
-  // outside the visible track.
   const onZoomChange = useCallback((which: 'min' | 'max', v: number) => {
     let newMin = zoomMin, newMax = zoomMax;
     if (which === 'min') newMin = Math.max(FREQ_MIN, Math.min(Math.round(v), zoomMax - 10));
@@ -379,8 +335,8 @@ export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
 
   const handleReset = useCallback(() => {
     applyUpdate({
-      mode: 1, sensitivityDb: 20, bandLow: 200, bandHigh: 2000,
-      dmxChannel: 1, zoomMin: FREQ_MIN, zoomMax: FREQ_MAX, dampingMs: 0,
+      mode: 1, measurement: 0, sensitivityDb: 20, bandLow: 200, bandHigh: 2000,
+      dampingMs: 0, sendMode: 0, maxRateHz: 30, zoomMin: FREQ_MIN, zoomMax: FREQ_MAX,
     });
     Bridge.commitNodeSettings(id);
   }, [applyUpdate, id]);
@@ -388,24 +344,21 @@ export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
   const ports    = nodeData?.ports ?? [];
   const inAudio  = ports.filter((p: any) => p.type === 'audio' && p.direction === 'input');
   const outAudio = ports.filter((p: any) => p.type === 'audio' && p.direction === 'output');
-  const outDmx   = ports.filter((p: any) => p.type !== 'audio' && p.direction === 'output');
-  const label    = nodeData?.label ?? 'Audio to DMX';
+  const outOsc   = ports.filter((p: any) => p.type !== 'audio' && p.direction === 'output');
+  const label    = nodeData?.label ?? 'Audio to OSC';
 
   return (
     <div
-      onMouseEnter={() => setHint({ title: 'Audio to DMX', body: 'Isolates a frequency range (or whole-signal RMS) from audio and drives a DMX channel value.\nFirst Pax exercised hosted inside a DAW.' })}
+      onMouseEnter={() => setHint({ title: 'Audio to OSC', body: 'Extracts an RMS or Peak level (whole signal or an isolated frequency band) from audio and emits it as an OSC float.' })}
       onMouseLeave={() => setHint(null)}
       style={{
         ...nodeContainerStyle(ACCENT, !!selected),
         minWidth: 300,
       }}
     >
-      {/* IN/OUT ports — anchored to portBodyRef so they stay together.
-          Output ports' offsets (7, 21) centre the pair on the band
-          graphic's single-canvas content (4px top margin + 44px canvas =
-          48px, centre ~26px down; symmetric 14px-apart positions around
-          that land at 19 and 33, i.e. offset 7 and 21 once the +12px
-          header gap is subtracted). */}
+      {/* IN/OUT ports — anchored to portBodyRef so they stay together,
+          same offsets as AudioToDmxNode.tsx's own for the same reason
+          (centres the pair on the level graphic's single-canvas content). */}
       {inAudio.map((p: any) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="in"
           colour="var(--audio)" portBodyRef={portBodyRef} offset={7} />
@@ -414,9 +367,9 @@ export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="out"
           colour="var(--audio)" portBodyRef={portBodyRef} offset={7} />
       ))}
-      {outDmx.map((p: any) => (
+      {outOsc.map((p: any) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="out"
-          colour="var(--dmx)" portBodyRef={portBodyRef} offset={21} />
+          colour="var(--osc)" portBodyRef={portBodyRef} offset={21} />
       ))}
 
       {/* Header */}
@@ -438,8 +391,10 @@ export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
           {label}
         </div>
 
-        {/* Mode badge — solid fill when active, matching Envelope's Amp/Band
-            badge exactly (not an outline) */}
+        {/* Three compact badges — Mode / Measurement / Send Mode — per the
+            user's own explicit request, same solid-fill-when-active style
+            as AudioToDmxNode's own single badge, just three side by side
+            rather than pushing two of these into the settings panel only. */}
         <div className="nodrag" onClick={e => { e.stopPropagation(); applyUpdate({ mode: mode === 0 ? 1 : 0 }); Bridge.commitNodeSettings(id); }}
           style={{
             fontSize: 8, padding: '2px 5px', borderRadius: 2, cursor: 'pointer',
@@ -447,7 +402,27 @@ export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
             color:      mode === 1 ? '#000' : 'var(--text-muted)',
             fontWeight: 700, userSelect: 'none',
           }}>
-          {mode === 0 ? 'RMS' : 'FREQ'}
+          {mode === 0 ? 'WHOLE' : 'FREQ'}
+        </div>
+
+        <div className="nodrag" onClick={e => { e.stopPropagation(); applyUpdate({ measurement: measurement === 0 ? 1 : 0 }); Bridge.commitNodeSettings(id); }}
+          style={{
+            fontSize: 8, padding: '2px 5px', borderRadius: 2, cursor: 'pointer',
+            background: measurement === 1 ? ACCENT : 'var(--surface)',
+            color:      measurement === 1 ? '#000' : 'var(--text-muted)',
+            fontWeight: 700, userSelect: 'none',
+          }}>
+          {measurement === 0 ? 'RMS' : 'PEAK'}
+        </div>
+
+        <div className="nodrag" onClick={e => { e.stopPropagation(); applyUpdate({ sendMode: sendMode === 0 ? 1 : 0 }); Bridge.commitNodeSettings(id); }}
+          style={{
+            fontSize: 8, padding: '2px 5px', borderRadius: 2, cursor: 'pointer',
+            background: sendMode === 1 ? ACCENT : 'var(--surface)',
+            color:      sendMode === 1 ? '#000' : 'var(--text-muted)',
+            fontWeight: 700, userSelect: 'none',
+          }}>
+          {sendMode === 0 ? 'CHANGE' : 'RATE'}
         </div>
 
         <div onDoubleClick={e => e.stopPropagation()}>
@@ -459,7 +434,7 @@ export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
 
         <div onDoubleClick={e => e.stopPropagation()}>
           <NodeHeaderButton onClick={() => setShowSettings(v => { const next = !v; _settingsOpen.set(id, next); return next; })}
-            onHint={{ onMouseEnter: () => setHint({ title: 'Settings', body: 'Configure Audio to DMX parameters.' }), onMouseLeave: () => setHint(null) }}>
+            onHint={{ onMouseEnter: () => setHint({ title: 'Settings', body: 'Configure Audio to OSC parameters.' }), onMouseLeave: () => setHint(null) }}>
             <span style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               border: showSettings ? `1px solid ${ACCENT}` : '1px solid transparent',
@@ -478,13 +453,12 @@ export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
         </div>
       </div>
 
-      {/* Body — always-visible band graphic; also gives the node real,
+      {/* Body — always-visible level graphic; also gives the node real,
           constant height so ports never dangle outside it when the
-          settings panel is folded (the old 6px spacer wasn't tall enough
-          to contain where NodeHandle positions the ports below). */}
+          settings panel is folded. */}
       {!collapsed && (
         <div ref={portBodyRef} style={{ paddingBottom: 6 }}>
-          <BandDisplay mode={mode} bandLow={bandLow} bandHigh={bandHigh}
+          <LevelDisplay mode={mode} bandLow={bandLow} bandHigh={bandHigh}
             zoomMin={zoomMin} zoomMax={zoomMax} sensitivityDb={sensitivityDb}
             level={level} color={ACCENT} />
         </div>
@@ -494,8 +468,14 @@ export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
       {showSettings && !collapsed && (
         <div style={settingsPanelStyle}>
 
-          <Stepper label="DMX Channel" value={dmxChannel} min={1} max={512} width={36} color={ACCENT} buttons
-            onChange={v => { applyUpdate({ dmxChannel: v }); Bridge.commitNodeSettings(id); }} />
+          {/* Max Rate — only meaningful in Send Mode=Rate; conditionally
+              shown, same treatment as Freq Band being conditional on Mode
+              below (a control that only affects behaviour in one of two
+              states isn't shown in the other). */}
+          {sendMode === 1 && (
+            <Stepper label="Max Rate (Hz)" value={maxRateHz} min={1} max={100} width={36} color={ACCENT} buttons
+              onChange={v => { applyUpdate({ maxRateHz: v }); Bridge.commitNodeSettings(id); }} />
+          )}
 
           <div style={sectionDividerStyle}>
             <SliderRow label="Sensitivity" value={sensitivityDb} min={-20} max={60} step={0}
@@ -505,19 +485,17 @@ export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
               onCommit={() => Bridge.commitNodeSettings(id)} />
           </div>
 
-          {/* Damping — one control, symmetric (same time constant rising
-              and falling), applied to the final value identically in both
-              Mode settings. Deliberately not a return to the old two-knob
-              Attack/Release (removed 2026-07-27 for making things harder
-              to dial in, not easier) — "None" at 0 preserves the exact
-              prior behaviour for anyone who doesn't touch it. */}
+          {/* Damping — same one-control, symmetric approach as
+              AudioToDmxNode's own — see that file's own comment. */}
           <SliderRow label="Damping" value={dampingMs} min={0} max={500} step={0}
             format={v => v < 1 ? 'None' : `${v.toFixed(0)}ms`}
             onChange={v => applyUpdate({ dampingMs: v })} color={ACCENT}
             onDoubleClick={() => applyUpdate({ dampingMs: 0 })}
             onCommit={() => Bridge.commitNodeSettings(id)} />
 
-          {/* Band filters — only in Freq Range mode */}
+          {/* Band filters — only in Freq Range mode, same dual-head
+              slider AudioToDmxNode.tsx uses, now shared via NodeUtils.tsx
+              per the user's own explicit request. */}
           {mode === 1 && (
             <div style={sectionDividerStyle}>
               <div style={{ color: 'var(--text-muted)', fontSize: 8, marginBottom: 4 }}>Freq Band</div>

@@ -1,5 +1,6 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <chrono>
 #include "GraphModel.h"
 #include "ProcessingGraph.h"
 #include "MidiDeviceNodes.h"
@@ -1109,6 +1110,17 @@ private:
     // can safely destroy it (avoids destructor running on the audio thread).
     std::unique_ptr<ProcessingGraph> graphTrash;
     std::atomic<bool>                graphTrashPending { false };
+    // TEMPORARY diagnostic (2026-09-02), remove once resolved — see
+    // processBlock()'s own comment for the full story. Only ever
+    // accessed on the audio thread itself (set at the end of the swap
+    // block, read+reset at the end of the same processBlock() call), so
+    // a plain bool is correct here, no atomic needed.
+    bool                              firstProcessAfterSwap { false };
+    // TEMPORARY diagnostic (2026-09-02), remove once resolved — see
+    // processBlock()'s own comment for the full story. Default-
+    // constructed (time_since_epoch() == 0) is used as the "no previous
+    // call yet" sentinel on the very first block.
+    std::chrono::high_resolution_clock::time_point lastCallbackTime {};
 
     double lastSampleRate  = 44100.0;
     int    lastBlockSize   = 512;

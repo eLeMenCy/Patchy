@@ -14,6 +14,7 @@
 #include "../Pax/PaxRegistry.h"
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 
 // Forward declarations to break circular dependencies
 class MidiOutDeviceNode;
@@ -127,6 +128,28 @@ public:
      *  known-issue note. */
     void closeAllProtocolDeviceSockets();
 
+    /** Real fix, 2026-09-02 — same purpose as closeAllProtocolDeviceSockets()
+     *  above, but deliberately excludes DMX and ArtNet devices: both gained
+     *  a genuine connection-transfer mechanism the same week
+     *  (DmxIn/OutDeviceNode's and ArtNetIn/OutDeviceNode's own
+     *  transferOrConfigure()), which safely hands the already-open
+     *  connection to the new graph's own instance atomically, with no
+     *  window where two objects hold it at once — so pre-emptively closing
+     *  it here would only ever undermine that transfer, never protect
+     *  anything. Confirmed as the exact, sole cause of a real graph-wide
+     *  sluggishness bug: this same call, made unconditionally on every
+     *  single graph rebuild anywhere, was closing the very connection the
+     *  transfer mechanism was trying to reuse, before it ever got a chance
+     *  to run — via precise diagnostic logging showing "old node's serial
+     *  not open" on every single graph edit, without exception. UDP and OSC
+     *  still have no such mechanism and still genuinely need the original,
+     *  full close to avoid their own real bind-race — this narrower version
+     *  is for the specific rebuild call site only, not a replacement for
+     *  the original, which remains correct and necessary for genuine full
+     *  shutdown (releaseResources()), where there is no new graph to
+     *  transfer anything to at all. */
+    void closeUdpBasedProtocolDeviceSockets();
+
 private:
     struct Edge
     {
@@ -157,6 +180,32 @@ private:
     double preparedSampleRate = 44100.0;
     int    preparedBlockSize  = 512;
     bool   isPrepared         = false;
+
+    // Real bug found and fixed 2026-09-02 — process()'s own hasInput,
+    // hasOutput, and (worse) currentUpstreamSources were each declared as
+    // fresh, LOCAL std::unordered_set variables — hasInput/hasOutput
+    // reconstructed once per audio block, currentUpstreamSources once per
+    // NODE per block (so for a graph with N nodes, N separate
+    // reconstructions every single block). std::unordered_set's own
+    // constructor allocates its internal bucket storage on the heap —
+    // meaning this ran continuously, unconditionally, on the audio
+    // thread, completely independent of whether any graph edit had
+    // happened at all. Found while investigating a user report of a
+    // longstanding, general, variable-severity audio-stream glitch
+    // ("sometimes 2-3 grooves, sometimes 1, sometimes none") specifically
+    // on graph edits — a pattern consistent with this same per-block
+    // allocation activity contending with the message thread's own
+    // concurrent allocator activity while a new graph is being
+    // constructed during a rebuild, even though the allocation itself
+    // runs on every block, edit or not. These 3 members are now
+    // persistent, reused scratch storage instead — cleared with .clear()
+    // rather than reconstructed each time process() needs them, which
+    // keeps each one's own already-allocated bucket capacity intact
+    // (no new heap allocation needed unless a set's own size ever
+    // genuinely exceeds its previous largest point).
+    std::unordered_set<juce::String> hasInputScratch;
+    std::unordered_set<juce::String> hasOutputScratch;
+    std::unordered_set<juce::String> currentUpstreamSourcesScratch;
 
     void topologicalSort();
 

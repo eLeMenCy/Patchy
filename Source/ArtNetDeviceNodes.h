@@ -3,6 +3,7 @@
 #include <juce_core/juce_core.h>
 #include "NodeProcessor.h"
 #include "../Pax/PaxAPI.h"
+#include <algorithm>
 
 // Forward declare to avoid circular include
 class ProcessingGraph;
@@ -73,7 +74,15 @@ namespace ArtNetCodec
         out.type     = PAX_TYPE_DMX;
         out.dataType = PAX_DATA_FLOAT;
         out.key      = universe;
-        out.value    = dmx[0] / 255.f;   // ch1 normalised, convenient shortcut
+        // Max across the received frame (fixed 2026-08-30, as part of
+        // migrating ArtNet from "flash" to DMX's own "continuous
+        // intensity" treatment — see App.tsx and Architecture.md), not
+        // just dmx[0] (channel 1) as this "convenient shortcut" did
+        // before — the same fix already applied to ArtNetConsoleNode.h
+        // and ArtNetMonitorNode.h earlier the same day, for the identical
+        // reason: channel 1 alone meant this value never reflected any
+        // other channel actually being active.
+        out.value    = *std::max_element (dmx, dmx + dmxLen) / 255.f;
 
         fullOut.fill (0);
         const int copyLen = std::min ((int) fullOut.size(), (int) dmxLen);
@@ -151,6 +160,60 @@ public:
         closeSocket();
         universe = universeToUse;
         openSocket();
+    }
+
+    // Real fix, 2026-09-01 (2nd pass) — the earlier guard directly inside
+    // configure() (comparing universe/socket state on THIS instance) was
+    // structurally unable to work, for the identical reason DmxInDeviceNode's
+    // own equivalent attempt failed (see that file's own comment for the
+    // full story): ProcessingGraph::rebuild() destroys and recreates every
+    // node instance on every graph edit, so a freshly-constructed
+    // instance's own members are always at their own defaults, never
+    // carrying over from whatever came before. The genuine fix transfers
+    // the actual, already-open socket itself — simpler here than DMX's own
+    // case, since a socket is already held via a natively-movable
+    // std::unique_ptr, with no custom transfer method needed at all.
+    bool transferOrConfigure (int universeToUse, ArtNetInDeviceNode* oldNode)
+    {
+        if (oldNode != nullptr && oldNode->universe == universeToUse && oldNode->socket != nullptr)
+        {
+            // Real crash found and fixed 2026-09-02 — a genuine, serious
+            // bug in the first version of this method, confirmed by a real
+            // EXC_BAD_ACCESS/SIGSEGV crash report on the old node's own
+            // receive thread. That thread could still be genuinely, actively
+            // running — blocked in its own socket read — at the exact
+            // moment this method ran on the message thread and moved
+            // oldNode->socket out from under it, setting it to nullptr
+            // immediately. If the old thread's own run() loop then
+            // dereferenced it a moment later (a classic check-then-use
+            // race, not something a single null check here could prevent),
+            // that's an unconditional segfault — unlike DMX's own
+            // SerialPort::transferFrom(), which swaps a plain, trivially-
+            // copyable int file descriptor that simply can't be null-
+            // dereferenced the same way. Fixed by synchronously stopping
+            // the old thread first, matching closeSocket()'s own already-
+            // established pattern (signal + shutdown to unblock a pending
+            // read promptly + wait for genuine exit) — but deliberately
+            // without that method's own final socket.reset(), since the
+            // whole point here is to keep the socket alive long enough to
+            // move it, not destroy it. Timeout reduced from 1000ms to
+            // 200ms, 2026-09-02 — see DmxInDeviceNode's own equivalent
+            // comment for the full reasoning.
+            if (oldNode->isThreadRunning())
+            {
+                oldNode->signalThreadShouldExit();
+                oldNode->socket->shutdown();
+                oldNode->stopThread (200);
+            }
+
+            socket   = std::move (oldNode->socket);
+            universe = universeToUse;
+            startThread (juce::Thread::Priority::normal);
+            return true;
+        }
+
+        configure (universeToUse);
+        return false;
     }
 
     void openSocket()
@@ -341,6 +404,41 @@ public:
         openSocket();
     }
 
+    // Real fix, 2026-09-01 (2nd pass) — same reasoning and same fix as
+    // ArtNetInDeviceNode's own (see that file's own comment for the full
+    // story).
+    bool transferOrConfigure (const juce::String& targetHostToUse, int universeToUse, ArtNetOutDeviceNode* oldNode)
+    {
+        if (oldNode != nullptr && oldNode->targetHost == targetHostToUse
+            && oldNode->universe == universeToUse && oldNode->socket != nullptr)
+        {
+            // Real crash found and fixed 2026-09-02 — same reasoning and
+            // same fix as ArtNetInDeviceNode's own (see that file's own
+            // comment for the full story), but using this node's own
+            // correct wake-up mechanism: its own thread blocks waiting on
+            // sendQueue, not on a socket read, so that's what needs
+            // signalling to let it notice threadShouldExit() promptly,
+            // matching this class's own closeSocket(). Timeout reduced
+            // from 1000ms to 200ms, 2026-09-02 — see DmxInDeviceNode's own
+            // equivalent comment for the full reasoning.
+            if (oldNode->isThreadRunning())
+            {
+                oldNode->signalThreadShouldExit();
+                oldNode->sendQueue.signalDataAvailable();
+                oldNode->stopThread (200);
+            }
+
+            socket     = std::move (oldNode->socket);
+            targetHost = targetHostToUse;
+            universe   = universeToUse;
+            startThread (juce::Thread::Priority::normal);
+            return true;
+        }
+
+        configure (targetHostToUse, universeToUse);
+        return false;
+    }
+
     void openSocket()
     {
         if (targetHost.isEmpty()) return;
@@ -368,7 +466,31 @@ public:
         {
             sendQueue.push ({ (uint16_t) universe, inputArtNetFrame });
             sendQueue.signalDataAvailable();
+
+            // Lightweight Value mirror, added 2026-08-30 — this node
+            // never populated outputValues[0] at all before, the same
+            // gap found and fixed the same day in DmxOutDeviceNode.h
+            // (see that file's own comment for the fuller story). Max
+            // across all 512 received channels, same reasoning as every
+            // other DMX/ArtNet mirror fixed the same day.
+            PAX_Value v {};
+            v.type     = PAX_TYPE_DMX;
+            v.dataType = PAX_DATA_FLOAT;
+            v.key      = (uint32_t) universe;
+            v.value    = *std::max_element (inputArtNetFrame.begin(), inputArtNetFrame.end()) / 255.f;
+
+            outputValues[0] = v;
+            outputValueCount = 1;
         }
+        // Deliberately no else branch — reverted 2026-08-30 (3rd pass),
+        // same reasoning and same fix as DmxOutDeviceNode.h's own revert
+        // (see that file's own comment for the full story) — the user's
+        // own explicit decision is hold-last-state on disconnect for
+        // real physical DMX/ArtNet hardware output, both for sendQueue
+        // itself (never touched) and this visual mirror (simply not
+        // updated when inputArtNetFrameValid is false), consistent with
+        // each other and with what the physical fixture is actually
+        // still doing.
     }
 
     juce::String targetHost;
@@ -465,8 +587,8 @@ public:
         return it != settings.end() ? &it->second : nullptr;
     }
 
-    bool applyToGraph (const juce::String& nodeId, ProcessingGraph& graph);
-    void applyAllSettings (ProcessingGraph& graph);
+    bool applyToGraph (const juce::String& nodeId, ProcessingGraph& graph, ProcessingGraph* oldGraph = nullptr);
+    void applyAllSettings (ProcessingGraph& graph, ProcessingGraph* oldGraph = nullptr);
 
 private:
     std::unordered_map<juce::String, Settings> settings;

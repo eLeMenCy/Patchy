@@ -1,6 +1,8 @@
 #include "PatchyProcessor.h"
 #include "PatchyEditor.h"
 #include "AudioDeviceNodes.h"
+#include <utility>
+#include <chrono>
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -93,20 +95,139 @@ void PatchyProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 {
     juce::ScopedNoDenormals noDenormals;
 
+    // TEMPORARY diagnostic (2026-09-02) — a genuinely different question
+    // from everything measured so far: not how long this function takes
+    // once it's called, but whether it's being called ON TIME at all. The
+    // user's own two rounds of precise timing data now show the swap,
+    // prepare(), and even the very first process() call on fresh node
+    // instances are all comparably fast to ordinary blocks — meaning
+    // nothing measured so far explains a real, audible stutter. If the
+    // audio callback itself is being delayed/starved by something
+    // entirely outside this function (the UI thread, WebView rendering,
+    // OS scheduling) specifically during a graph edit, that would sound
+    // identical to a slow callback but require a completely different
+    // fix — and wouldn't show up in anything timed from inside this
+    // function. This measures the actual gap between consecutive calls
+    // to this exact function, flagging it whenever it significantly
+    // exceeds the expected block period for the current sample
+    // rate/block size.
+    {
+        auto now = std::chrono::high_resolution_clock::now();
+        if (lastCallbackTime.time_since_epoch().count() != 0)
+        {
+            auto gapMicros = std::chrono::duration_cast<std::chrono::microseconds> (now - lastCallbackTime).count();
+            double expectedMicros = (lastSampleRate > 0.0)
+                                     ? (1'000'000.0 * (double) buffer.getNumSamples() / lastSampleRate)
+                                     : 11600.0;
+            if ((double) gapMicros > expectedMicros * 1.5)
+                juce::Logger::writeToLog ("PatchyProcessor: callback gap " + juce::String ((int) gapMicros)
+                                          + " microseconds (expected ~" + juce::String ((int) expectedMicros) + ")");
+        }
+        lastCallbackTime = now;
+    }
+
     // Swap in a newly built graph if one is pending
     if (graphPending.exchange (false))
     {
-        // Move old graph to trash bin — it will be destroyed on the message thread.
-        // This prevents audio-device destructors from running on the audio thread.
-        auto oldGraph = std::make_unique<ProcessingGraph> (std::move (processingGraph));
-        graphTrash = std::move (oldGraph);
+        // TEMPORARY diagnostic (2026-09-02), remove once resolved — 4
+        // targeted fixes so far (the two documented below, plus a
+        // MidiOutDeviceNode data race fix and making 3 per-block
+        // containers persistent instead of reconstructed, both
+        // elsewhere) have not conclusively resolved a real,
+        // user-reported audio-stream glitch specifically on graph
+        // edits. Rather than keep reasoning about what SHOULD be fast,
+        // this measures exactly how long this whole swap block
+        // genuinely takes, in microseconds, every single time it runs —
+        // direct, empirical evidence rather than further speculation.
+        auto timingStart = std::chrono::high_resolution_clock::now();
+
+        // Real bug found and fixed 2026-09-02 — the previous version of
+        // this swap called std::make_unique<ProcessingGraph>(...) directly
+        // here, on the audio thread, every single time a graph rebuild's
+        // own swap happened — a genuine, classic real-time-audio
+        // anti-pattern: heap allocation is not guaranteed lock-free/
+        // wait-free by the underlying allocator, and its timing can be
+        // genuinely, unpredictably variable depending on the allocator's
+        // own internal state and contention with other threads at that
+        // exact moment. std::swap on two already-existing ProcessingGraph
+        // objects (this member itself, and the one pendingGraph already
+        // points to, both already fully constructed beforehand) only
+        // needs a single stack-allocated temporary internally — genuinely
+        // predictable, real-time-safe stack allocation, not a heap
+        // allocation at all — since ProcessingGraph's own members are all
+        // cheaply-movable standard containers (see its own defaulted move
+        // constructor/assignment). pendingGraph itself, now correctly
+        // holding the OLD graph's own contents after the swap, is moved
+        // directly into graphTrash — no new allocation there either, just
+        // a transfer of an already-existing unique_ptr's own ownership.
+        std::swap (processingGraph, *pendingGraph);
+
+        // Real fix, 2026-09-03 (3rd revision) — see AudioOutDeviceNode's
+        // own transferCallbackTo() comment for the full story of why this
+        // moved here specifically. At this exact point, *pendingGraph
+        // holds the OLD graph's own nodes (via the swap just above) and
+        // processingGraph holds the NEW, now-live one — the old graph is
+        // no longer being processed by anyone (this swap is what made it
+        // stop), and the message thread's own rebuildProcessingGraph()
+        // finished constructing/configuring the new graph well before
+        // this point — meaning the audio thread, right here, right now,
+        // is the ONLY thread that could possibly touch either fifo,
+        // eliminating the cross-thread race an earlier attempt at this
+        // same transfer (on the message thread, during the rebuild
+        // itself) risked. Only nodes the message thread already marked
+        // wasTransferred() (meaning a genuinely matching, same-device
+        // node exists in both graphs) are handled — everything else
+        // (a genuinely new device selection, or no prior node at all)
+        // correctly already went through a normal, full configure()/
+        // openDevice() instead, with nothing here to transfer from.
+        for (auto& newNode : processingGraph.getNodes())
+        {
+            if (auto* newOut = dynamic_cast<AudioOutDeviceNode*> (newNode.get()))
+            {
+                if (newOut->wasTransferred())
+                    if (auto* oldOut = pendingGraph->findAudioOutNode (newOut->id))
+                        newOut->transferFifoFrom (*oldOut);
+            }
+            else if (auto* newIn = dynamic_cast<AudioInDeviceNode*> (newNode.get()))
+            {
+                if (newIn->wasTransferred())
+                    if (auto* oldIn = pendingGraph->findAudioInNode (newIn->id))
+                        newIn->transferFifoFrom (*oldIn);
+            }
+        }
+
+        graphTrash = std::move (pendingGraph);
         graphTrashPending.store (true);
 
-        processingGraph = std::move (*pendingGraph);
-        pendingGraph.reset();
         processingGraph.isStandaloneMode = isStandalone;
         processingGraph.graphModel        = &graphModel;
+        // Real fix, 2026-09-02 — the actual, expensive buffer allocation
+        // work this call used to do now already happened on the message
+        // thread, before this graph was ever handed over (see
+        // rebuildProcessingGraph()'s own matching call and its own
+        // comment for the full story) — every buffer here should already
+        // be the exact right size, so this now correctly, cheaply no-ops
+        // via setSize()'s own size-matches-already check. Kept as a
+        // genuine safety net (e.g. if sample rate/block size somehow
+        // changed between the rebuild and this exact moment), not removed
+        // — the cost of keeping it is negligible once it's a no-op.
         processingGraph.prepare (lastSampleRate, lastBlockSize);
+
+        auto timingEnd = std::chrono::high_resolution_clock::now();
+        auto timingMicros = std::chrono::duration_cast<std::chrono::microseconds> (timingEnd - timingStart).count();
+        juce::Logger::writeToLog ("PatchyProcessor: graph swap took " + juce::String ((int) timingMicros) + " microseconds");
+
+        // TEMPORARY diagnostic (2026-09-02) — flags that the very next
+        // process() call below is the FIRST one on freshly swapped-in
+        // node instances, so it can be timed and logged specifically,
+        // separately from the regular, randomly-sampled baseline. The
+        // swap logic above is now confirmed fast (comparable to or
+        // faster than ordinary blocks), but that alone doesn't confirm
+        // whether these brand-new node instances' own very first
+        // process() call — cold in CPU cache, potentially doing
+        // something their own subsequent calls don't — behaves any
+        // differently from a typical, already-warm, steady-state block.
+        firstProcessAfterSwap = true;
     }
 
     // Clear any output channels that aren't used by inputs
@@ -118,10 +239,39 @@ void PatchyProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     if (processingGraph.isEmpty())
     {
         // No nodes — pass audio through silently, pass MIDI through
+        firstProcessAfterSwap = false;   // TEMPORARY diagnostic (2026-09-02) — avoid mislabeling a later block
         return;
     }
 
+    // TEMPORARY diagnostic (2026-09-02), remove once resolved — same
+    // investigation as the swap-block timing above; logs a baseline,
+    // normal (non-swap) block's own processing time for direct
+    // comparison, throttled to roughly once every few seconds to avoid
+    // flooding the log. Also separately, always logs the very first
+    // process() call specifically on the block right after a swap (see
+    // firstProcessAfterSwap's own comment above), regardless of the
+    // throttle — this is the one measurement not yet taken.
+    static int baselineLogCounter = 0;
+    bool logThisBaseline = (++baselineLogCounter % 200 == 0) || firstProcessAfterSwap;
+    auto baselineStart = logThisBaseline ? std::chrono::high_resolution_clock::now()
+                                          : std::chrono::high_resolution_clock::time_point{};
+
     processingGraph.process (buffer, midiMessages);
+
+    if (logThisBaseline)
+    {
+        auto baselineEnd = std::chrono::high_resolution_clock::now();
+        auto baselineMicros = std::chrono::duration_cast<std::chrono::microseconds> (baselineEnd - baselineStart).count();
+        if (firstProcessAfterSwap)
+            juce::Logger::writeToLog ("PatchyProcessor: FIRST process() after swap took " + juce::String ((int) baselineMicros) + " microseconds");
+        else
+            juce::Logger::writeToLog ("PatchyProcessor: baseline (non-swap) block took " + juce::String ((int) baselineMicros) + " microseconds");
+    }
+
+    // Reset regardless of whether this block's own timing was logged —
+    // this flag must only ever describe the ONE block immediately
+    // following a swap, never any block after that.
+    firstProcessAfterSwap = false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -159,14 +309,29 @@ void PatchyProcessor::rebuildProcessingGraph()
     if (pendingGraph != nullptr)
     {
         pendingGraph->closeAllAudioDevices();
-        pendingGraph->closeAllProtocolDeviceSockets();
+        pendingGraph->closeUdpBasedProtocolDeviceSockets();
     }
 
-    // Close the CURRENT graph's protocol device sockets (UDP/OSC/ArtNet/DMX)
+    // Close the CURRENT graph's UDP-based protocol device sockets (UDP/OSC)
     // before newGraph binds its own — prevents a bind race where the new
     // graph's socket loses to this graph's still-open one on the same port
     // and silently goes dead. See ProcessingGraph::closeAllProtocolDeviceSockets().
-    processingGraph.closeAllProtocolDeviceSockets();
+    //
+    // Real bug found and fixed 2026-09-02 — this used to call the FULL
+    // closeAllProtocolDeviceSockets(), which also closed ArtNet and DMX
+    // devices here, unconditionally, on every single graph rebuild — but
+    // both gained their own genuine connection-transfer mechanism the same
+    // week (see DmxIn/OutDeviceNode's own transferOrConfigure()), and this
+    // early, unconditional close was silently defeating it every time,
+    // before the transfer ever got a chance to run. Confirmed as the exact
+    // cause via precise diagnostic logging showing "old node's serial not
+    // open" on every single graph edit without exception — the very
+    // connection the transfer was trying to reuse had already been closed
+    // moments earlier, right here. Switched to the narrower,
+    // UDP/OSC-only version — see its own declaration in ProcessingGraph.h
+    // for the full reasoning on why ArtNet/DMX genuinely don't need this
+    // pre-emptive close the way UDP/OSC still do.
+    processingGraph.closeUdpBasedProtocolDeviceSockets();
 
     auto newGraph = std::make_unique<ProcessingGraph>();
     newGraph->rebuild (graphModel, &registry,
@@ -363,14 +528,14 @@ void PatchyProcessor::rebuildProcessingGraph()
         newGraph->closeAllTransferredAudioDevices();
 
     // Apply selections to new graph (opens/closes devices as needed)
-    midiDeviceManager.applyDeviceSelections  (*newGraph);
+    midiDeviceManager.applyDeviceSelections  (*newGraph, pendingGraph ? pendingGraph.get() : &processingGraph);
     audioDeviceManager.applyDeviceSelections (*newGraph);
     audioDeviceManager.applyAllChannelSelections (*newGraph);
     udpDeviceManager.applyAllSettings            (*newGraph);
     oscDeviceManager.applyAllSettings            (*newGraph);
     mqttDeviceManager.applyAllSettings           (*newGraph);
-    artNetDeviceManager.applyAllSettings         (*newGraph);
-    dmxDeviceManager.applyAllSettings            (*newGraph);
+    artNetDeviceManager.applyAllSettings         (*newGraph, pendingGraph ? pendingGraph.get() : &processingGraph);
+    dmxDeviceManager.applyAllSettings            (*newGraph, pendingGraph ? pendingGraph.get() : &processingGraph);
 
     // Transfer lastSent from most recent graph to ALL DMX/ArtNet Console nodes
     for (const auto& n : graphModel.getNodes())
@@ -388,6 +553,51 @@ void PatchyProcessor::rebuildProcessingGraph()
                     bool bo = false;
                     try { bo = (bool) juce::JSON::parse (n.settingsJson)["blackout"]; } catch (...) {}
                     newNode->transferBlackout (bo);
+
+                    // Real bug found 2026-08-30, first fix attempt found
+                    // NOT to work by the user's own direct testing, real
+                    // root cause found and properly fixed 2026-08-31 —
+                    // reconnecting a console after changing its value
+                    // while disconnected left the monitor stuck at the
+                    // OLD value; only a further, genuinely new change
+                    // (a nudge) fixed it. First attempt directly
+                    // transferred outputDmxFrame/outputDmxFrameValid here
+                    // (reasoning: a fresh instance starts those at their
+                    // own defaults, since only lastSent above was ever
+                    // transferred) — that reasoning was correct as far as
+                    // it went, but missed that ProcessingGraph::process()'s
+                    // own resetBuffers() unconditionally clears
+                    // outputDmxFrameValid at the START of every single
+                    // block, for every node — including the very next
+                    // block after this transfer runs, before anything
+                    // downstream ever gets to read it. Since this
+                    // console's own lastSent now already matches its
+                    // current fader state (transferred above), process()'s
+                    // own change-detection correctly, silently sees
+                    // "nothing changed" and never re-sets the flag back to
+                    // true — so the direct transfer got wiped before it
+                    // could ever matter.
+                    //
+                    // The real fix uses the mechanism this project already
+                    // built for exactly this situation: pendingOutput,
+                    // which restoreChannels() below already sets when ITS
+                    // OWN comparison detects a genuine settingsJson-vs-
+                    // lastSent difference — process()'s own change-
+                    // detection already checks this flag and forces a
+                    // re-emission even when current==lastSent. The gap was
+                    // that lastSent gets transferred to already match the
+                    // restored value in this exact reconnection scenario,
+                    // so restoreChannels()'s own comparison also correctly
+                    // sees "no difference" and never sets pendingOutput
+                    // either — nothing in the whole chain realises a fresh
+                    // re-population is needed regardless, since any
+                    // reconnection means a downstream node's own source
+                    // cache was pruned to empty during the disconnection.
+                    // Forcing it unconditionally on every reconnection
+                    // closes that gap directly, verified against the
+                    // user's own exact diagnostic with a standalone
+                    // simulation before considering this correct.
+                    newNode->forceReEmit();
                 }
         }
         else if (n.nodeType == 19)
@@ -402,6 +612,11 @@ void PatchyProcessor::rebuildProcessingGraph()
                     bool bo = false;
                     try { bo = (bool) juce::JSON::parse (n.settingsJson)["blackout"]; } catch (...) {}
                     newNode->transferBlackout (bo);
+
+                    // Same real bug and same fix as DmxConsoleNode's own
+                    // above (see that block's own comment for the full
+                    // story).
+                    newNode->forceReEmit();
                 }
         }
     }
@@ -414,6 +629,39 @@ void PatchyProcessor::rebuildProcessingGraph()
         else if (r.nodeType == 19)
             restoreArtNetConsoleChannels (r.nodeId, r.settingsJson, newGraph.get());
     }
+
+    // Real bug found and fixed 2026-09-02 — prepare() calls
+    // juce::AudioBuffer::setSize() on every node's own input/output audio
+    // buffers, for every single node in the graph. Every node instance is
+    // freshly constructed on every single rebuild (this project's own
+    // established, unavoidable pattern — see ProcessingGraph::rebuild()'s
+    // own "destroys and recreates every node" behaviour), meaning each
+    // one's own audio buffers start completely empty — confirmed directly
+    // against JUCE's own real source: setSize() only skips its own
+    // allocation when the requested size already exactly matches the
+    // buffer's current size, which can never be true for a buffer that
+    // starts at zero. This meant every node's own prepare() call was
+    // GENUINELY, unavoidably allocating memory — and this whole sequence
+    // used to run entirely on the audio thread, right after the graph
+    // swap in processBlock() — for potentially dozens of nodes, every
+    // single graph edit. Investigated while chasing a user report of a
+    // longstanding, general, variable-severity audio-stream glitch
+    // specifically and ONLY on graph edits (drop/remove/connect/
+    // disconnect), confirmed via the user's own precise, methodical
+    // testing to never happen on purely visual actions (moving nodes,
+    // zooming, opening settings) that don't trigger a rebuild at all —
+    // exactly the signature this mechanism would produce, and a stronger,
+    // more complete match than either of this same day's two earlier
+    // fixes. Doing this real allocation work here instead — on the
+    // message thread, before this graph is ever handed to the audio
+    // thread at all — means the identical prepare() call that still runs
+    // on the audio thread afterwards (see processBlock()'s own swap
+    // logic) finds every buffer already the exact right size, and
+    // setSize()'s own check correctly, genuinely skips any further
+    // allocation entirely.
+    newGraph->isStandaloneMode = isStandalone;
+    newGraph->graphModel        = &graphModel;
+    newGraph->prepare (lastSampleRate, lastBlockSize);
 
     pendingGraph = std::move (newGraph);
     graphPending.store (true);

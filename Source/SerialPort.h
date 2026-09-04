@@ -160,6 +160,36 @@ public:
 #endif
     }
 
+    // Takes ownership of another SerialPort's own already-open connection,
+    // leaving that instance closed (never touching the same underlying
+    // handle twice) — added 2026-09-01 to fix a real graph-wide
+    // sluggishness bug: ProcessingGraph::rebuild() destroys and recreates
+    // every node instance on every single graph edit, anywhere, not just
+    // ones involving this specific device — meaning a plain "skip
+    // reopening if unchanged" check inside configure() itself (an earlier,
+    // structurally broken attempt at this same fix) could never work, since
+    // a freshly-constructed node's own member variables (including this
+    // whole SerialPort, and the devicePath it would have been compared
+    // against) are always at their own fresh defaults, never carrying over
+    // from the instance that came before. This lets the caller — the
+    // node's own equivalent transfer method, called from
+    // PatchyProcessor::rebuildProcessingGraph()'s own existing "transfer
+    // state across rebuild" mechanism (see DmxConsoleNode's own
+    // transferLastSent for the established precedent) — genuinely reuse
+    // an already-open, already-negotiated connection instead of closing
+    // and reopening it from scratch on every unrelated graph edit.
+    void transferFrom (SerialPort& other)
+    {
+        close();
+#if defined(SERIALPORT_POSIX)
+        fd_ = other.fd_;
+        other.fd_ = -1;
+#elif defined(SERIALPORT_WINDOWS)
+        handle_ = other.handle_;
+        other.handle_ = INVALID_HANDLE_VALUE;
+#endif
+    }
+
     bool isOpen() const
     {
 #if defined(SERIALPORT_POSIX)

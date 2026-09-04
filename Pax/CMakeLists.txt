@@ -41,6 +41,7 @@ add_pax(ValueToDMXPax    ValueToDMXPax/ValueToDMXPax.cpp)
 add_pax(AudioToDmxPax AudioToDmxPax/AudioToDmxPax.cpp)
 add_pax(MidiToDmxPax     MidiToDmxPax/MidiToDmxPax.cpp)
 add_pax(UdpValueToMidiCCPax UdpValueToMidiCCPax/UdpValueToMidiCCPax.cpp)
+add_pax(AudioPeakToOscPax AudioPeakToOscPax/AudioPeakToOscPax.cpp)
 
 # ── Install target (optional) ─────────────────────────────────────────────────
 # cmake --install build --prefix ~ will copy Pax to the right folder.
@@ -52,6 +53,6 @@ else()
     set(PAX_INSTALL_DIR "$ENV{HOME}/.patchy/pax")
 endif()
 
-install(TARGETS LevelPax TransposePax AmpPax EnvelopePax StereoSplitterPax SpectrumyserPax MqttToValuePax OscToValuePax ValueToDMXPax AudioToDmxPax MidiToDmxPax UdpValueToMidiCCPax
+install(TARGETS LevelPax TransposePax AmpPax EnvelopePax StereoSplitterPax SpectrumyserPax MqttToValuePax OscToValuePax ValueToDMXPax AudioToDmxPax MidiToDmxPax UdpValueToMidiCCPax AudioPeakToOscPax
         LIBRARY DESTINATION "${PAX_INSTALL_DIR}"
         RUNTIME DESTINATION "${PAX_INSTALL_DIR}")

@@ -75,7 +75,8 @@ void PatchyProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
                              [this](const juce::String& nid) { return getOrCreateArtNetConsoleBuffer(nid); },
                              [this](const juce::String& nid) { return getOrCreateOscMonitorBuffer(nid); },
                              [this](const juce::String& nid) { return getOrCreateUdpMonitorBuffer(nid); },
-                             [this](const juce::String& nid) { return getOrCreateMqttMonitorBuffer(nid); });
+                             [this](const juce::String& nid) { return getOrCreateMqttMonitorBuffer(nid); },
+                             [this](const juce::String& nid) { return getOrCreateAudioPlayerState(nid); });
     processingGraph.isStandaloneMode = isStandalone;
     processingGraph.graphModel        = &graphModel;
     processingGraph.prepare (sampleRate, samplesPerBlock);
@@ -251,8 +252,7 @@ void PatchyProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // process() call specifically on the block right after a swap (see
     // firstProcessAfterSwap's own comment above), regardless of the
     // throttle — this is the one measurement not yet taken.
-    static int baselineLogCounter = 0;
-    bool logThisBaseline = (++baselineLogCounter % 200 == 0) || firstProcessAfterSwap;
+    bool logThisBaseline = firstProcessAfterSwap;
     auto baselineStart = logThisBaseline ? std::chrono::high_resolution_clock::now()
                                           : std::chrono::high_resolution_clock::time_point{};
 
@@ -262,10 +262,7 @@ void PatchyProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     {
         auto baselineEnd = std::chrono::high_resolution_clock::now();
         auto baselineMicros = std::chrono::duration_cast<std::chrono::microseconds> (baselineEnd - baselineStart).count();
-        if (firstProcessAfterSwap)
-            juce::Logger::writeToLog ("PatchyProcessor: FIRST process() after swap took " + juce::String ((int) baselineMicros) + " microseconds");
-        else
-            juce::Logger::writeToLog ("PatchyProcessor: baseline (non-swap) block took " + juce::String ((int) baselineMicros) + " microseconds");
+        juce::Logger::writeToLog ("PatchyProcessor: FIRST process() after swap took " + juce::String ((int) baselineMicros) + " microseconds");
     }
 
     // Reset regardless of whether this block's own timing was logged —
@@ -344,7 +341,8 @@ void PatchyProcessor::rebuildProcessingGraph()
                        [this](const juce::String& nid) { return getOrCreateArtNetConsoleBuffer(nid); },
                        [this](const juce::String& nid) { return getOrCreateOscMonitorBuffer(nid); },
                        [this](const juce::String& nid) { return getOrCreateUdpMonitorBuffer(nid); },
-                       [this](const juce::String& nid) { return getOrCreateMqttMonitorBuffer(nid); });
+                       [this](const juce::String& nid) { return getOrCreateMqttMonitorBuffer(nid); },
+                       [this](const juce::String& nid) { return getOrCreateAudioPlayerState(nid); });
 
     // Transfer existing open audio device connections to the new graph nodes
     // rather than closing and reopening — this avoids the ~1 second audio gap.
@@ -520,6 +518,17 @@ void PatchyProcessor::rebuildProcessingGraph()
             if (n.settingsJson.isNotEmpty() && n.settingsJson.contains ("artNetChannels"))
                 channelRestores.push_back ({ n.id, n.settingsJson, 19 });
         }
+        else if (n.nodeType == 26)
+        {
+            // Restore AudioPlayerNode's own small, discrete settings (mode,
+            // sine frequency, noise type, level, loop, file path) from
+            // settingsJson — same "survive a rebuild" reasoning as DMX/
+            // ArtNet Console's own channel restoration above, but simpler:
+            // a handful of scalar values, not a base64-encoded channel
+            // array, so no dedicated encoding needed.
+            if (n.settingsJson.isNotEmpty())
+                channelRestores.push_back ({ n.id, n.settingsJson, 26 });
+        }
     }
 
     // If selections changed (e.g. after undo), close all transferred devices
@@ -628,6 +637,8 @@ void PatchyProcessor::rebuildProcessingGraph()
             restoreDmxConsoleChannels (r.nodeId, r.settingsJson, newGraph.get());
         else if (r.nodeType == 19)
             restoreArtNetConsoleChannels (r.nodeId, r.settingsJson, newGraph.get());
+        else if (r.nodeType == 26)
+            restoreAudioPlayerSettings (r.nodeId, r.settingsJson, newGraph.get());
     }
 
     // Real bug found and fixed 2026-09-02 — prepare() calls

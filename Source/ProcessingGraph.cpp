@@ -29,7 +29,8 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                                std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetConsoleBuffer,
                                std::function<OscMonitorBuffer*(const juce::String&)>     getOscMonitorBuffer,
                                std::function<UdpMonitorBuffer*(const juce::String&)>     getUdpMonitorBuffer,
-                               std::function<MqttMonitorBuffer*(const juce::String&)>    getMqttMonitorBuffer)
+                               std::function<MqttMonitorBuffer*(const juce::String&)>    getMqttMonitorBuffer,
+                               std::function<AudioPlayerState*(const juce::String&)>     getAudioPlayerState)
 {
     auto snapshot = model.toVar();
     auto* root    = snapshot.getDynamicObject();
@@ -99,6 +100,7 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                 case 23: proc = std::make_unique<MqttPublishNode>     (id); break;
                 case 24: proc = std::make_unique<MqttMonitorNode>     (id, getMqttMonitorBuffer ? getMqttMonitorBuffer(id) : nullptr); break;
                 case 25: proc = std::make_unique<MqttConsoleNode>     (id); break;
+                case 26: proc = std::make_unique<AudioPlayerNode>     (id, getAudioPlayerState ? getAudioPlayerState(id) : nullptr); break;
                 default:
                     juce::Logger::writeToLog ("ProcessingGraph: unknown built-in type " + juce::String (type));
                     break;
@@ -662,6 +664,13 @@ MidiOutDeviceNode* ProcessingGraph::findMidiOutNode (const juce::String& nodeId)
     auto it = nodeMap.find (nodeId);
     if (it == nodeMap.end()) return nullptr;
     return dynamic_cast<MidiOutDeviceNode*> (it->second);
+}
+
+AudioPlayerNode* ProcessingGraph::findAudioPlayerNode (const juce::String& nodeId)
+{
+    auto it = nodeMap.find (nodeId);
+    if (it == nodeMap.end()) return nullptr;
+    return dynamic_cast<AudioPlayerNode*> (it->second);
 }
 
 MidiInDeviceNode* ProcessingGraph::findMidiInNode (const juce::String& nodeId)

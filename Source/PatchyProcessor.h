@@ -8,6 +8,7 @@
 #include "DmxConsoleNode.h"
 #include "ArtNetConsoleNode.h"
 #include "AudioMonitorNode.h"
+#include "AudioPlayerNode.h"
 #include "MidiKeyboardNode.h"
 #include <unordered_map>
 #include "AudioDeviceNodes.h"
@@ -494,6 +495,103 @@ public:
         catch (...) {}
     }
 
+    /** Restores AudioPlayerNode's own small, discrete settings (mode,
+     *  sine frequency, noise type, level, loop, file path) from
+     *  settingsJson into the shared AudioPlayerState — same "survive a
+     *  rebuild" reasoning as restoreDmxConsoleChannels() above, applied
+     *  to a node whose own settings genuinely drive real-time processing
+     *  (see AudioPlayerNode.h's own comment on why this differs from
+     *  AudioMonitorNode, whose settings are display-only and never
+     *  needed any C++-side restoration at all).
+     *
+     *  If this is a fresh session (the shared state has no file loaded
+     *  yet, e.g. right after opening a saved .patchy project) but a
+     *  remembered file path exists, this also triggers a genuine reload
+     *  from disk — the file path alone isn't enough, since the actual
+     *  audio data itself doesn't survive an app restart, only within a
+     *  running session (see AudioPlayerState's own declaration comment). */
+    void restoreAudioPlayerSettings (const juce::String& nodeId, const juce::String& settingsJson,
+                                     ProcessingGraph* graph)
+    {
+        auto* state = getOrCreateAudioPlayerState (nodeId);
+        if (state == nullptr) return;
+
+        try
+        {
+            auto parsed = juce::JSON::parse (settingsJson);
+
+            juce::String modeStr = parsed["mode"].toString();
+            if      (modeStr == "sine")  state->mode.store (AudioPlayerState::Mode::Sine,  std::memory_order_relaxed);
+            else if (modeStr == "noise") state->mode.store (AudioPlayerState::Mode::Noise, std::memory_order_relaxed);
+            else if (modeStr == "file")  state->mode.store (AudioPlayerState::Mode::File,  std::memory_order_relaxed);
+
+            if (parsed.hasProperty ("sineFrequency"))
+                state->sineFrequency.store ((float) (double) parsed["sineFrequency"], std::memory_order_relaxed);
+
+            juce::String noiseStr = parsed["noiseType"].toString();
+            if (noiseStr == "pink")
+                state->noiseType.store (AudioPlayerState::Noise::Pink, std::memory_order_relaxed);
+            else if (noiseStr == "white")
+                state->noiseType.store (AudioPlayerState::Noise::White, std::memory_order_relaxed);
+
+            if (parsed.hasProperty ("level"))
+                state->level.store ((float) (double) parsed["level"], std::memory_order_relaxed);
+
+            if (parsed.hasProperty ("loop"))
+                state->looping.store ((bool) parsed["loop"], std::memory_order_relaxed);
+
+            juce::String filePath = parsed["filePath"].toString();
+            if (filePath.isNotEmpty() && state->fileBuffer.getNumSamples() == 0)
+            {
+                juce::File f (filePath);
+                if (f.existsAsFile())
+                    state->loadFile (f, lastSampleRate > 0.0 ? lastSampleRate : 48000.0);
+            }
+        }
+        catch (...) {}
+
+        juce::ignoreUnused (graph);   // node itself holds no restorable state — everything lives in *state
+    }
+
+    /** Live, single-field settings update — writes straight to the shared
+     *  AudioPlayerState's own atomics, with no rebuild involved at all.
+     *  This is the fix for a real gap: committing a settings change
+     *  (setNodeSettings/commitSettingsChange) only ever updates what gets
+     *  SAVED to settingsJson — it was never enough on its own to reach a
+     *  currently-running AudioPlayerState, since restoreAudioPlayerSettings()
+     *  above only runs during a full graph rebuild (undo/redo, or opening
+     *  a project). Every other node type's own settings are purely
+     *  cosmetic, so this need never came up until this node. */
+    void setAudioPlayerLiveParam (const juce::String& nodeId, const juce::String& key, const juce::String& value)
+    {
+        auto* state = getOrCreateAudioPlayerState (nodeId);
+        if (state == nullptr) return;
+
+        if (key == "audioPlayerMode")
+        {
+            if      (value == "sine")  state->mode.store (AudioPlayerState::Mode::Sine,  std::memory_order_relaxed);
+            else if (value == "noise") state->mode.store (AudioPlayerState::Mode::Noise, std::memory_order_relaxed);
+            else if (value == "file")  state->mode.store (AudioPlayerState::Mode::File,  std::memory_order_relaxed);
+        }
+        else if (key == "audioPlayerSineFrequency")
+        {
+            state->sineFrequency.store (value.getFloatValue(), std::memory_order_relaxed);
+        }
+        else if (key == "audioPlayerNoiseType")
+        {
+            if      (value == "pink")  state->noiseType.store (AudioPlayerState::Noise::Pink,  std::memory_order_relaxed);
+            else if (value == "white") state->noiseType.store (AudioPlayerState::Noise::White, std::memory_order_relaxed);
+        }
+        else if (key == "audioPlayerLevel")
+        {
+            state->level.store (value.getFloatValue(), std::memory_order_relaxed);
+        }
+        else if (key == "audioPlayerLoop")
+        {
+            state->looping.store (value == "1" || value == "true", std::memory_order_relaxed);
+        }
+    }
+
     void setPaxParameter (const juce::String& nodeId, int index, float value)
     {
         for (auto& node : processingGraph.getNodes())
@@ -715,7 +813,15 @@ public:
                     float current = dynRO->getParameter (p);
                     juce::String key = node->id + "_" + juce::String (p);
                     auto it = lastReadOnlyValue.find (key);
-                    if (it != lastReadOnlyValue.end() && it->second == current)
+                    // Epsilon rather than exact equality (-Wfloat-equal fix,
+                    // 2026-09-08) — current comes from a Pax's own getParameter(),
+                    // a function-pointer call into third-party plugin code with
+                    // no guarantee it always returns a bit-identical, unchanged
+                    // float when the underlying value genuinely hasn't changed.
+                    // A tiny epsilon costs nothing here (this is UI-persistence
+                    // change detection, not audio-critical) and any real,
+                    // perceptible change will always be far larger than 1e-6.
+                    if (it != lastReadOnlyValue.end() && std::abs (it->second - current) < 1e-6f)
                         continue;   // unchanged since last poll — nothing to persist
                     lastReadOnlyValue[key] = current;
 
@@ -768,7 +874,9 @@ public:
                     float current = dynRO->getParameter (p);
                     juce::String key = node->id + "_" + juce::String (p);
                     auto it = lastLiveSyncedValue.find (key);
-                    if (it != lastLiveSyncedValue.end() && it->second == current)
+                    // Epsilon rather than exact equality — same -Wfloat-equal
+                    // fix and same reasoning as the read-only loop above.
+                    if (it != lastLiveSyncedValue.end() && std::abs (it->second - current) < 1e-6f)
                         continue;   // unchanged since last poll — nothing to push
 
                     lastLiveSyncedValue[key] = current;
@@ -898,6 +1006,57 @@ public:
                 result.push_back (a);
         }
 
+        return result;
+    }
+
+    /** Collects playhead position + playing status for every live
+     *  AudioPlayerNode — the frontend has no other way to track a
+     *  continuously-advancing playhead, or notice a non-looping file
+     *  having reached its own end and auto-stopped. Kept as its own,
+     *  separate method (matching AudioPlayerStatus's own dedicated
+     *  struct) rather than folded into getPortActivity() above, to avoid
+     *  any risk to that larger, already-established mechanism. */
+    std::vector<AudioPlayerStatus> getAudioPlayerStatuses()
+    {
+        std::vector<AudioPlayerStatus> result;
+        for (auto& node : processingGraph.getNodes())
+        {
+            if (auto* player = dynamic_cast<AudioPlayerNode*> (node.get()))
+            {
+                AudioPlayerStatus s;
+                s.nodeId   = player->id;
+                s.fraction = player->getPlaybackFraction();
+                s.playing  = player->isPlaying();
+                result.push_back (s);
+            }
+        }
+        return result;
+    }
+
+    /** Collects (and consumes — needsUIPush is cleared here, so each load
+     *  is reported exactly once) any AudioPlayerState whose own file load
+     *  hasn't yet been reported to the frontend — see needsUIPush's own
+     *  declaration comment for why the restore-on-rebuild path needs this
+     *  at all, unlike the manual browse path. Iterates the state map
+     *  directly rather than going through any live node instance, since
+     *  PatchyProcessor already owns it and the state is what actually
+     *  matters here. */
+    std::vector<AudioPlayerFileLoadedInfo> collectPendingAudioPlayerFileLoads()
+    {
+        std::vector<AudioPlayerFileLoadedInfo> result;
+        for (auto& [nodeId, state] : audioPlayerStates)
+        {
+            if (state->needsUIPush.exchange (false, std::memory_order_relaxed))
+            {
+                AudioPlayerFileLoadedInfo info;
+                info.nodeId           = nodeId;
+                info.fileName         = state->fileName;
+                info.numSamples       = state->fileBuffer.getNumSamples();
+                info.sourceSampleRate = state->fileSampleRate;
+                info.peaks            = state->waveformPeaks;
+                result.push_back (std::move (info));
+            }
+        }
         return result;
     }
 
@@ -1055,6 +1214,8 @@ public:
     MidiMonitorBuffer*  getOrCreateMidiMonitorBuffer     (const juce::String& id) { return getOrCreateBuffer (monitorBuffers,          id); }
     MidiMonitorBuffer*  getOrCreateKeyboardMonitorBuffer (const juce::String& id) { return getOrCreateBuffer (keyboardMonitorBuffers,  id); }
     AudioMonitorBuffer* getOrCreateAudioMonitorBuffer    (const juce::String& id) { return getOrCreateBuffer (audioMonitorBuffers,     id); }
+    AudioPlayerState*   getOrCreateAudioPlayerState      (const juce::String& id) { return getOrCreateBuffer (audioPlayerStates,       id); }
+    double getLastSampleRate() const { return lastSampleRate; }
     DmxMonitorBuffer*      getOrCreateDmxMonitorBuffer      (const juce::String& id) { return getOrCreateBuffer (dmxMonitorBuffers,       id); }
     DmxMonitorBuffer*      getOrCreateDmxConsoleBuffer      (const juce::String& id) { return getOrCreateBuffer (dmxConsoleBuffers,       id); }
     ArtNetMonitorBuffer*   getOrCreateArtNetMonitorBuffer   (const juce::String& id) { return getOrCreateBuffer (artNetMonitorBuffers,    id); }
@@ -1093,6 +1254,7 @@ private:
     std::unordered_map<juce::String, std::unique_ptr<MidiMonitorBuffer>>  monitorBuffers;
     std::unordered_map<juce::String, std::unique_ptr<MidiMonitorBuffer>>  keyboardMonitorBuffers;
     std::unordered_map<juce::String, std::unique_ptr<AudioMonitorBuffer>> audioMonitorBuffers;
+    std::unordered_map<juce::String, std::unique_ptr<AudioPlayerState>>   audioPlayerStates;
     std::unordered_map<juce::String, std::unique_ptr<DmxMonitorBuffer>>      dmxMonitorBuffers;
     std::unordered_map<juce::String, std::unique_ptr<DmxMonitorBuffer>>      dmxConsoleBuffers;
     std::unordered_map<juce::String, std::unique_ptr<ArtNetMonitorBuffer>>   artNetMonitorBuffers;

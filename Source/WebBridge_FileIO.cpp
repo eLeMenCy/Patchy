@@ -148,3 +148,38 @@ void WebBridge::handleRedo()
         pushUndoState();
     }
 }
+
+void WebBridge::handleAudioPlayerLoadFile (const juce::DynamicObject* obj)
+{
+    juce::String nodeId = obj->getProperty ("nodeId").toString();
+    if (nodeId.isEmpty()) return;
+
+    // Same async FileChooser pattern as showOpenDialog()/showSaveDialog()
+    // above — a shared_ptr keeps the chooser alive for the duration of
+    // the native dialog, since launchAsync() returns immediately.
+    auto chooser = std::make_shared<juce::FileChooser> (
+        "Load Audio File",
+        lastOpenDir.isDirectory() ? lastOpenDir
+                                   : juce::File::getSpecialLocation (juce::File::userDocumentsDirectory),
+        "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3");
+
+    chooser->launchAsync (juce::FileBrowserComponent::openMode
+                        | juce::FileBrowserComponent::canSelectFiles,
+        [this, chooser, nodeId] (const juce::FileChooser& fc)
+        {
+            auto result = fc.getResult();
+            if (result != juce::File{} && result.existsAsFile())
+            {
+                lastOpenDir = result.getParentDirectory();
+                if (onAudioPlayerLoadFile)
+                    onAudioPlayerLoadFile (nodeId, result.getFullPathName());
+            }
+        });
+}
+
+void WebBridge::handleAudioPlayerRequestFileInfo (const juce::DynamicObject* obj)
+{
+    juce::String nodeId = obj->getProperty ("nodeId").toString();
+    if (nodeId.isEmpty()) return;
+    if (onAudioPlayerRequestFileInfo) onAudioPlayerRequestFileInfo (nodeId);
+}

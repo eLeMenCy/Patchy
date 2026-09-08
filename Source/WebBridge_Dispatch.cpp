@@ -58,6 +58,10 @@ void WebBridge::handleMessage (const juce::String& json)
         handleFileOpen();
     else if (type == "fileNew")
         handleFileNew();
+    else if (type == "audioPlayerLoadFile")
+        handleAudioPlayerLoadFile (obj);
+    else if (type == "audioPlayerRequestFileInfo")
+        handleAudioPlayerRequestFileInfo (obj);
     else if (type == "exportSelection")
         handleExportSelection (obj);
     else if (type == "importFragment")
@@ -332,8 +336,16 @@ void WebBridge::handleSetNodeParam (const juce::DynamicObject* obj)
     // dmxConsoleChannel / artNetConsoleChannel are real-time audio updates during drag —
     // preserve the pending snapshot captured by the preceding setNodeSettings.
     // dmxBlackout / artNetBlackout undo is handled by commitSettingsChange — skip pushSnapshot here.
+    // audioPlayer* keys are either real-time playback controls (play/pause/seek/
+    // return-to-start — same reasoning as dmxConsoleChannel exactly) or a live
+    // mirror of a settings change already committed and snapshotted separately
+    // via commitSettingsChange (see AudioPlayerNode.tsx's own dispatchLiveParams) —
+    // pushing another snapshot here was a real, confirmed bug: since it happened
+    // right after the very same change, pressing undo once reverted to a state
+    // indistinguishable from the current one, making undo appear to do nothing.
     if (key != "dmxConsoleChannel" && key != "artNetConsoleChannel"
-        && key != "dmxBlackout"    && key != "artNetBlackout")
+        && key != "dmxBlackout"    && key != "artNetBlackout"
+        && ! key.startsWith ("audioPlayer"))
     {
         // Clear any pending settings snapshot — device change is a new action
         pendingSettingsSnapshot = juce::var();
@@ -384,6 +396,36 @@ void WebBridge::handleSetNodeParam (const juce::DynamicObject* obj)
     else if (key == "artNetUniverseFilter")
     {
         handleSetNodeParam_ArtNetUniverseFilter (nodeId, value);
+        return;
+    }
+    else if (key == "audioPlayerPlaying" && onAudioPlayerSetPlaying)
+    {
+        onAudioPlayerSetPlaying (nodeId, value == "1" || value == "true");
+        return;
+    }
+    else if (key == "audioPlayerSeek" && onAudioPlayerSeek)
+    {
+        onAudioPlayerSeek (nodeId, value.getDoubleValue());
+        return;
+    }
+    else if (key == "audioPlayerReturnToStart" && onAudioPlayerReturnToStart)
+    {
+        onAudioPlayerReturnToStart (nodeId);
+        return;
+    }
+    else if ((key == "audioPlayerMode" || key == "audioPlayerSineFrequency" ||
+              key == "audioPlayerNoiseType" || key == "audioPlayerLevel" ||
+              key == "audioPlayerLoop") && onAudioPlayerSetLiveParam)
+    {
+        // Live update, bypassing the settingsJson/rebuild-only restoration
+        // path entirely — see restoreAudioPlayerSettings()'s own comment.
+        // A settings commit alone (setNodeSettings/commitSettingsChange)
+        // only ever updates what gets SAVED; it was never enough on its
+        // own to reach a currently-running AudioPlayerState, since that
+        // only happens during a full graph rebuild (undo/redo, or
+        // opening a project) — every other node type's own settings are
+        // purely cosmetic, so this need never came up before.
+        onAudioPlayerSetLiveParam (nodeId, key, value);
         return;
     }
 

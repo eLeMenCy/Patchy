@@ -4,6 +4,7 @@
 #include "NodeProcessor.h"
 #include "MidiMonitorNode.h"   // for MidiMonitorEvent and MidiMonitorNode
 #include "AudioMonitorNode.h"  // for AudioMonitorBuffer and AudioMonitorNode
+#include "AudioPlayerNode.h"   // for AudioPlayerState and AudioPlayerNode
 #include "OscMonitorNode.h"    // for OscMonitorBuffer and OscMonitorNode
 #include "UdpMonitorNode.h"    // for UdpMonitorBuffer and UdpMonitorNode
 #include "MqttDeviceNodes.h"   // for MqttSubscribeNode and MqttDeviceManager
@@ -53,7 +54,8 @@ public:
                  std::function<ArtNetMonitorBuffer*(const juce::String&)>  getArtNetConsoleBuffer = nullptr,
                  std::function<OscMonitorBuffer*(const juce::String&)>     getOscMonitorBuffer    = nullptr,
                  std::function<UdpMonitorBuffer*(const juce::String&)>     getUdpMonitorBuffer    = nullptr,
-                 std::function<MqttMonitorBuffer*(const juce::String&)>    getMqttMonitorBuffer   = nullptr);
+                 std::function<MqttMonitorBuffer*(const juce::String&)>    getMqttMonitorBuffer   = nullptr,
+                 std::function<AudioPlayerState*(const juce::String&)>     getAudioPlayerState    = nullptr);
     void prepare (double sampleRate, int maxBlockSize);
     void process (juce::AudioBuffer<float>& hostAudio, juce::MidiBuffer& hostMidi);
 
@@ -85,6 +87,7 @@ public:
 
     // Device node accessors
     MidiOutDeviceNode*  findMidiOutNode  (const juce::String& nodeId);
+    AudioPlayerNode*    findAudioPlayerNode (const juce::String& nodeId);
 
 
     // Drain all monitor nodes and return their events (message thread)

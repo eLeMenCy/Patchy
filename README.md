@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.902
+> Version 0.0.903
 
 ---
 
@@ -75,7 +75,7 @@
 - **Fragment export/import** — select any nodes, export as a reusable `.patchy` fragment, reimport with ghost-placement UX
 - **50-step undo/redo** — full graph snapshot history via `⌘Z` / `⌘⇧Z`
 - **Parameter persistence** — Pax parameters (sliders, steps) survive graph rebuilds, file loads and app restarts
-- **Built-in nodes** — MIDI In/Out, Audio In/Out, MIDI Monitor, Audio Monitor (oscilloscope), MIDI Keyboard, UDP In/Out, OSC In/Out, ArtNet In/Out, DMX In/Out, DMX Monitor, DMX Console, ArtNet Monitor, ArtNet Console, OSC Monitor, UDP Monitor, MQTT Subscribe, MQTT Publish, MQTT Monitor, MQTT Console
+- **Built-in nodes** — MIDI In/Out, Audio In/Out, MIDI Monitor, Audio Monitor (oscilloscope), Audio Player (file/sine/noise source), MIDI Keyboard, UDP In/Out, OSC In/Out, ArtNet In/Out, DMX In/Out, DMX Monitor, DMX Console, ArtNet Monitor, ArtNet Console, OSC Monitor, UDP Monitor, MQTT Subscribe, MQTT Publish, MQTT Monitor, MQTT Console
 - **Protocol device nodes** — Phase 3 built-in nodes for network and hardware protocols; UDP, OSC 1.0, Art-Net (ArtDmx), DMX USB (Enttec Pro/Mk2); live byte-rate labels; change-driven activity flash
 - **DMX Monitor + Console** — vertical fader bank and bargraph display for all 512 DMX channels; configurable visible count (8/16/24/32); page navigation; dec/pct/hex format; custom name; Blackout button; full undo/redo; Console is output-only
 - **ArtNet Monitor + Console** — same 512-channel fader/bargraph as DMX; universe selector (0–32767); universe filter on Monitor (show all or filter by universe, "--" on mismatch); Blackout button; full undo/redo; Console is output-only
@@ -85,6 +85,7 @@
 - **MQTT Publish** — publishes to a broker topic; topic can be overridden per-message from the incoming value (mirrors OSC Out's address override); numeric payload as plain decimal text; retain flag
 - **MQTT Monitor** — pass-through display of MQTT topic+payload traffic; TIME/TOPIC/PAYLOAD scrolling log, pause/clear
 - **MQTT Console** — manual topic+payload composer; topic field with a remembered-topics dropdown, numeric payload, explicit Send (button or Enter); pure value source, no broker connection of its own
+- **Audio Player** — three source modes: audio file playback (WAV/AIFF always available; FLAC/OGG/MP3 also supported), a sine generator, or white/pink noise; static waveform display with click-to-seek and a moving playhead; log-scale frequency slider and dB-scale level slider (both default to a conservative, safety-conscious level); source node, output only
 - **Pax system** — drop a `.dylib/.so/.dll` into the Pax folder; new node type appears in the sidebar on next launch
 - **Dynamic port counts** — Pax can change their output port count at runtime (e.g. Spectrumyser band count) without audio interruption
 - **Restructured burger menu** — `☰` top-right opens File and Edit flyout submenus with keyboard shortcuts
@@ -136,6 +137,8 @@ Patchy/
 │   ├── MidiMonitorNode.h/.cpp       MIDI Monitor (type 5)
 │   ├── AudioMonitorNode.h/.cpp      Audio Monitor (type 6)
 │   ├── MidiKeyboardNode.h           MIDI Keyboard (type 7)
+│   ├── AudioPlayerNode.h/.cpp       Audio Player (type 26); file playback (WAV/AIFF/FLAC/OGG/MP3), sine, or noise
+│   │                                AudioPlayerState survives graph rebuilds; log-scale frequency, dB level
 │   └── StandaloneApp.h/.cpp         Standalone wrapper (window bounds, file location)
 │
 ├── Pax/                          Pax ecosystem
@@ -180,6 +183,7 @@ Patchy/
 │       ├── UdpMonitorNode.tsx       UDP Monitor node (type 21) — scrolling log, hex/ASCII toggle
 │       ├── MqttMonitorNode.tsx      MQTT Monitor node (type 24) — scrolling log, TIME/TOPIC/PAYLOAD
 │       ├── MqttConsoleNode.tsx      MQTT Console node (type 25) — manual topic+payload composer
+│       ├── AudioPlayerNode.tsx      Audio Player node (type 26) — waveform + click-to-seek, log-scale frequency, dB level
 │       ├── SpectrumyserNode.tsx     Spectrumyser custom node with FFT canvas
 │       ├── EnvelopeNode.tsx         Envelope custom node with live canvas
 │       ├── HintPanel.tsx            Hint context, panel, and hint dictionaries
@@ -190,6 +194,7 @@ Patchy/
 │
 ├── FYI/                             Developer notes (gitignored)
 │   ├── Architecture.md             Detailed technical architecture + design decisions
+│   ├── SessionLog.md               Full chronological dev diary — bug hunts, refactors, commit messages
 │   └── Utils/
 │       └── migrate_patch_ids.py    Migrate .patchy files: legacy node IDs to current format
 │
@@ -232,6 +237,7 @@ Patchy/
 | 23 | MQTT Publish | MQTT In | Publishes to a broker topic (`libmosquitto`); topic overridable per-message from incoming value; numeric payload as plain decimal text; retain flag; sink node, input only |
 | 24 | MQTT Monitor | MQTT In + MQTT Out | Pass-through display of MQTT topic+payload traffic; TIME/TOPIC/PAYLOAD scrolling log |
 | 25 | MQTT Console | MQTT Out | Manual topic+payload composer; topic history dropdown, explicit Send; source node, output only, no broker connection of its own |
+| 26 | Audio Player | Audio Out | File playback (WAV/AIFF/FLAC/OGG/MP3), sine generator, or white/pink noise; static waveform with click-to-seek, log-scale frequency slider, dB level slider; source node, output only |
 | 100+ | Pax nodes | Per descriptor | Dynamically loaded from `.dylib/.so/.dll` |
 
 ---
@@ -445,6 +451,8 @@ Undo/Redo is accessible via `⌘Z` / `⌘⇧Z`, or via **☰ → Edit → Undo /
 | `⌘Z` | Undo |
 | `⌘⇧Z` | Redo |
 | `F` | Fold / unfold all nodes |
+| `Space` | Play / Pause the selected Audio Player node |
+| `Space Space` (within 400ms) | Return the selected Audio Player node to the start |
 | `Delete` / `⌫` | Delete selected node or edge |
 | Double-click header | Collapse / expand node |
 | `Escape` | Cancel fragment import ghost |
@@ -458,6 +466,7 @@ Undo/Redo is accessible via `⌘Z` / `⌘⇧Z`, or via **☰ → Edit → Undo /
 - JUCE 8 (fetched automatically via CMake FetchContent)
 - Node.js 18+ and npm (for UI build)
 - C++20 compiler
+- `libmosquitto` (MQTT support — macOS: `brew install mosquitto`; the build fails with a clear error if not found)
 
 ### Host (VST3 / AU / Standalone)
 
@@ -535,6 +544,8 @@ void  PAX_setParameter      (PAX_Instance*, int, float)              {}
 | `PAX_getAudioOutputCount` | Return current output port count (dynamic ports) |
 | `PAX_getValueInputCount` / `PAX_getValueOutputCount` | Return Value port counts (nodeType 4, cross-protocol adapters) — static, no instance needed, fixed at scan time |
 | `PAX_getValueInputType` / `PAX_getValueOutputType` | Return the specific type (`PAX_VALUETYPE_*` — MQTT/OSC/DMX/UDP/ArtNet/MIDI/generic) of the Value port at a given index, so a Pax can mix multiple differently-typed ports on one node rather than only generic Value — indexed, static, defaults to generic if not exported |
+| `PAX_isParameterReadOnly` | Render a parameter as a live-updating display rather than a draggable control — the host still calls `PAX_getParameter()` to read it, but never calls `PAX_setParameter()` on it from user interaction. For values a Pax wants to surface for visibility (e.g. the last value it received on a Value input) without inviting the user to edit what's actually just a live mirror of incoming data |
+| `PAX_isParameterLiveSynced` | Mark an *editable* parameter as also live-synced to the frontend — stays a normal, draggable control, but when the Pax changes its value internally (via `PAX_setParameter` from its own `PAX_process()`, not user interaction), the host also pushes that value to the frontend live so the control's on-screen position visually follows it. Deliberately opt-in per parameter, not a blanket watch-everything mechanism, to avoid racing a user's own in-progress drag on an unrelated control |
 | `PAX_getColourCategory` | Override the node's auto-detected colour category (Hybrid/Converter/native-type) — only consulted for a pure-source or pure-sink Pax, the one case the automatic rule can't resolve on its own |
 | `PAX_getFFTSize` | Return FFT magnitude bin count (for spectrum display) |
 | `PAX_getFFTMagnitudes` | Return pointer to FFT magnitude array |
@@ -640,6 +651,7 @@ typedef struct {
 | `MidiMonitorBuffer::push()` | Audio | Atomic read/write indices |
 | `AudioMonitorBuffer::push()` | Audio | Atomic write position |
 | `AudioFifo::write/read()` | Audio + Device callback | Pre-allocated ring, `SpinLock` on channel selection |
+| `AudioPlayerNode` seek | Message → Audio | Request/consume: UI writes a target sample index to a separate atomic slot; only the audio thread ever writes the actual playback position, consuming (and clearing) the request at the top of its own block — avoids a read-modify-write race a plain cross-thread store into the position itself would hit |
 | Graph rebuild | Message | `pendingGraph` atomic swap in `processBlock` |
 | Old graph destruction | Message | `graphTrash` deferred bin |
 | Dynamic port resize | Message | `suspendProcessing` only when reducing ports |
@@ -680,4 +692,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.902 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.903 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

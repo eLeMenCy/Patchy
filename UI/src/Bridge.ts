@@ -70,6 +70,27 @@ export interface AudioSnapshot {
 type AudioSnapshotCallback = (snapshots: AudioSnapshot[]) => void;
 const _audioSnapshotSubscribers: AudioSnapshotCallback[] = [];
 
+// ── Audio player types ──────────────────────────────────────────────────────
+export interface AudioPlayerFileLoaded {
+  nodeId: string;
+  success: boolean;
+  fileName?: string;
+  filePath?: string;
+  peaks?: number[];          // flat [min0, max0, min1, max1, ...] pairs
+  numSamples?: number;
+  sourceSampleRate?: number;
+}
+type AudioPlayerFileLoadedCallback = (result: AudioPlayerFileLoaded) => void;
+const _audioPlayerFileLoadedSubscribers: AudioPlayerFileLoadedCallback[] = [];
+
+export interface AudioPlayerStatus {
+  nodeId: string;
+  fraction: number;   // playhead position, 0.0-1.0
+  playing: boolean;
+}
+type AudioPlayerStatusCallback = (statuses: AudioPlayerStatus[]) => void;
+const _audioPlayerStatusSubscribers: AudioPlayerStatusCallback[] = [];
+
 // ── Monitor types ─────────────────────────────────────────────────────────────
 export interface RawMidiMonitorEvent {
   ts: number;   // timestamp ms
@@ -352,6 +373,26 @@ function _dispatchClaimed() {
       console.error('Bridge audioSnapshot parse error', e);
     }
   },
+  onAudioPlayerFileLoaded: (json: string) => {
+    try {
+      const result: AudioPlayerFileLoaded = JSON.parse(json);
+      _audioPlayerFileLoadedSubscribers.forEach(cb => {
+        try { cb(result); } catch (e) { console.error('audioPlayerFileLoaded subscriber error', e); }
+      });
+    } catch (e) {
+      console.error('Bridge audioPlayerFileLoaded parse error', e);
+    }
+  },
+  onAudioPlayerStatus: (json: string) => {
+    try {
+      const statuses: AudioPlayerStatus[] = JSON.parse(json);
+      _audioPlayerStatusSubscribers.forEach(cb => {
+        try { cb(statuses); } catch (e) { console.error('audioPlayerStatus subscriber error', e); }
+      });
+    } catch (e) {
+      console.error('Bridge audioPlayerStatus parse error', e);
+    }
+  },
   onMidiMonitorEvents: (json: string) => {
     try {
       const batches: MidiMonitorBatch[] = JSON.parse(json);
@@ -602,6 +643,8 @@ export const Bridge = {
   fileSaveAs()  { sendToJuce({ type: 'fileSaveAs' }); },
   fileOpen()    { sendToJuce({ type: 'fileOpen' }); },
   fileNew()     { sendToJuce({ type: 'fileNew' }); },
+  audioPlayerLoadFile(nodeId: string) { sendToJuce({ type: 'audioPlayerLoadFile', nodeId }); },
+  audioPlayerRequestFileInfo(nodeId: string) { sendToJuce({ type: 'audioPlayerRequestFileInfo', nodeId }); },
 
   /** Export selected nodes to a fragment file.
    *  selectedNodeIds: ReactFlow node IDs currently selected.
@@ -642,6 +685,20 @@ export const Bridge = {
     return () => {
       const idx = _audioSnapshotSubscribers.indexOf(cb);
       if (idx !== -1) _audioSnapshotSubscribers.splice(idx, 1);
+    };
+  },
+  onAudioPlayerFileLoaded(cb: AudioPlayerFileLoadedCallback) {
+    _audioPlayerFileLoadedSubscribers.push(cb);
+    return () => {
+      const idx = _audioPlayerFileLoadedSubscribers.indexOf(cb);
+      if (idx !== -1) _audioPlayerFileLoadedSubscribers.splice(idx, 1);
+    };
+  },
+  onAudioPlayerStatus(cb: AudioPlayerStatusCallback) {
+    _audioPlayerStatusSubscribers.push(cb);
+    return () => {
+      const idx = _audioPlayerStatusSubscribers.indexOf(cb);
+      if (idx !== -1) _audioPlayerStatusSubscribers.splice(idx, 1);
     };
   },
   onMidiMonitorEvents(cb: MidiMonitorCallback) {

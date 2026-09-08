@@ -20,6 +20,7 @@ const BUILTIN_GROUPS = [
       { type: 3 as const, label: 'Audio In Device',  desc: 'Receive from audio device', icon: '◀' },
       { type: 4 as const, label: 'Audio Out Device', desc: 'Send to audio device',       icon: '▶' },
       { type: 6 as const, label: 'Audio Monitor',    desc: 'Waveform display',           icon: '◎' },
+      { type: 26 as const, label: 'Audio Player',    desc: 'Play a file or generate a signal', icon: '▷' },
     ],
   },
   {

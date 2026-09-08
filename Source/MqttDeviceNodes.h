@@ -235,12 +235,12 @@ private:
          *  only where it runs has changed. */
         void connectAndSubscribe (const juce::String& host, int port, const juce::String& topicToUse,
                                   int qosToUse, const juce::String& user, const juce::String& pass,
-                                  const juce::String& clientId)
+                                  const juce::String& clientIdToUse)
         {
             topic = topicToUse;
             qos   = qosToUse;
 
-            mosq = mosquitto_new (clientId.toRawUTF8(), true, this);
+            mosq = mosquitto_new (clientIdToUse.toRawUTF8(), true, this);
             if (mosq == nullptr)
             {
                 juce::Logger::writeToLog ("MqttSubscribeNode: mosquitto_new failed");
@@ -271,7 +271,7 @@ private:
                 juce::Logger::writeToLog ("MqttSubscribeNode: connect failed - "
                                            + juce::String (mosquitto_strerror (rc)) + extra
                                            + " [host=" + host + " port=" + juce::String (port)
-                                           + " clientId=" + clientId + "]");
+                                           + " clientId=" + clientIdToUse + "]");
                 mosquitto_loop_stop (mosq, true);   // force — connect never succeeded
                 mosquitto_destroy (mosq);
                 mosq = nullptr;
@@ -556,7 +556,7 @@ private:
          *  the old threadShouldExit() check had. */
         void run (const juce::String& host, int port, const juce::String& topicToUse,
                   int qosToUse, bool retainToUse, const juce::String& user, const juce::String& pass,
-                  const juce::String& clientId)
+                  const juce::String& clientIdToUse)
         {
             topic      = topicToUse;
             qos        = qosToUse;
@@ -564,7 +564,7 @@ private:
             hostForLog = host;
             portForLog = port;
 
-            mosq = mosquitto_new (clientId.toRawUTF8(), true, this);
+            mosq = mosquitto_new (clientIdToUse.toRawUTF8(), true, this);
             if (mosq == nullptr)
             {
                 juce::Logger::writeToLog ("MqttPublishNode: mosquitto_new failed");
@@ -592,7 +592,7 @@ private:
                 juce::Logger::writeToLog ("MqttPublishNode: connect failed - "
                                            + juce::String (mosquitto_strerror (rc)) + extra
                                            + " [host=" + host + " port=" + juce::String (port)
-                                           + " clientId=" + clientId + "]");
+                                           + " clientId=" + clientIdToUse + "]");
                 mosquitto_loop_stop (mosq, true);
                 mosquitto_destroy (mosq);
                 mosq = nullptr;

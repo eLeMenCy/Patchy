@@ -21,10 +21,11 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { Bridge, FileState, AudioSettings, GraphState, RawNode, RawConnection, PortActivityEntry, PaxParamInfo, PaxInfo, FragmentData, UndoState } from './Bridge';
+import { Bridge, FileState, AudioSettings, GraphState, RawNode, RawConnection, PortActivityEntry, PaxParamInfo, PaxInfo, FragmentData, UndoState, AudioPlayerStatus } from './Bridge';
 import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
+import AudioPlayerNode,    { AudioPlayerNodeData }    from './AudioPlayerNode';
 import MidiKeyboardNode,  { MidiKeyboardNodeData }  from './MidiKeyboardNode';
 import { DmxMonitorNode, DmxMonitorNodeData } from './DmxMonitorNode';
 import { DmxConsoleNode } from './DmxConsoleNode';
@@ -45,7 +46,7 @@ import AudioPeakToOscNode from './AudioPeakToOscNode';
 import { _paxInfoMap } from './NodeUtils';
 
 // ── Node type registry ────────────────────────────────────────────────────────
-const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode };
+const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, audioPlayer: AudioPlayerNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 // _paxInfoMap lives in NodeUtils.tsx (not declared here) — GenericNode.tsx
@@ -66,6 +67,7 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
   const isUdpMonitor     = raw.nodeType === 21;
   const isMqttMonitor    = raw.nodeType === 24;
   const isMqttConsole    = raw.nodeType === 25;
+  const isAudioPlayer    = raw.nodeType === 26;
   return {
     id:       raw.id,
     type:     isMidiMonitor    ? 'midiMonitor'
@@ -79,6 +81,7 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
             : isUdpMonitor     ? 'udpMonitor'
             : isMqttMonitor    ? 'mqttMonitor'
             : isMqttConsole    ? 'mqttConsole'
+            : isAudioPlayer    ? 'audioPlayer'
             : raw.paxName === 'Spectrumyser' ? 'spectrumyser'
             : raw.paxName === 'Envelope'     ? 'envelope'
             : raw.paxName === 'Audio to DMX' ? 'audioToDmx'
@@ -106,6 +109,8 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
       ? { label: raw.label, nodeType: 24, ports: raw.ports, settingsJson: raw.settingsJson } as MqttMonitorNodeData
       : isMqttConsole
       ? { label: raw.label, nodeType: 25, ports: raw.ports, settingsJson: raw.settingsJson } as MqttConsoleNodeData
+      : isAudioPlayer
+      ? { label: raw.label, nodeType: 26, ports: raw.ports, settingsJson: raw.settingsJson } as AudioPlayerNodeData
       : { label: raw.label, nodeType: raw.nodeType,
           ports: raw.ports, selectedDeviceId: raw.selectedDeviceId,
           paxName: raw.paxName,
@@ -784,6 +789,50 @@ function FlowCanvas() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [toggleAllCollapsed]);
+
+  // AudioPlayerNode transport shortcuts — Space toggles play/pause on
+  // whichever Audio Player node is currently selected (not a global
+  // transport affecting every player at once, deliberately, to avoid
+  // surprising behaviour if more than one exists in the same graph);
+  // a second Space press within 400ms is treated as a double-press,
+  // returning to the start and stopping instead of toggling again.
+  const audioPlayerStatusesRef = useRef<AudioPlayerStatus[]>([]);
+  useEffect(() => {
+    const unsub = Bridge.onAudioPlayerStatus((statuses: AudioPlayerStatus[]) => {
+      audioPlayerStatusesRef.current = statuses;
+    });
+    return () => { try { unsub(); } catch {} };
+  }, []);
+
+  const lastSpacePressRef = useRef(0);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== ' ' || e.metaKey || e.ctrlKey ||
+          document.activeElement instanceof HTMLInputElement ||
+          document.activeElement instanceof HTMLTextAreaElement)
+        return;
+
+      const selectedPlayer = nodes.find(n => n.selected && n.type === 'audioPlayer');
+      if (!selectedPlayer) return;
+
+      e.preventDefault();   // avoid scrolling the canvas or re-triggering a focused button
+
+      const now = Date.now();
+      const isDoublePress = now - lastSpacePressRef.current < 400;
+      lastSpacePressRef.current = now;
+
+      if (isDoublePress) {
+        Bridge.setNodeParam(selectedPlayer.id, 'audioPlayerPlaying', '0');
+        Bridge.setNodeParam(selectedPlayer.id, 'audioPlayerReturnToStart', '1');
+      } else {
+        const status = audioPlayerStatusesRef.current.find(s => s.nodeId === selectedPlayer.id);
+        const currentlyPlaying = status?.playing ?? false;
+        Bridge.setNodeParam(selectedPlayer.id, 'audioPlayerPlaying', currentlyPlaying ? '0' : '1');
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [nodes]);
   usePortActivityStyles(edges, nodes);
 
 

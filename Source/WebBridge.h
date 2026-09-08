@@ -29,6 +29,34 @@
  *              resource root to prevent accidental navigation.
  */
 // Per-node port activity — sent at 30fps alongside audio snapshots
+// Small, dedicated status struct for AudioPlayerNode's own periodic push —
+// deliberately kept separate from PortActivity below (which already covers
+// every other node type) rather than extending it, to avoid any risk to
+// that larger, already-established mechanism.
+struct AudioPlayerStatus
+{
+    juce::String nodeId;
+    double       fraction = 0.0;   // playhead position, 0.0-1.0
+    bool         playing  = false;
+};
+
+// Reports a fresh file load that happened via the restore-on-rebuild path
+// (project reload, or a graph rebuild after a settings commit) — that path
+// loads the file correctly on the backend directly, with no way to push an
+// event to the UI itself, unlike the manual browse path's own dedicated
+// callback. Collected and consumed (flag cleared) once per load by
+// PatchyProcessor::collectPendingAudioPlayerFileLoads(), then reported to
+// the frontend the same way the manual browse path's own result already is.
+struct AudioPlayerFileLoadedInfo
+{
+    juce::String nodeId;
+    juce::String fileName;
+    juce::String filePath;
+    std::vector<std::pair<float, float>> peaks;
+    int    numSamples = 0;
+    double sourceSampleRate = 0.0;
+};
+
 struct PortActivity
 {
     juce::String      nodeId;
@@ -133,6 +161,8 @@ public:
     void pushToUI (const juce::String& bridgeFn, juce::String json);
     bool isStandalone = false;  // true only in standalone app
     std::function<std::vector<SpectrumSnapshot>()> getSpectrumSnapshots;
+    std::function<std::vector<AudioPlayerStatus>()> getAudioPlayerStatuses;
+    std::function<std::vector<AudioPlayerFileLoadedInfo>()> getPendingAudioPlayerFileLoads;
     std::function<int(const juce::String&)>        onGetPaxAudioOutCount;
     std::function<void(const juce::String&)>       onPrunePaxEdges;
     std::function<void(double, int, bool)> onSetAudioEngineSettings;
@@ -151,6 +181,18 @@ public:
     std::function<void(const juce::String&, const juce::String&, int)>                          onSetDmxSettings;
     std::function<std::vector<DmxSnapshot>()>                                                    drainDmxSnapshots;
     std::function<void(const juce::String&, int, uint8_t)>                                       onSetDmxConsoleChannel;
+    // AudioPlayerNode's own controls — playback (play/pause/stop/seek/
+    // return-to-start) is real-time/discrete, handled separately from the
+    // small, discrete settings (mode/frequency/noise type/level/loop),
+    // which flow through the existing generic setNodeSettings mechanism
+    // (see React's own AudioPlayerNode.tsx) exactly like AudioMonitorNode's
+    // own settings already do — no new mechanism needed for those.
+    std::function<void(const juce::String&, const juce::String&)>                                onAudioPlayerLoadFile;   // (nodeId, chosen file path) — called AFTER the async chooser resolves
+    std::function<void(const juce::String&)>                                                      onAudioPlayerRequestFileInfo;   // direct pull, no timer/rebuild involved
+    std::function<void(const juce::String&, bool)>                                                onAudioPlayerSetPlaying;
+    std::function<void(const juce::String&, double)>                                              onAudioPlayerSeek;       // 0.0-1.0 fraction of the loaded file
+    std::function<void(const juce::String&)>                                                      onAudioPlayerReturnToStart;
+    std::function<void(const juce::String&, const juce::String&, const juce::String&)>             onAudioPlayerSetLiveParam;   // (nodeId, key, value)
     std::function<void(const juce::String&, bool)>                                               onSetDmxBlackout;
     std::function<void(const juce::String&, bool)>                                               onRestoreDmxBlackout;
     std::function<void(const juce::String&, const juce::String&)>                                onRestoreDmxConsoleChannels;
@@ -268,6 +310,8 @@ private:
     void pushAudioSnapshots();
     void pushSpectrumSnapshots();
     void pushPortActivity();
+    void pushAudioPlayerStatus();
+    void pushPendingAudioPlayerFileLoads();
     void pushDmxSnapshots();
     void pushArtNetSnapshots();
     void pushOscMonitorEvents();
@@ -281,6 +325,8 @@ private:
     void showSaveDialog ();
     void showOpenDialog ();
     juce::String buildFileStateJson ();
+    void handleAudioPlayerLoadFile (const juce::DynamicObject* obj);
+    void handleAudioPlayerRequestFileInfo (const juce::DynamicObject* obj);
 
     // ── Fragment export / import ──────────────────────────────────────────────
     void showExportDialog (const juce::StringArray& selectedNodeIds,

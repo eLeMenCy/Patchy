@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Patchy VERSION 0.0.902)
+project(Patchy VERSION 0.0.903)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -90,7 +90,7 @@ endif()
 
 # ── Plugin target ─────────────────────────────────────────────────────────────
 juce_add_plugin(Patchy
-    VERSION                  "0.0.902"
+    VERSION                  "0.0.903"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGrp"
@@ -136,6 +136,7 @@ target_sources(Patchy PRIVATE
     Source/ArtNetConsoleNode.cpp
     Source/MidiMonitorNode.cpp
     Source/AudioMonitorNode.cpp
+    Source/AudioPlayerNode.cpp
     Source/MidiKeyboardNode.cpp
 )
 
@@ -174,6 +175,7 @@ target_link_libraries(Patchy
     PRIVATE
         juce::juce_audio_utils
         juce::juce_audio_devices
+        juce::juce_audio_formats
         juce::juce_gui_extra
         juce::juce_dsp
         ${MOSQUITTO_LIBRARY}
@@ -189,6 +191,16 @@ target_compile_definitions(Patchy PRIVATE
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_USE_WIN_WEBVIEW2=1
+    # For AudioPlayerNode's own file loading (2026-09-04) — WAV/AIFF are
+    # already always available via juce::AudioFormatManager::
+    # registerBasicFormats(), no flag needed for either. JUCE_USE_MP3AUDIOFORMAT
+    # specifically carries its own official, explicit legal disclaimer
+    # (patent/licensing risk is the enabling party's own responsibility,
+    # not JUCE's/Raw Material Software's) — flagged to the user directly
+    # before enabling this, not silently turned on.
+    JUCE_USE_FLAC=1
+    JUCE_USE_OGGVORBIS=1
+    JUCE_USE_MP3AUDIOFORMAT=1
 )
 
 # ── Example Pax (built separately) (optional, built separately)

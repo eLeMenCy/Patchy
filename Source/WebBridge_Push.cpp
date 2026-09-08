@@ -216,6 +216,8 @@ void WebBridge::timerCallback()
         pushOscMonitorEvents();
         pushUdpMonitorEvents();
         pushMqttMonitorEvents();
+        pushAudioPlayerStatus();
+        pushPendingAudioPlayerFileLoads();
     }
 }
 
@@ -659,4 +661,61 @@ void WebBridge::pushSpectrumSnapshots()
     json += "]";
 
     pushToUI ("onSpectrumSnapshots", json);
+}
+
+void WebBridge::pushAudioPlayerStatus()
+{
+    if (! connected || ! getAudioPlayerStatuses || webView == nullptr) return;
+
+    auto statuses = getAudioPlayerStatuses();
+    if (statuses.empty()) return;
+
+    juce::String json;
+    json << "[";
+    bool first = true;
+    for (const auto& s : statuses)
+    {
+        if (! first) json << ",";
+        first = false;
+        json << "{\"nodeId\":\"" << s.nodeId << "\","
+             << "\"fraction\":" << juce::String (s.fraction, 4) << ","
+             << "\"playing\":" << (s.playing ? "true" : "false") << "}";
+    }
+    json << "]";
+
+    pushToUI ("onAudioPlayerStatus", json);
+}
+
+void WebBridge::pushPendingAudioPlayerFileLoads()
+{
+    if (! connected || ! getPendingAudioPlayerFileLoads || webView == nullptr) return;
+
+    auto loads = getPendingAudioPlayerFileLoads();
+    if (loads.empty()) return;
+
+    // One message per load (a rare event, unlike the batched, per-frame
+    // AudioPlayerStatus array) — matches onAudioPlayerLoadFile's own exact
+    // JSON shape in PatchyEditor.cpp, reusing the same "onAudioPlayerFileLoaded"
+    // event name so the frontend's existing handler needs no changes at all.
+    // filePath is deliberately left out — the restore path that leads here
+    // already came FROM the frontend's own known path in the first place,
+    // so there's nothing new to report there.
+    for (const auto& info : loads)
+    {
+        auto* result = new juce::DynamicObject();
+        result->setProperty ("nodeId", info.nodeId);
+        result->setProperty ("success", true);
+        result->setProperty ("fileName", info.fileName);
+        juce::Array<juce::var> peaksArr;
+        for (auto& pk : info.peaks)
+        {
+            peaksArr.add (pk.first);
+            peaksArr.add (pk.second);
+        }
+        result->setProperty ("peaks", peaksArr);
+        result->setProperty ("numSamples", info.numSamples);
+        result->setProperty ("sourceSampleRate", info.sourceSampleRate);
+
+        pushToUI ("onAudioPlayerFileLoaded", juce::JSON::toString (juce::var (result), true));
+    }
 }

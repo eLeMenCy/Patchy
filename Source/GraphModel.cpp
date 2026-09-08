@@ -210,6 +210,12 @@ std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
         // source node, same shape as DmxConsoleNode/ArtNetConsoleNode
         mk ("MQTT Out", PortType::MQTT, PortDirection::Output);
     }
+    else if (t == 26)
+    {
+        // AudioPlayerNode: 1 stereo Audio output only — a source (file
+        // playback, sine, or noise), same shape as AudioInDeviceNode.
+        mk ("Audio Out", PortType::Audio, PortDirection::Output);
+    }
     else if (t >= 100)
     {
         // Dynamic Pax node — ports based on Pax nodeType (t - 100)
@@ -315,6 +321,7 @@ static juce::String labelForType (int t, const juce::String& paxName)
         case 23: return "MQTT Publish";
         case 24: return "MQTT Monitor";
         case 25: return "MQTT Console";
+        case 26: return "Audio Player";
         default: return "Pax Node";
     }
 }

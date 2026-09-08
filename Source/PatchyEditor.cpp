@@ -24,6 +24,8 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
                [&p](const juce::String& json) { p.loadGraphFromJson (json); })
 {
     bridge.getSpectrumSnapshots      = [&p]() { return p.getSpectrumSnapshots(); };
+    bridge.getAudioPlayerStatuses    = [&p]() { return p.getAudioPlayerStatuses(); };
+    bridge.getPendingAudioPlayerFileLoads = [&p]() { return p.collectPendingAudioPlayerFileLoads(); };
     bridge.onGetPaxAudioOutCount   = [&p](const juce::String& nid) { return p.getPaxAudioOutCount (nid); };
     bridge.onPrunePaxEdges         = [&p](const juce::String& nid) { p.pruneProcessingGraphEdges (nid); };
     bridge.onSetAudioDeviceChannels  = [&p](const juce::String& nid, const std::vector<int>& ch)
@@ -61,6 +63,91 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
                                            if (node) node->setChannel (channel, value);
                                            p.saveDmxConsoleChannels (nid);
                                        };
+    // AudioPlayerNode's own controls — all operate directly on the shared,
+    // persistent AudioPlayerState (see AudioPlayerNode.h's own comment for
+    // why this differs from the DMX Console callback above, which needs
+    // the live node instance itself since setChannel() is a node method,
+    // not shared state).
+    bridge.onAudioPlayerLoadFile      = [&p, this](const juce::String& nid, const juce::String& filePath)
+                                       {
+                                           auto* state = p.getOrCreateAudioPlayerState (nid);
+                                           if (state == nullptr) return;
+                                           bool ok = state->loadFile (juce::File (filePath), p.getLastSampleRate());
+
+                                           // Push the result back to the UI so React can update its own
+                                           // settingsJson (file name/path) — React owns settings
+                                           // persistence, this just tells it what actually loaded.
+                                           auto* result = new juce::DynamicObject();
+                                           result->setProperty ("nodeId", nid);
+                                           result->setProperty ("success", ok);
+                                           if (ok)
+                                           {
+                                               result->setProperty ("fileName", state->fileName);
+                                               result->setProperty ("filePath", filePath);
+                                               juce::Array<juce::var> peaksArr;
+                                               for (auto& pk : state->waveformPeaks)
+                                               {
+                                                   peaksArr.add (pk.first);
+                                                   peaksArr.add (pk.second);
+                                               }
+                                               result->setProperty ("peaks", peaksArr);
+                                               result->setProperty ("numSamples", (int) state->fileBuffer.getNumSamples());
+                                               result->setProperty ("sourceSampleRate", state->fileSampleRate);
+                                           }
+                                           bridge.pushToUI ("onAudioPlayerFileLoaded",
+                                                            juce::JSON::toString (juce::var (result), true));
+                                       };
+    bridge.onAudioPlayerRequestFileInfo = [&p, this](const juce::String& nid)
+                                       {
+                                           // A direct, immediate pull — not the periodic timer-based push
+                                           // (pushPendingAudioPlayerFileLoads) — added specifically to close
+                                           // a real race: a project reload's own restore-triggered load can
+                                           // fire that push before the frontend's own component has even
+                                           // mounted to listen for it, silently missing the one-shot event.
+                                           // The frontend calls this itself on mount instead, when it
+                                           // believes a file should already be loaded but has no peaks yet.
+                                           auto* state = p.getOrCreateAudioPlayerState (nid);
+                                           if (state == nullptr || state->fileBuffer.getNumSamples() == 0) return;
+
+                                           auto* result = new juce::DynamicObject();
+                                           result->setProperty ("nodeId", nid);
+                                           result->setProperty ("success", true);
+                                           result->setProperty ("fileName", state->fileName);
+                                           juce::Array<juce::var> peaksArr;
+                                           for (auto& pk : state->waveformPeaks)
+                                           {
+                                               peaksArr.add (pk.first);
+                                               peaksArr.add (pk.second);
+                                           }
+                                           result->setProperty ("peaks", peaksArr);
+                                           result->setProperty ("numSamples", (int) state->fileBuffer.getNumSamples());
+                                           result->setProperty ("sourceSampleRate", state->fileSampleRate);
+                                           bridge.pushToUI ("onAudioPlayerFileLoaded",
+                                                            juce::JSON::toString (juce::var (result), true));
+                                       };
+    bridge.onAudioPlayerSetPlaying    = [&p](const juce::String& nid, bool playing)
+                                       {
+                                           auto* state = p.getOrCreateAudioPlayerState (nid);
+                                           if (state) state->playing.store (playing, std::memory_order_relaxed);
+                                       };
+    bridge.onAudioPlayerSeek          = [&p](const juce::String& nid, double fraction)
+                                       {
+                                           auto* state = p.getOrCreateAudioPlayerState (nid);
+                                           if (state == nullptr) return;
+                                           int64_t numSamples = state->fileBuffer.getNumSamples();
+                                           if (numSamples <= 0) return;
+                                           int64_t target = (int64_t) (juce::jlimit (0.0, 1.0, fraction) * (double) numSamples);
+                                           state->seekRequest.store (target, std::memory_order_relaxed);
+                                       };
+    bridge.onAudioPlayerReturnToStart = [&p](const juce::String& nid)
+                                       {
+                                           auto* state = p.getOrCreateAudioPlayerState (nid);
+                                           if (state == nullptr) return;
+                                           state->seekRequest.store (0, std::memory_order_relaxed);
+                                           state->playing.store (false, std::memory_order_relaxed);
+                                       };
+    bridge.onAudioPlayerSetLiveParam  = [&p](const juce::String& nid, const juce::String& key, const juce::String& value)
+                                       { p.setAudioPlayerLiveParam (nid, key, value); };
     bridge.onRestoreDmxConsoleChannels = [&p](const juce::String& nid, const juce::String& json)
                                        { p.restoreDmxConsoleChannels (nid, json); };
     bridge.onResetDmxConsoleChannels   = [&p](const juce::String& nid)

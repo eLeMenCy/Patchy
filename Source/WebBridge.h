@@ -99,6 +99,19 @@ struct PortActivity
     // parameter in can ever trigger this, keeping every other parameter
     // free of any risk of racing a user's own in-progress drag.
     juce::String      liveSyncedSettingsJson;
+    // Current value of each declared GENERIC-typed ("Value" edge — fuchsia/
+    // Converter colour) output port, in declared-port order — Phase 5's own
+    // "live numeric readout on hover" feature. Deliberately NOT keyed by an
+    // explicit port index: ordered to match exactly how the frontend's own
+    // already-available `ports` array orders this node's Value-classified
+    // ports (both ultimately iterate the same underlying declared-port-index
+    // sequence, filtering on the same "generic type" criterion), so the
+    // frontend can correlate the Nth Value-labelled port in its own port
+    // list to the Nth entry here directly, with no label-text parsing
+    // needed. Empty for every node except a Pax with at least one declared
+    // generic value output. Persists between writes, same "current value"
+    // (not "did it just change") reasoning as dmxValue above.
+    std::vector<float> genericValuePortValues;
 };
 
 struct SpectrumSnapshot

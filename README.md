@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.903
+> Version 0.0.904
 
 ---
 
@@ -89,7 +89,7 @@
 - **Pax system** — drop a `.dylib/.so/.dll` into the Pax folder; new node type appears in the sidebar on next launch
 - **Dynamic port counts** — Pax can change their output port count at runtime (e.g. Spectrumyser band count) without audio interruption
 - **Restructured burger menu** — `☰` top-right opens File and Edit flyout submenus with keyboard shortcuts
-- **Hint panel** — hover any node, button, port or edge to see a description in the sidebar hint panel
+- **Hint panel** — hover any node, button, port or edge to see a description in the sidebar hint panel; hovering a Value edge (a Pax adapter/converter's generic value port) shows its current, live numeric value, updating continuously while hovered
 - **Fold/Unfold** — double-click header to collapse nodes; edges merge gracefully to centre
 - **WebView UI** — React + ReactFlow running inside JUCE's `WebBrowserComponent`; all UI logic is TypeScript, all audio logic is C++
 
@@ -692,4 +692,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.903 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.904 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

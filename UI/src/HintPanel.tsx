@@ -29,6 +29,11 @@ export const EDGE_HINTS: Record<string, { title: string; body: string }> = {
   'midi':  { title: 'MIDI Connection',  body: 'Carries MIDI data between nodes. Flashes on activity.' },
   'audio': { title: 'Audio Connection', body: 'Carries a stereo audio signal between nodes. Colour shows signal level.' },
   'av':    { title: 'Hybrid Connection',body: 'Carries both MIDI and audio signals between nodes.' },
+  'value': { title: 'Value Connection', body: 'Carries a generic numeric value between nodes (a Pax adapter/converter port).' },
+  'osc':   { title: 'OSC Connection',   body: 'Carries OSC (Open Sound Control) messages between nodes. Flashes on activity.' },
+  'dmx':   { title: 'DMX Connection',   body: 'Carries DMX512 (or ArtNet) lighting data between nodes. Colour shows channel intensity.' },
+  'mqtt':  { title: 'MQTT Connection',  body: 'Carries MQTT messages between nodes. Flashes on activity.' },
+  'udp':   { title: 'UDP Connection',   body: 'Carries raw UDP datagrams between nodes. Flashes on activity.' },
 };
 
 // ── HintPanel — renders at bottom of sidebar ─────────────────────────────────

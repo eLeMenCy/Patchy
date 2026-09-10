@@ -55,6 +55,7 @@ export interface PortActivityEntry {
   isMk2:   boolean;  // true if Enttec Pro Mk2 detected (DMX nodes only)
   dmxValue: number;  // current DMX channel level ×1000, for gradual intensity rendering (0 if not a DMX node)
   paxReadOnly: { index: number; value: number }[];  // live values for this node's read-only parameters (see PaxAPI.h's PAX_isParameterReadOnly), empty for every node except a Pax that has at least one
+  genericValuePortValues: number[];  // current value of each declared generic ("Value" edge) output port, in the same order this node's own Value-classified ports appear in its own `ports` array — Phase 5's live readout-on-hover feature, empty for every node except a Pax with at least one generic Value output
 }
 type PortActivityCallback = (entries: PortActivityEntry[]) => void;
 const _portActivitySubscribers: PortActivityCallback[] = [];

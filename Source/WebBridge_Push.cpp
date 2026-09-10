@@ -532,6 +532,22 @@ void WebBridge::pushPortActivity()
         }
         paxReadOnlyStr << "]";
 
+        // Build genericValuePortValues array — [value, value, ...], one
+        // entry per declared generic ("Value" edge) output port, in the
+        // same order the frontend's own already-available `ports` array
+        // lists this node's Value-classified ports — Phase 5's own live
+        // readout-on-hover feature. Plain floats, not {index, value}
+        // objects like paxReadOnly above: the frontend correlates by
+        // position (Nth entry here = Nth Value-type port in its own port
+        // list) rather than needing an explicit index carried alongside.
+        juce::String genericValueStr = "[";
+        for (size_t gi = 0; gi < a.genericValuePortValues.size(); ++gi)
+        {
+            if (gi > 0) genericValueStr << ",";
+            genericValueStr << juce::String (a.genericValuePortValues[gi], 4);
+        }
+        genericValueStr << "]";
+
         // Live-synced editable parameters (see PaxAPI.h's
         // PAX_isParameterLiveSynced, and PatchyProcessor.h's own matching
         // change-detection loop that sets this field) — deliberately NOT
@@ -556,7 +572,8 @@ void WebBridge::pushPortActivity()
              << Q << "notes"    << Q << ":" << Q << notesStr        << Q   << ","
              << Q << "bytes"    << Q << ":" << a.udpBytes                  << ","
              << Q << "isMk2"    << Q << ":" << (a.dmxIsMk2 ? "true" : "false") << ","
-             << Q << "dmxValue" << Q << ":" << dv
+             << Q << "dmxValue" << Q << ":" << dv                          << ","
+             << Q << "genericValuePortValues" << Q << ":" << genericValueStr
              << "}";
     }
     json << "]";

@@ -162,7 +162,9 @@ DynamicPaxProcessor::DynamicPaxProcessor (const juce::String&             nodeId
       fnGetAudioOutCount  (e.getAudioOutCount),
       fnIsParamReadOnly   (e.isParamReadOnly),
       fnIsParamLiveSynced (e.isParamLiveSynced),
-      paxName       (e.name)
+      paxName       (e.name),
+      valueOutputTypes (e.valueOutputTypes),
+      lastGenericValueValues (e.valueOutputTypes.size(), 0.0f)
 {
     jassert (fnCreate != nullptr);
     instance = fnCreate();
@@ -285,6 +287,36 @@ void DynamicPaxProcessor::process (int numSamples)
 
     fnProcess (instance, &ctx);
     outputValueCount = valueOutCount;
+
+    // Capture any freshly-written generic value into the persistent
+    // lastGenericValueValues mirror, before outputValues[] itself gets
+    // wiped again at the top of the NEXT call to this function (see
+    // outputValues.fill() above). Without this, Phase 5's own live
+    // readout-on-hover feature reads 0 almost all the time even for a
+    // Pax sending continuously-changing values — found via a user's own
+    // real-world OSC test, 2026-09-10. Deliberately bounded to
+    // outputValues[0 .. valueOutCount-1] — the genuinely-written prefix
+    // this specific block — rather than scanning the whole (fixed-size,
+    // 256-slot) array: every untouched slot beyond valueOutCount also
+    // defaults to type=GENERIC(0)/portIndex=0 after the fill above,
+    // indistinguishable from a genuine write at index 0 — scanning the
+    // whole array (an earlier, wrong version of this same fix) would
+    // "match" an untouched slot just as readily as a real one, silently
+    // overwriting the persisted value with 0 every single block and
+    // defeating this fix's own entire purpose.
+    for (size_t p = 0; p < valueOutputTypes.size(); ++p)
+    {
+        if (valueOutputTypes[p] != PAX_VALUETYPE_GENERIC) continue;
+        for (int i = 0; i < valueOutCount; ++i)
+        {
+            if (outputValues[(size_t) i].type == PAX_TYPE_GENERIC
+                && outputValues[(size_t) i].portIndex == (uint8_t) p)
+            {
+                lastGenericValueValues[p] = outputValues[(size_t) i].value;
+                break;
+            }
+        }
+    }
 
     // Value events also count as activity for flash purposes — this was
     // missing until now, which meant a Pax that only ever writes value

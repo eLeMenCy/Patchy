@@ -116,6 +116,12 @@ public:
     void process (int numSamples) override;
 
     const juce::String& getPaxName() const { return paxName; }
+    // Declared value OUTPUT port types (PAX_VALUETYPE_* per port, in port
+    // order) — see this same member's own declaration comment further
+    // down for the full reasoning. Small public accessor rather than a
+    // public member, matching getPaxName()'s own established pattern here.
+    const std::vector<int>& getValueOutputTypes() const { return valueOutputTypes; }
+    const std::vector<float>& getLastGenericValueValues() const { return lastGenericValueValues; }
     juce::String customName;   // user-defined display name (for MidiMonitor NAME column)
     std::function<void()> onPortCountChanged;  // called when dynamic port count changes
     int audioInputCount  = 1;  // number of audio input ports
@@ -171,6 +177,31 @@ private:
 
     PAX_Instance* instance   = nullptr;
     juce::String  paxName;
+    // Declared value OUTPUT port types (PAX_VALUETYPE_* per port, in port
+    // order), copied once from the registry entry at construction —
+    // independent of outputValueCount (which reflects only how many were
+    // actually WRITTEN this specific block, not how many are declared).
+    // Needed to correctly enumerate every declared generic ("Value" edge,
+    // Phase 5's own live-readout-on-hover feature) output port even on a
+    // block where a port's own value hasn't changed and so was never
+    // rewritten.
+    std::vector<int> valueOutputTypes;
+    // Current value of each declared generic value output port — a
+    // genuinely persistent mirror, sized/indexed to match valueOutputTypes
+    // above. NOT the same thing as reading outputValues[] directly: that
+    // array gets explicitly zeroed every single block (see process()'s own
+    // outputValues.fill(PAX_Value{}) call) before the Pax's own code runs,
+    // so it only ever reflects THIS block's own fresh write, if any — never
+    // "the last real value" the way this mirror does. Found and fixed
+    // 2026-09-10 after a user's own real-world OSC test correctly showed
+    // the live-readout feature reading 0 almost all the time, despite
+    // genuinely changing values being sent continuously — an earlier claim
+    // that outputValues[] itself "persists between writes, same reasoning
+    // as dmxValue" (both on this member's own comment above and in
+    // PatchyProcessor.h's own getPortActivity()) was wrong: only checked
+    // that ctx.valuesOut wasn't a COPY of the array, never that the array
+    // gets explicitly RESET before every block regardless.
+    std::vector<float> lastGenericValueValues;
 
     static constexpr int kMaxMidiEvents = 256;
     PAX_MidiEvent midiInBuf  [kMaxMidiEvents];

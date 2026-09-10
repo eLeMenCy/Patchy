@@ -798,6 +798,29 @@ public:
             if (node->outputValues[0].type == PAX_TYPE_DMX)
                 a.dmxValue = node->outputValues[0].value;
 
+            // Current value of each declared generic ("Value" edge) output
+            // port — Phase 5's own live-readout-on-hover feature. Reads
+            // from DynamicPaxProcessor's own persistent
+            // lastGenericValueValues mirror (see its declaration comment
+            // in PaxRegistry.h for the full "why not outputValues[]
+            // directly" reasoning — in short, that array gets explicitly
+            // zeroed every single block before the Pax's own code runs,
+            // so it only ever reflects THIS block's own fresh write, if
+            // any, never the genuinely persisted last value this feature
+            // actually needs). lastGenericValueValues is itself indexed to
+            // match ALL declared value ports (not just generic ones), so
+            // filtered here to only the generic-typed entries — preserves
+            // the "one entry per generic port, in order" contract the
+            // frontend's own positional correlation relies on.
+            if (auto* dynVal = dynamic_cast<DynamicPaxProcessor*> (node.get()))
+            {
+                const auto& valueOutTypes = dynVal->getValueOutputTypes();
+                const auto& lastValues    = dynVal->getLastGenericValueValues();
+                for (size_t p = 0; p < valueOutTypes.size(); ++p)
+                    if (valueOutTypes[p] == PAX_VALUETYPE_GENERIC)
+                        a.genericValuePortValues.push_back (lastValues[p]);
+            }
+
             // Live values for any read-only parameters (see PaxAPI.h's
             // PAX_isParameterReadOnly) — checked every poll rather than
             // resolved once, since which indices are read-only doesn't
@@ -1002,7 +1025,8 @@ public:
             // rebuild-restoration fix worked while this live-display
             // channel stayed silent the whole time.
             if (a.midiOutEvents > 0 || a.audioRmsL > 0.f || a.audioRmsR > 0.f
-                || ! a.incomingNotes.empty() || ! a.paxReadOnlyValues.empty())
+                || ! a.incomingNotes.empty() || ! a.paxReadOnlyValues.empty()
+                || ! a.genericValuePortValues.empty())
                 result.push_back (a);
         }
 

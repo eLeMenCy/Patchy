@@ -21,7 +21,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { Bridge, FileState, AudioSettings, GraphState, RawNode, RawConnection, PortActivityEntry, PaxParamInfo, PaxInfo, FragmentData, UndoState, AudioPlayerStatus } from './Bridge';
+import { Bridge, FileState, AudioSettings, GraphState, RawNode, RawConnection, RawPort, PortActivityEntry, PaxParamInfo, PaxInfo, FragmentData, UndoState, AudioPlayerStatus } from './Bridge';
 import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
@@ -716,6 +716,66 @@ function FlowCanvas() {
   }, [setNodes]);
 
   // Port dot and edge hover hints via event delegation
+  // Refs (not direct state) for the same reason usePortActivityStyles uses
+  // them for its own edgeList/nodesRef: the mouseover/mouseout listeners
+  // below are added once (empty-ish deps) and read the CURRENT edges/nodes
+  // on each hover, without needing to re-register the global listeners on
+  // every edges/nodes change (which happens very frequently — every drag,
+  // every connection).
+  const edgesForHover = useRef(edges);
+  const nodesForHover = useRef(nodes);
+  useEffect(() => { edgesForHover.current = edges; }, [edges]);
+  useEffect(() => { nodesForHover.current = nodes; }, [nodes]);
+
+  // Current value of each node's own declared generic ("Value" edge)
+  // output ports — Phase 5's own live readout-on-hover feature. Keyed by
+  // nodeId, one array per node (ordered to match that node's own
+  // Value-classified ports in its `ports` array — see Bridge.ts's own
+  // PortActivityEntry.genericValuePortValues comment for the full
+  // correlation reasoning).
+  const genericValueData = useRef<Map<string, number[]>>(new Map());
+
+  // The DOM element of whichever Value edge is currently being hovered, if
+  // any — set on mouseover, cleared on mouseout (see handleMouseOut below).
+  // Needed because `mouseover` only fires ONCE, when the cursor first
+  // enters an element — never again while it just sits there — so without
+  // this, the live readout would freeze at whatever it read at that one
+  // instant, only updating again on the next leave-and-re-enter. Tracking
+  // the hovered element lets the port-activity effect below re-run this
+  // same computation every time fresh data arrives, independent of mouse
+  // movement.
+  const hoveredValueEdge = useRef<HTMLElement | null>(null);
+
+  // Computes and applies the live-value hint for a given Value-edge DOM
+  // element — shared by the initial mouseover handler and by the
+  // port-activity effect's own continuous refresh below, so both stay
+  // exactly in sync with no duplicated logic.
+  const applyValueEdgeHint = useCallback((edge: HTMLElement) => {
+    const edgeId = edge.getAttribute('data-id');
+    const flowEdge = edgeId ? edgesForHover.current.find(fe => fe.id === edgeId) : null;
+    const srcNode = flowEdge ? nodesForHover.current.find(n => n.id === flowEdge.source) : null;
+    const srcPorts: RawPort[] = (srcNode?.data as any)?.ports ?? [];
+    const valuePorts = srcPorts.filter(p => p.type === 'value' && p.direction === 'output');
+    const portPos = flowEdge ? valuePorts.findIndex(p => p.id === flowEdge.sourceHandle) : -1;
+    const values = flowEdge ? genericValueData.current.get(flowEdge.source) : undefined;
+    const liveValue = (portPos >= 0 && values && portPos < values.length) ? values[portPos] : undefined;
+    setHint(liveValue !== undefined
+      ? { title: 'Value Connection', body: `Current value: ${liveValue.toFixed(3)}` }
+      : (EDGE_HINTS['value'] ?? EDGE_HINTS['midi']));
+  }, [setHint]);
+
+  useEffect(() => {
+    return Bridge.onPortActivity((entries: PortActivityEntry[]) => {
+      entries.forEach(entry => {
+        if (entry.genericValuePortValues && entry.genericValuePortValues.length > 0)
+          genericValueData.current.set(entry.id, entry.genericValuePortValues);
+      });
+      // Refresh the hint live if a Value edge is currently being hovered —
+      // see hoveredValueEdge's own comment above for why this is needed.
+      if (hoveredValueEdge.current) applyValueEdgeHint(hoveredValueEdge.current);
+    });
+  }, [applyValueEdgeHint]);
+
   useEffect(() => {
     const handleMouseOver = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -735,7 +795,14 @@ function FlowCanvas() {
       // Edge
       const edge = target.closest('.react-flow__edge') as HTMLElement | null;
       if (edge) {
-        const cls = edge.className ?? '';
+        // ReactFlow edges are SVG <g> elements — .className on an SVG
+        // element returns an SVGAnimatedString object, not a plain
+        // string, so every .includes() check below was silently failing
+        // for every edge type (not just this feature's own Value edges).
+        // .getAttribute('class') always returns a plain string regardless
+        // of element type — the standard, correct fix for this exact,
+        // well-known SVG-vs-HTML platform quirk.
+        const cls = edge.getAttribute('class') ?? '';
         if (cls.includes('edge-midi'))   setHint(EDGE_HINTS['midi']);
         else if (cls.includes('edge-audio')) setHint(EDGE_HINTS['audio']);
         else if (cls.includes('edge-mixed')) setHint(EDGE_HINTS['av']);
@@ -743,14 +810,23 @@ function FlowCanvas() {
         else if (cls.includes('edge-dmx'))   setHint(EDGE_HINTS['dmx']   ?? EDGE_HINTS['midi']);
         else if (cls.includes('edge-mqtt'))  setHint(EDGE_HINTS['mqtt']  ?? EDGE_HINTS['midi']);
         else if (cls.includes('edge-udp'))   setHint(EDGE_HINTS['udp']   ?? EDGE_HINTS['midi']);
-        else if (cls.includes('edge-value')) setHint(EDGE_HINTS['value'] ?? EDGE_HINTS['midi']);
+        else if (cls.includes('edge-value')) {
+          // Live numeric readout — Phase 5's own "Value edges" feature.
+          // Tracks this edge as currently hovered so the port-activity
+          // effect (see hoveredValueEdge's own comment) can keep this
+          // hint refreshed live, not just at this one instant.
+          hoveredValueEdge.current = edge;
+          applyValueEdgeHint(edge);
+        }
         return;
       }
     };
     const handleMouseOut = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (target.closest('.react-flow__handle') || target.closest('.react-flow__edge'))
+      if (target.closest('.react-flow__handle') || target.closest('.react-flow__edge')) {
+        hoveredValueEdge.current = null;
         setHint(null);
+      }
     };
     document.addEventListener('mouseover', handleMouseOver);
     document.addEventListener('mouseout',  handleMouseOut);

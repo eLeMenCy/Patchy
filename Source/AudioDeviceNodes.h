@@ -5,6 +5,8 @@
 #include <atomic>
 #include <vector>
 #include <mutex>
+#include <unordered_map>
+#include <memory>
 
 class ProcessingGraph;
 
@@ -596,12 +598,64 @@ public:
 
     static juce::var getAvailableDevicesVar (bool isStandalone = true);
 
-    juce::AudioDeviceManager& getOutputManager() { return outputManager; }
-    juce::AudioDeviceManager& getInputManager()  { return inputManager;  }
+    /** Root-cause fix, 2026-09-11 — see this class's own outputManagers/
+     *  inputManagers members below for the full story. Lazily creates and
+     *  returns THIS specific node's own, independent juce::AudioDeviceManager
+     *  — never a single, application-wide shared one. */
+    juce::AudioDeviceManager& getOrCreateOutputManager (const juce::String& nodeId)
+    {
+        return getOrCreateManager (outputManagers, nodeId, 0, 2);
+    }
+    juce::AudioDeviceManager& getOrCreateInputManager (const juce::String& nodeId)
+    {
+        return getOrCreateManager (inputManagers, nodeId, 2, 0);
+    }
+
+    /** Closes and discards the per-node manager (and whatever real hardware
+     *  device it may still hold open) for any nodeId whose own node no
+     *  longer exists in the given (already fully rebuilt) graph — called
+     *  once per rebuild, right after applyDeviceSelections(), so it only
+     *  ever runs once the new graph's own node list is final and accurate.
+     *  Without this, a genuinely deleted node's own device would otherwise
+     *  stay open forever — unlike the lightweight, harmless string/int
+     *  entries left behind in selections/channelSelections above (which
+     *  this method deliberately leaves untouched, matching that existing,
+     *  established, accepted-as-harmless pattern), an abandoned
+     *  juce::AudioDeviceManager can hold a real, exclusive hardware
+     *  connection, blocking every other node or application from using
+     *  that same device even though the user has already deleted the node
+     *  that opened it. */
+    void pruneDeletedNodeManagers (ProcessingGraph& graph);
 
 private:
-    juce::AudioDeviceManager             outputManager;
-    juce::AudioDeviceManager             inputManager;
+    juce::AudioDeviceManager& getOrCreateManager (
+        std::unordered_map<juce::String, std::unique_ptr<juce::AudioDeviceManager>>& managers,
+        const juce::String& nodeId, int numInputChannels, int numOutputChannels)
+    {
+        auto it = managers.find (nodeId);
+        if (it != managers.end()) return *it->second;
+        auto newManager = std::make_unique<juce::AudioDeviceManager>();
+        newManager->initialiseWithDefaultDevices (numInputChannels, numOutputChannels);
+        auto& ref = *newManager;
+        managers[nodeId] = std::move (newManager);
+        return ref;
+    }
+
+    // Root cause of the "last device wins" bug (found and fixed
+    // 2026-09-11): every AudioInDeviceNode/AudioOutDeviceNode used to
+    // share these same two, single, application-wide juce::AudioDeviceManager
+    // instances — a real juce::AudioDeviceManager represents ONE active
+    // device connection at a time, so each node's own openDevice() call
+    // simply replaced whatever the previous node had already set, with
+    // every node's own callback staying registered but all of them then
+    // receiving audio from whichever device was opened last. Now one
+    // independent manager per node, keyed by nodeId (not by C++ object
+    // instance — see transferCallbackTo()'s own comment in this file for
+    // why: the map entry must persist stably across a graph rebuild, the
+    // same way the old, single, PatchyProcessor-owned managers used to,
+    // for that existing transfer mechanism to keep working unchanged).
+    std::unordered_map<juce::String, std::unique_ptr<juce::AudioDeviceManager>> outputManagers;
+    std::unordered_map<juce::String, std::unique_ptr<juce::AudioDeviceManager>> inputManagers;
     std::unordered_map<juce::String, juce::String>       selections;
     std::unordered_map<juce::String, std::vector<int>>   channelSelections;
 };

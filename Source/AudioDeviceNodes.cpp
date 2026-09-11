@@ -8,11 +8,11 @@
 
 AudioDeviceManager::AudioDeviceManager()
 {
-    // Initialise with no device — nodes open their own devices as needed.
-    // Using 0 input and 0 output channels at the manager level; each node
-    // registers its own callback for its specific device.
-    outputManager.initialiseWithDefaultDevices (0, 2);  // output only
-    inputManager.initialiseWithDefaultDevices  (2, 0);  // input only
+    // Deliberately empty now — see this class's own outputManagers/
+    // inputManagers member comments in AudioDeviceNodes.h for the full
+    // story. Each node's own manager is created lazily, on first use, by
+    // getOrCreateOutputManager()/getOrCreateInputManager() below — there
+    // is no longer a single, shared manager to eagerly initialise here.
 }
 
 bool AudioDeviceManager::applyToGraph (const juce::String& nodeId,
@@ -24,7 +24,7 @@ bool AudioDeviceManager::applyToGraph (const juce::String& nodeId,
         if (deviceName.isEmpty())
             n->closeDevice();           // always close, even if transferred
         else if (! n->wasTransferred())
-            n->openDevice (deviceName, outputManager);
+            n->openDevice (deviceName, getOrCreateOutputManager (nodeId));
         return true;
     }
     if (auto* n = graph.findAudioInNode (nodeId))
@@ -32,10 +32,24 @@ bool AudioDeviceManager::applyToGraph (const juce::String& nodeId,
         if (deviceName.isEmpty())
             n->closeDevice();           // always close, even if transferred
         else if (! n->wasTransferred())
-            n->openDevice (deviceName, inputManager);
+            n->openDevice (deviceName, getOrCreateInputManager (nodeId));
         return true;
     }
     return false;
+}
+
+void AudioDeviceManager::pruneDeletedNodeManagers (ProcessingGraph& graph)
+{
+    // See this method's own declaration comment in AudioDeviceNodes.h for
+    // the full reasoning — called once per rebuild, after
+    // applyDeviceSelections(), once the new graph's own node list is
+    // final. erase() on a std::unique_ptr-valued map entry destroys the
+    // juce::AudioDeviceManager, which closes whatever real device it may
+    // still hold open.
+    for (auto it = outputManagers.begin(); it != outputManagers.end(); )
+        it = (graph.findAudioOutNode (it->first) == nullptr) ? outputManagers.erase (it) : std::next (it);
+    for (auto it = inputManagers.begin(); it != inputManagers.end(); )
+        it = (graph.findAudioInNode (it->first) == nullptr) ? inputManagers.erase (it) : std::next (it);
 }
 
 void AudioDeviceManager::applyDeviceSelections (ProcessingGraph& graph)

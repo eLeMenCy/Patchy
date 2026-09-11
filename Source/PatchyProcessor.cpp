@@ -82,6 +82,7 @@ void PatchyProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     processingGraph.prepare (sampleRate, samplesPerBlock);
 midiDeviceManager.applyDeviceSelections  (processingGraph);
     audioDeviceManager.applyDeviceSelections (processingGraph);
+    audioDeviceManager.pruneDeletedNodeManagers (processingGraph);
     udpDeviceManager.applyAllSettings        (processingGraph);
     oscDeviceManager.applyAllSettings        (processingGraph);
     mqttDeviceManager.applyAllSettings       (processingGraph);
@@ -539,6 +540,7 @@ void PatchyProcessor::rebuildProcessingGraph()
     // Apply selections to new graph (opens/closes devices as needed)
     midiDeviceManager.applyDeviceSelections  (*newGraph, pendingGraph ? pendingGraph.get() : &processingGraph);
     audioDeviceManager.applyDeviceSelections (*newGraph);
+    audioDeviceManager.pruneDeletedNodeManagers  (*newGraph);
     audioDeviceManager.applyAllChannelSelections (*newGraph);
     udpDeviceManager.applyAllSettings            (*newGraph);
     oscDeviceManager.applyAllSettings            (*newGraph);

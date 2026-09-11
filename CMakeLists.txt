@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Patchy VERSION 0.0.905)
+project(Patchy VERSION 0.0.906)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -90,7 +90,7 @@ endif()
 
 # ── Plugin target ─────────────────────────────────────────────────────────────
 juce_add_plugin(Patchy
-    VERSION                  "0.0.905"
+    VERSION                  "0.0.906"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGrp"
@@ -105,6 +105,17 @@ juce_add_plugin(Patchy
     VST3_CATEGORIES          "Instrument" "Fx"
     AU_MAIN_TYPE             "kAudioUnitType_MusicDevice"
     COPY_PLUGIN_AFTER_BUILD  TRUE
+    # Fix, 2026-09-11: standalone build was silently receiving all-zero
+    # input data from any real audio input device — root cause was this
+    # declaration's own total absence. Without it, macOS never even
+    # prompts for microphone/audio-input access at all for the built
+    # .app (unlike running from CLion's own debugger, which sidesteps
+    # this check) — it just silently denies. See Architecture.md's own
+    # roadmap entry for the full story, including a note on macOS's own
+    # per-bundle-ID permission caching if a rebuild alone doesn't
+    # immediately resolve it for an install that's run before.
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    MICROPHONE_PERMISSION_TEXT    "Patchy needs audio input access to route audio from your chosen input devices."
 )
 
 target_sources(Patchy PRIVATE

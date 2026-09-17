@@ -122,4 +122,5 @@ export const BUTTON_HINTS = {
   close:       { title: 'Close Panel',        body: 'Closes this settings panel.' },
   deleteNode:  { title: 'Delete Node',        body: 'Permanently removes this node and all its connections from the graph.' },
   fold:        { title: 'Fold / Unfold Node', body: 'Collapses or expands this node. Double-click the header to toggle. Shortcut: F (all nodes).' },
+  toggleDisabled: { title: 'Disable / Enable Node', body: 'Disables or re-enables this node. A disabled node stops processing — most nodes go silent, while a few (Monitors, MIDI Keyboard, and some Pax) keep passing their signal through unchanged.' },
 };

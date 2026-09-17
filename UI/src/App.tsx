@@ -88,34 +88,34 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
             : raw.paxName === 'Audio Peak to OSC' ? 'audioPeakToOsc' : 'custom',
     position: { x: raw.x, y: raw.y },
     data: isMidiMonitor
-      ? { label: raw.label, nodeType: 5,  ports: raw.ports, settingsJson: raw.settingsJson } as MidiMonitorNodeData
+      ? { label: raw.label, nodeType: 5,  ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as MidiMonitorNodeData
       : isAudioMonitor
-      ? { label: raw.label, nodeType: 6,  ports: raw.ports, settingsJson: raw.settingsJson } as AudioMonitorNodeData
+      ? { label: raw.label, nodeType: 6,  ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as AudioMonitorNodeData
       : isMidiKeyboard
-      ? { label: raw.label, nodeType: 7,  ports: raw.ports, settingsJson: raw.settingsJson } as MidiKeyboardNodeData
+      ? { label: raw.label, nodeType: 7,  ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as MidiKeyboardNodeData
       : isDmxMonitor
-      ? { label: raw.label, nodeType: 16, ports: raw.ports, settingsJson: raw.settingsJson } as DmxMonitorNodeData
+      ? { label: raw.label, nodeType: 16, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as DmxMonitorNodeData
       : isDmxConsole
-      ? { label: raw.label, nodeType: 17, ports: raw.ports, settingsJson: raw.settingsJson } as DmxMonitorNodeData
+      ? { label: raw.label, nodeType: 17, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as DmxMonitorNodeData
       : isArtNetMonitor
-      ? { label: raw.label, nodeType: 18, ports: raw.ports, settingsJson: raw.settingsJson } as DmxMonitorNodeData
+      ? { label: raw.label, nodeType: 18, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as DmxMonitorNodeData
       : isArtNetConsole
-      ? { label: raw.label, nodeType: 19, ports: raw.ports, settingsJson: raw.settingsJson } as DmxMonitorNodeData
+      ? { label: raw.label, nodeType: 19, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as DmxMonitorNodeData
       : isOscMonitor
-      ? { label: raw.label, nodeType: 20, ports: raw.ports, settingsJson: raw.settingsJson } as OscMonitorNodeData
+      ? { label: raw.label, nodeType: 20, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as OscMonitorNodeData
       : isUdpMonitor
-      ? { label: raw.label, nodeType: 21, ports: raw.ports, settingsJson: raw.settingsJson } as UdpMonitorNodeData
+      ? { label: raw.label, nodeType: 21, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as UdpMonitorNodeData
       : isMqttMonitor
-      ? { label: raw.label, nodeType: 24, ports: raw.ports, settingsJson: raw.settingsJson } as MqttMonitorNodeData
+      ? { label: raw.label, nodeType: 24, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as MqttMonitorNodeData
       : isMqttConsole
-      ? { label: raw.label, nodeType: 25, ports: raw.ports, settingsJson: raw.settingsJson } as MqttConsoleNodeData
+      ? { label: raw.label, nodeType: 25, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as MqttConsoleNodeData
       : isAudioPlayer
-      ? { label: raw.label, nodeType: 26, ports: raw.ports, settingsJson: raw.settingsJson } as AudioPlayerNodeData
+      ? { label: raw.label, nodeType: 26, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as AudioPlayerNodeData
       : { label: raw.label, nodeType: raw.nodeType,
           ports: raw.ports, selectedDeviceId: raw.selectedDeviceId,
           paxName: raw.paxName,
           paxParams: raw.paxName ? (paxInfoMap?.get(raw.paxName)?.params ?? []) : [],
-          settingsJson: raw.settingsJson } as NodeData,
+          disabled: raw.disabled, settingsJson: raw.settingsJson } as NodeData,
   };
 }
 

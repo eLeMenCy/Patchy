@@ -109,6 +109,8 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
 
         if (proc != nullptr)
         {
+            proc->disabled = (bool) nd->getProperty ("disabled");
+
             // Restore Pax parameters from settingsJson so a graph rebuild
             // (e.g. dropping a node or adding a connection) doesn't reset sliders
             if (auto* dyn = dynamic_cast<DynamicPaxProcessor*> (proc.get()))
@@ -285,10 +287,19 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
         {
             if (inNode->getIsDawDevice())
             {
-                // DAW mode: inject host audio directly into outputAudio
-                int ch = std::min (hostAudio.getNumChannels(), n->outputAudio.getNumChannels());
-                for (int i = 0; i < ch; ++i)
-                    n->outputAudio.copyFrom (i, 0, hostAudio, i, 0, numSamples);
+                // DAW mode: inject host audio directly into outputAudio —
+                // but only if this node isn't disabled ("cut"). Without
+                // this check, a disabled DAW-mode AudioIn node would keep
+                // passing host audio through regardless, since it always
+                // `continue`s past step 3's own disabled check below (DAW
+                // mode never calls process() at all — see that step's own
+                // comment).
+                if (! n->disabled)
+                {
+                    int ch = std::min (hostAudio.getNumChannels(), n->outputAudio.getNumChannels());
+                    for (int i = 0; i < ch; ++i)
+                        n->outputAudio.copyFrom (i, 0, hostAudio, i, 0, numSamples);
+                }
             }
             // else: physical device — FIFO filled by audio callback, process() reads it
             continue;  // AudioInDeviceNode never gets hostAudio as inputAudio
@@ -441,6 +452,15 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
                 if (src->outputArtNetFrameValid)
                     n->artNetSourceFrames[src->id] = { src->outputArtNetUniverse, src->outputArtNetFrame };
 
+                // Disable/Enable feature, 2026-09-14 — deliberately NOT
+                // gated on `disabled` (revised from an earlier "pause
+                // monitoring" design). These three monitors' own
+                // captured-log/display data comes from here, not from
+                // inside their own process() — the user's own considered
+                // decision is that a disabled Monitor should stay fully
+                // live everywhere, since the signal genuinely keeps
+                // flowing through it; only its own greyed-out header
+                // should visually change.
                 if (auto* mon = dynamic_cast<MidiMonitorNode*> (n))
                 {
                     juce::String srcLabel = labelMap.count (src->id) ? labelMap.at (src->id) : src->id;
@@ -605,7 +625,17 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
         if (auto* outNode = dynamic_cast<AudioOutDeviceNode*> (n))
             if (outNode->getIsDawDevice()) continue;
 
-        n->process (numSamples);
+        // Disable/Enable feature, 2026-09-11 — see NodeProcessor::disabled's
+        // own declaration comment for the full reasoning. "Cut" (the
+        // default): skip process() entirely — this node's own outputs are
+        // already correctly silent/empty from step 1's own resetBuffers()
+        // call earlier this block, since nothing writes to them in
+        // between. Pass-through-style nodes (passesThroughWhenDisabled()
+        // == true) still call process() normally; it's each such node's
+        // own responsibility to check `disabled` internally and skip only
+        // its own side effect, never its own pass-through.
+        if (! n->disabled || n->passesThroughWhenDisabled())
+            n->process (numSamples);
     }
 
     // ── 4. Collect outputs → hostAudio ───────────────────────────────────────
@@ -623,7 +653,7 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
         {
             if (auto* outNode = dynamic_cast<AudioOutDeviceNode*> (n))
             {
-                if (outNode->getIsDawDevice() && hasInputScratch.count (n->id) > 0)
+                if (outNode->getIsDawDevice() && hasInputScratch.count (n->id) > 0 && ! n->disabled)
                 {
                     if (! dawOutFound) { hostAudio.clear(); dawOutFound = true; }
                     int ch = std::min (n->inputAudio.getNumChannels(), hostAudio.getNumChannels());
@@ -658,6 +688,12 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
 // ─────────────────────────────────────────────────────────────────────────────
 //  MIDI device node finders
 // ─────────────────────────────────────────────────────────────────────────────
+
+NodeProcessor* ProcessingGraph::findNode (const juce::String& nodeId)
+{
+    auto it = nodeMap.find (nodeId);
+    return it == nodeMap.end() ? nullptr : it->second;
+}
 
 MidiOutDeviceNode* ProcessingGraph::findMidiOutNode (const juce::String& nodeId)
 {

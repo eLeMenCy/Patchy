@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState, useContext } from 'react';
 import { HintContext, NODE_HINTS, BUTTON_HINTS } from './HintPanel';
 import { DawContext } from './DawContext';
-import { X, Settings } from 'lucide-react';
+import { X, Settings, Power } from 'lucide-react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, PaxParamInfo } from './Bridge';
-import { useNodeDelete, NodeHeaderButton, useNodeCollapsed, useNodeSettings, NodeHandle, nodeContainerStyle, portColour, _paxInfoMap, detectPaxTheme, detectPaxTagPrefix } from './NodeUtils';
+import { useNodeDelete, useNodeDisabled, NodeHeaderButton, useNodeCollapsed, useNodeSettings, NodeHandle, nodeContainerStyle, portColour, _paxInfoMap, detectPaxTheme, detectPaxTagPrefix } from './NodeUtils';
 
 import { DeviceSelector, AudioDeviceSettingsPanel, ChannelSummary } from './AudioDeviceUI';
 import { UdpPortSummary, UdpDeviceSettingsPanel } from './UdpDeviceUI';
@@ -78,6 +78,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
   const outputs = nodeData.ports.filter(p => p.direction === 'output');
 
   const { handleDelete } = useNodeDelete(id);
+  const { disabled, toggleDisabled } = useNodeDisabled(id, (data as any).disabled);
   const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
   const isPax = paxType !== null;
   const isAudioDevice = nodeData.nodeType === 3 || nodeData.nodeType === 4;
@@ -469,7 +470,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
       style={{
         minWidth:   (isUdpDevice || isOscDevice || isMqttSubscribeDevice || isMqttPublishDevice || isArtNetDevice || isDmxDevice) ? 310 : Math.max(theme.tag.length * 10 + 80, 220),
         userSelect: 'none',
-        ...nodeContainerStyle(theme.accent, !!selected, { bg: 'var(--surface)', glow: theme.glow }),
+        ...nodeContainerStyle(theme.accent, !!selected, { bg: 'var(--surface)', glow: theme.glow, disabled }),
       }}
     >
       {/* Header */}
@@ -533,6 +534,16 @@ function GenericNode({ id, data, selected }: NodeProps) {
                      padding:'1px 4px', fontFamily:"'JetBrains Mono', monospace",
                      width:100, minWidth:0 }} />
         )}
+
+        {/* Disable/Enable — unconditional, unlike the settings buttons
+            below which are node-type-specific */}
+        <NodeHeaderButton
+          onClick={toggleDisabled}
+          active={! disabled}
+          activeAccent={theme.accent}
+          onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.toggleDisabled), onMouseLeave: () => setHint(null) }}>
+          <Power size={11} />
+        </NodeHeaderButton>
 
         {/* Pax settings cog — only for a Pax with more than one parameter;
             see the layout-rule comment above onNameChange for why. */}

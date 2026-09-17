@@ -134,6 +134,8 @@ public:
         // pushFallbackValue() so each event already has the correct source.
     }
 
+    bool passesThroughWhenDisabled() const override { return true; }
+
 private:
     OscMonitorBuffer* buffer = nullptr;
 

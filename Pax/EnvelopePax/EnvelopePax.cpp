@@ -236,4 +236,17 @@ void PAX_setParameter (PAX_Instance* i, int index, float value)
     }
 }
 
+// Disable/Enable feature, 2026-09-11 — this is a Hybrid Pax (audio +
+// MIDI), and per the user's own explicit decision, only its audio side
+// should behave like a normal plugin bypass while disabled; its MIDI
+// envelope output should stay cut (this Pax's own real purpose is
+// envelope-following, so a stale/frozen envelope value while disabled
+// would be misleading). Single audio in/out port, so output 0 maps
+// directly to input 0. Deliberately does NOT export
+// PAX_getMidiPassthrough at all, to keep the MIDI side cut.
+int PAX_getAudioPassthroughInput (PAX_Instance*, int outputIndex)
+{
+    return outputIndex == 0 ? 0 : -1;
+}
+
 } // extern "C"

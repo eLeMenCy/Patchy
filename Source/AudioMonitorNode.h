@@ -70,6 +70,14 @@ public:
         for (int ch = 0; ch < outputAudio.getNumChannels(); ++ch)
             outputAudio.copyFrom (ch, 0, inputAudio, ch, 0, numSamples);
 
+        // Disable/Enable feature, 2026-09-14 — deliberately NOT gated on
+        // `disabled`. This buffer feeds both this node's own waveform
+        // display AND the downstream edge's own RMS-driven colour
+        // intensity (see PatchyProcessor::getPortActivity(), which reads
+        // it directly) — the user's own considered decision, after
+        // reconsidering an earlier "pause visualization" design, is that
+        // a disabled Monitor should look fully live everywhere except its
+        // own greyed-out header, since the audio genuinely keeps flowing.
         if (buffer == nullptr) return;
 
         const float* L = inputAudio.getNumChannels() > 0
@@ -78,6 +86,8 @@ public:
                            ? inputAudio.getReadPointer (1) : nullptr;
         buffer->push (L, R, numSamples);
     }
+
+    bool passesThroughWhenDisabled() const override { return true; }
 
 private:
     AudioMonitorBuffer* buffer = nullptr;

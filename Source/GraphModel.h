@@ -86,6 +86,7 @@ struct NodeData
     juce::String      selectedDeviceId;  // for nodeType 4 and 5
     juce::String      settingsJson;      // UI settings blob (JSON string)
     float             x = 100.f, y = 100.f;
+    bool              disabled = false;  // Disable/Enable toggle, 2026-09-11 — see ProcessingGraph's own process() for what this actually does at runtime
     std::vector<Port> ports;
 };
 

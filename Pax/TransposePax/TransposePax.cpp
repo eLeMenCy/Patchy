@@ -89,4 +89,13 @@ void PAX_setParameter (PAX_Instance* i, int index, float value)
         static_cast<TransposePax*> (i)->semitones = std::clamp (value, -24.0f, 24.0f);
 }
 
+// Disable/Enable feature, 2026-09-11 — same-type, in-place MIDI effect
+// (transpose semitones), so disabling it should behave like a normal
+// plugin bypass: notes keep flowing unchanged, just without the
+// transposition applied.
+int PAX_getMidiPassthrough (PAX_Instance*)
+{
+    return 1;
+}
+
 } // extern "C"

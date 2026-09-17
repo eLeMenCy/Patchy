@@ -86,6 +86,12 @@ public:
     std::vector<std::unique_ptr<NodeProcessor>>&       getNodes()       { return nodes; }
 
     // Device node accessors
+    // Disable/Enable feature, 2026-09-12 — generic, base-type find,
+    // unlike every other findXNode() above which returns a specific
+    // subclass. disabled itself is a uniform base-class field applicable
+    // to every node type, so this is what the live-update dispatch path
+    // needs to actually reach the currently-running instance directly.
+    NodeProcessor*      findNode         (const juce::String& nodeId);
     MidiOutDeviceNode*  findMidiOutNode  (const juce::String& nodeId);
     AudioPlayerNode*    findAudioPlayerNode (const juce::String& nodeId);
 

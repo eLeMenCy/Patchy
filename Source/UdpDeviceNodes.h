@@ -132,10 +132,20 @@ public:
 
     void process (int /*numSamples*/) override
     {
+        // Real bug found 2026-09-15 (same root cause/fix as
+        // MidiInDeviceNode's own — see that class's own process() comment
+        // for the full story): run() below keeps pushing into fifo and
+        // monitorFifo regardless of `disabled`, on its own thread,
+        // entirely independent of whether process() runs. Both are always
+        // drained now (never backlogging), but only actually forwarded to
+        // outputValues/lastRawPackets when enabled — drained and
+        // discarded while disabled, keeping this node correctly "cut".
         outputValueCount = 0;
         ReceivedPacket pkt;
-        while (outputValueCount < kMaxValueEvents && fifo.pop (pkt))
+        while ((disabled || outputValueCount < kMaxValueEvents) && fifo.pop (pkt))
         {
+            if (disabled) continue;
+
             PAX_Value v {};
             v.key  = static_cast<uint32_t> (port);
             v.type = PAX_TYPE_UDP;
@@ -161,8 +171,11 @@ public:
         lastRawPackets.clear();
         RawPacketMsg raw;
         while (monitorFifo.pop (raw))
-            lastRawPackets.push_back (raw.pkt);
+            if (! disabled)
+                lastRawPackets.push_back (raw.pkt);
     }
+
+    bool passesThroughWhenDisabled() const override { return true; }
 
     int  port = 0;
     UdpMode mode = UdpMode::Unicast;

@@ -76,6 +76,8 @@ public:
         using GetAudioOutCountFn  = int   (*)(PAX_Instance*);
         using IsParamReadOnlyFn   = int   (*)(PAX_Instance*, int);
         using IsParamLiveSyncedFn = int   (*)(PAX_Instance*, int);
+        using AudioPassthroughInputFn = int (*)(PAX_Instance*, int);
+        using MidiPassthroughFn = int (*)(PAX_Instance*);
 
         CreateFn           create           = nullptr;
         DestroyFn          destroy          = nullptr;
@@ -88,6 +90,8 @@ public:
         GetAudioOutCountFn getAudioOutCount = nullptr;
         IsParamReadOnlyFn  isParamReadOnly  = nullptr;
         IsParamLiveSyncedFn isParamLiveSynced = nullptr;
+        AudioPassthroughInputFn audioPassthroughInput = nullptr;
+        MidiPassthroughFn  midiPassthrough  = nullptr;
     };
 
     const std::vector<Entry>& getEntries() const { return entries; }
@@ -141,6 +145,32 @@ public:
      *  PAX_isParameterLiveSynced doc. false if the Pax doesn't export
      *  this at all (safe default, no behaviour change for existing Pax). */
     bool  isParameterLiveSynced (int index) const;
+    // Disable/Enable feature, 2026-09-11 — see PaxAPI.h's own
+    // PAX_getAudioPassthroughInput doc comment for the full reasoning.
+    // Returns the audio INPUT port index to copy into audio OUTPUT port
+    // `outputIndex` while this node is disabled, or -1 if this Pax
+    // either doesn't export this optional function at all, or exports it
+    // but declares no pass-through mapping for this specific output.
+    int   getAudioPassthroughInput (int outputIndex) const;
+    bool  getMidiPassthrough() const;
+
+    // REAL BUG FIX, 2026-09-16 — this override was missing entirely,
+    // which was the actual root cause of "pass-through Pax cuts audio
+    // instead": ProcessingGraph::process()'s own central check
+    // (`if (!n->disabled || n->passesThroughWhenDisabled()) n->process(...)`)
+    // never called process() at all for ANY disabled Pax, since this
+    // defaulted to NodeProcessor's own base "false" — meaning the
+    // pass-through logic already built inside this class's own process()
+    // (checking getAudioPassthroughInput()/getMidiPassthrough()) was
+    // completely unreachable dead code the whole time, for every Pax.
+    // Returns true only if this specific Pax genuinely exports either
+    // pass-through function — a Pax exporting neither (the cross-type
+    // converters: SpectrumyserPax, MqttToValuePax, etc.) correctly keeps
+    // returning false, staying "cut" as designed.
+    bool passesThroughWhenDisabled() const override
+    {
+        return fnAudioPassthroughInput != nullptr || fnMidiPassthrough != nullptr;
+    }
 
     // Spectrum data access (for Spectrumyser Pax)
     struct SpectrumData
@@ -174,6 +204,8 @@ private:
     PaxRegistry::Entry::GetAudioOutCountFn  fnGetAudioOutCount  = nullptr;
     PaxRegistry::Entry::IsParamReadOnlyFn   fnIsParamReadOnly   = nullptr;
     PaxRegistry::Entry::IsParamLiveSyncedFn fnIsParamLiveSynced = nullptr;
+    PaxRegistry::Entry::AudioPassthroughInputFn fnAudioPassthroughInput = nullptr;
+    PaxRegistry::Entry::MidiPassthroughFn fnMidiPassthrough = nullptr;
 
     PAX_Instance* instance   = nullptr;
     juce::String  paxName;

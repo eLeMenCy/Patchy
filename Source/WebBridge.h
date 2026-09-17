@@ -206,6 +206,15 @@ public:
     std::function<void(const juce::String&, double)>                                              onAudioPlayerSeek;       // 0.0-1.0 fraction of the loaded file
     std::function<void(const juce::String&)>                                                      onAudioPlayerReturnToStart;
     std::function<void(const juce::String&, const juce::String&, const juce::String&)>             onAudioPlayerSetLiveParam;   // (nodeId, key, value)
+    // Disable/Enable feature, 2026-09-12 — a live update, bypassing the
+    // rebuild requirement entirely, same reasoning as
+    // onAudioPlayerSetLiveParam right above: disabled genuinely drives
+    // real-time processing (see ProcessingGraph::process()'s own main
+    // loop), so it needs to reach the currently-running node instance
+    // directly rather than waiting for the next, unrelated rebuild —
+    // which would also be needlessly disruptive, destroying and
+    // recreating every node in the graph just to toggle one.
+    std::function<void(const juce::String&, bool)>                                                 onSetNodeDisabled;   // (nodeId, disabled)
     std::function<void(const juce::String&, bool)>                                               onSetDmxBlackout;
     std::function<void(const juce::String&, bool)>                                               onRestoreDmxBlackout;
     std::function<void(const juce::String&, const juce::String&)>                                onRestoreDmxConsoleChannels;

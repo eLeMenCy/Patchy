@@ -428,6 +428,24 @@ void WebBridge::handleSetNodeParam (const juce::DynamicObject* obj)
         onAudioPlayerSetLiveParam (nodeId, key, value);
         return;
     }
+    else if (key == "disabled" && onSetNodeDisabled)
+    {
+        // Disable/Enable feature, 2026-09-12. Two halves: persist the
+        // choice in GraphModel::NodeData (survives save/reload, fragment
+        // export/import — see NodeData's own disabled field), and apply
+        // it live to whichever node instance is actually running right
+        // now, via onSetNodeDisabled — bypassing the rebuild requirement
+        // entirely, same reasoning as onAudioPlayerSetLiveParam above.
+        // Deliberately falls through to this function's own existing
+        // pushGraphToUI()/pushUndoState() at the bottom rather than
+        // returning early — that's exactly what's needed here, so the
+        // frontend's own node immediately reflects the new state (e.g.
+        // its greyed-out appearance).
+        bool isDisabled = (value == "1" || value == "true");
+        if (auto* nd = graph.findNode (nodeId))
+            nd->disabled = isDisabled;
+        onSetNodeDisabled (nodeId, isDisabled);
+    }
 
     // Push updated graph so React reflects the new selectedDeviceId / settings
     pushGraphToUI();
@@ -686,6 +704,8 @@ void WebBridge::handleImportFragmentNodes (const juce::DynamicObject* obj)
         // Restore custom label if present
         juce::String label = nObj->getProperty ("label").toString();
         if (label.isNotEmpty()) nd.label = label;
+        // Restore Disable/Enable state
+        nd.disabled = (bool) nObj->getProperty ("disabled");
     }
 
     if (connsArr)

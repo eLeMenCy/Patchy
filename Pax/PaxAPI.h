@@ -400,6 +400,57 @@ int PAX_isParameterReadOnly (PAX_Instance* instance, int index);
 int PAX_isParameterLiveSynced (PAX_Instance* instance, int index);
 
 /**
+ * @brief Declare a same-type audio pass-through mapping, for this Pax's
+ *        own Disable/Enable behaviour (added 2026-09-11).
+ *
+ * Optional — not exporting this means every one of this Pax's own audio
+ * output ports goes silent while disabled (safe default for existing
+ * Pax binaries predating this, and the correct behaviour for any Pax
+ * that genuinely transforms its input into a different kind of signal —
+ * e.g. Audio in, DMX out).
+ *
+ * For a Pax whose own audio output is meaningfully "the same signal,
+ * just processed" (e.g. a gain stage, a splitter) — exporting this lets
+ * the host copy the declared input directly to the declared output when
+ * the user disables this node, skipping this Pax's own PAX_process()
+ * entirely, the same way a plugin's own bypass button works: the signal
+ * keeps flowing, just without this node's own effect applied. The host
+ * never calls this Pax's own PAX_process() while disabled, whether or
+ * not this export is present — this export only controls what happens
+ * to this specific output port's own buffer as a result (pass raw input
+ * through, or leave it silent).
+ *
+ * Each audio output port is asked separately — a Hybrid Pax with, say,
+ * an audio output and a MIDI output can pass one through while the
+ * other stays cut, simply by only exporting a mapping for the port(s)
+ * that should pass through.
+ * @param outputIndex Which audio OUTPUT port (0-based).
+ * @return The audio INPUT port index (0-based) to copy into this output
+ *         while disabled, or -1 if this specific output has no
+ *         pass-through mapping and should stay silent instead.
+ */
+int PAX_getAudioPassthroughInput (PAX_Instance* instance, int outputIndex);
+
+/**
+ * @brief Declare MIDI pass-through, for this Pax's own Disable/Enable
+ *        behaviour (added 2026-09-11).
+ *
+ * Optional — not exporting this means MIDI stays cut (silent) while
+ * disabled, the safe default for existing Pax binaries predating this.
+ * Deliberately simpler than PAX_getAudioPassthroughInput: MIDI in/out
+ * are effectively always single ports (unlike audio, which can have
+ * several), so this is a plain yes/no rather than a per-port mapping —
+ * a Pax with a MIDI input and output that transforms events in a
+ * same-type way (e.g. a transpose/filter effect) can export this to let
+ * MIDI keep flowing unchanged while disabled, the same way
+ * PAX_getAudioPassthroughInput does for audio.
+ * @return true if MIDI input should be copied straight to MIDI output
+ *         while this node is disabled, false (or not exported) to leave
+ *         MIDI output silent instead.
+ */
+int PAX_getMidiPassthrough (PAX_Instance* instance);
+
+/**
  * @name Optional capability exports
  * The host checks for these symbols at load time and calls them only if
  * present. Pax that don't need them simply don't export them.

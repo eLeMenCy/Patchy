@@ -67,4 +67,11 @@ void PAX_setParameter (PAX_Instance* i, int index, float value)
         static_cast<AmpPax*> (i)->gainDb = std::clamp (value, 0.0f, 24.0f);
 }
 
+// Disable/Enable feature, 2026-09-11 — same-type audio gain stage, same
+// reasoning as LevelPax's own equivalent export.
+int PAX_getAudioPassthroughInput (PAX_Instance*, int outputIndex)
+{
+    return outputIndex == 0 ? 0 : -1;
+}
+
 } // extern "C"

@@ -382,6 +382,24 @@ public:
     void prepare (double sampleRate, int maxBlockSize) override;
     void process (int numSamples) override;
 
+    // Real bug found 2026-09-15 (same root cause as MidiInDeviceNode's own
+    // identical fix — see that class's own process() comment for the full
+    // story): the hardware audio callback below keeps writing into
+    // audioFifo regardless of `disabled`, entirely independent of whether
+    // process() is being called. Skipping process() entirely while
+    // disabled (this project's default "cut" behaviour) left audioFifo's
+    // own 8192-frame ring buffer silently filling with real, unread audio
+    // the whole time this node stayed disabled — capped at ~186ms of
+    // backlog (juce::AbstractFifo never overwrites unread data), but
+    // never self-draining either, so the very next process() call after
+    // re-enabling would start reading audio from before this node was
+    // disabled, at a de-synced ~186ms delay that never recovers on its
+    // own. Fixed by keeping process() running unconditionally (still
+    // draining audioFifo, so it never backlogs at all) while disabled,
+    // clearing outputAudio instead of populating it from the fifo — see
+    // process()'s own implementation for the actual logic.
+    bool passesThroughWhenDisabled() const override { return true; }
+
     juce::String selectedDeviceName;
 
 private:

@@ -1,7 +1,7 @@
 import { memo, useContext, useCallback, useEffect, useRef, useState } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, AudioPlayerFileLoaded, AudioPlayerStatus } from './Bridge';
-import { useNodeSettings, useNodeDelete, NodeHeader, NodeHandle, useNodeCollapsed, SettingsPanelHeader } from './NodeUtils';
+import { useNodeSettings, useNodeDelete, useNodeDisabled, NodeHeader, NodeHandle, useNodeCollapsed, SettingsPanelHeader } from './NodeUtils';
 import { Play, Pause, SkipBack, FolderOpen } from 'lucide-react';
 import { HintContext } from './HintPanel';
 import { NodeSelect } from './NodeSelect';
@@ -199,6 +199,7 @@ function AudioPlayerNode ({ id, data, selected }: NodeProps) {
   });
   const { showSettings, closeSettings, toggleSettings } = useNodeSettings (id);
   const { handleDelete } = useNodeDelete (id);
+  const { disabled, toggleDisabled } = useNodeDisabled(id, (data as any).disabled);
   const { collapsed, toggleCollapsed } = useNodeCollapsed (id, (data as any)._forceCollapsed);
   const { setHint } = useContext (HintContext);
   const portBodyRef = useRef<HTMLDivElement> (null);
@@ -397,6 +398,8 @@ function AudioPlayerNode ({ id, data, selected }: NodeProps) {
         : '0 4px 16px rgba(0,0,0,.5)',
       position: 'relative',
       zIndex: showSettings ? 9999 : undefined,
+      filter: disabled ? 'grayscale(0.8) opacity(0.55)' : 'none',
+      transition: 'filter .15s',
     }}>
 
       {/* Audio Out only — this is a source, it has no audio input at all */}
@@ -405,7 +408,8 @@ function AudioPlayerNode ({ id, data, selected }: NodeProps) {
       {/* Header */}
       <NodeHeader title={settings.customName || "AUDIO PLAYER"} accent="var(--audio)"
         showSettings={showSettings} onToggleSettings={toggleSettings}
-        onDelete={handleDelete} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
+        onDelete={handleDelete} collapsed={collapsed} onToggleCollapsed={toggleCollapsed}
+        disabled={disabled} onToggleDisabled={toggleDisabled} />
 
       {!collapsed && <>
       {/* Waveform/generator preview + level slider side by side */}

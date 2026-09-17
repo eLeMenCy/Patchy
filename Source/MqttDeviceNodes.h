@@ -140,6 +140,14 @@ public:
 
     void process (int /*numSamples*/) override
     {
+        // Real bug found 2026-09-15 (same root cause/fix as
+        // MidiInDeviceNode's own — see that class's own process() comment
+        // for the full story): conn->fifo below is populated by this
+        // connection's own background mosquitto callback, regardless of
+        // `disabled`, entirely independent of whether process() runs.
+        // Always drained now (never backlogging), but only actually
+        // forwarded to outputValues when enabled — drained and discarded
+        // while disabled, keeping this node correctly "cut".
         outputValueCount = 0;
 
         // Guarded read — configure()/teardown() (message thread) reassign
@@ -159,12 +167,15 @@ public:
         if (conn == nullptr) return;
 
         MqttConnection::RawMqttMsg msg;
-        while (outputValueCount < kMaxValueEvents && conn->fifo.pop (msg))
-            outputValues[static_cast<size_t> (outputValueCount++)] = msg.toPaxValue();
+        while ((disabled || outputValueCount < kMaxValueEvents) && conn->fifo.pop (msg))
+            if (! disabled)
+                outputValues[static_cast<size_t> (outputValueCount++)] = msg.toPaxValue();
 
-        if (outputValueCount > 0)
+        if (! disabled && outputValueCount > 0)
             recordMidiActivity (outputValueCount);
     }
+
+    bool passesThroughWhenDisabled() const override { return true; }
 
     juce::String brokerHost;
     int          brokerPort = 1883;
@@ -796,6 +807,11 @@ public:
         for (int i = 0; i < inputValueCount; ++i)
             outputValues[static_cast<size_t> (i)] = inputValues[static_cast<size_t> (i)];
 
+        // Disable/Enable feature, 2026-09-14 — deliberately NOT gated on
+        // `disabled` (revised from an earlier "pause monitoring" design),
+        // same reasoning as this project's other Monitor nodes: activity
+        // flash and buffer push should stay fully live while disabled.
+        // Only this node's own greyed-out header should visually change.
         if (inputValueCount > 0)
             recordMidiActivity (inputValueCount);
 
@@ -813,6 +829,8 @@ public:
             buffer->push (ev);
         }
     }
+
+    bool passesThroughWhenDisabled() const override { return true; }
 
 private:
     MqttMonitorBuffer* buffer = nullptr;

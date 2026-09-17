@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge } from './Bridge';
-import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, _paxInfoMap, detectPaxTheme, resolveCssColor, SliderRow, Stepper, FreqBandDual, freqLabel } from './NodeUtils';
+import { NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, _paxInfoMap, detectPaxTheme, resolveCssColor, SliderRow, Stepper, FreqBandDual, freqLabel } from './NodeUtils';
 import { HintContext } from './HintPanel';
-import { Settings, X } from 'lucide-react';
+import { Settings, X, Power } from 'lucide-react';
 
 // Persist settings panel open state across graph updates (survives undo/redo)
 const _settingsOpen = new Map<string, boolean>();
@@ -228,6 +228,7 @@ function BandDisplay({ mode, bandLow, bandHigh, zoomMin, zoomMax, sensitivityDb,
 export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
   const { setHint } = useContext(HintContext);
   const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
+  const { disabled, toggleDisabled } = useNodeDisabled(id, (data as any).disabled);
   const [showSettings, setShowSettings] = useState(() => _settingsOpen.get(id) ?? false);
 
   const nodeData = data as any;
@@ -396,7 +397,7 @@ export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
       onMouseEnter={() => setHint({ title: 'Audio to DMX', body: 'Isolates a frequency range (or whole-signal RMS) from audio and drives a DMX channel value.\nFirst Pax exercised hosted inside a DAW.' })}
       onMouseLeave={() => setHint(null)}
       style={{
-        ...nodeContainerStyle(ACCENT, !!selected),
+        ...nodeContainerStyle(ACCENT, !!selected, { disabled }),
         minWidth: 300,
       }}
     >
@@ -448,6 +449,14 @@ export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
             fontWeight: 700, userSelect: 'none',
           }}>
           {mode === 0 ? 'RMS' : 'FREQ'}
+        </div>
+
+        <div onDoubleClick={e => e.stopPropagation()}>
+          <NodeHeaderButton onClick={toggleDisabled}
+            active={! disabled} activeAccent={ACCENT}
+            onHint={{ onMouseEnter: () => setHint({ title: 'Disable / Enable Node', body: 'Disables or re-enables this node. A disabled node stops processing.' }), onMouseLeave: () => setHint(null) }}>
+            <Power size={11} />
+          </NodeHeaderButton>
         </div>
 
         <div onDoubleClick={e => e.stopPropagation()}>

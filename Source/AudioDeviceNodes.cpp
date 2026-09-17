@@ -303,8 +303,17 @@ void AudioInDeviceNode::prepare (double sampleRate, int maxBlockSize)
 
 void AudioInDeviceNode::process (int numSamples)
 {
-    // Drain FIFO into outputAudio for downstream nodes
+    // See passesThroughWhenDisabled()'s own comment in AudioDeviceNodes.h
+    // for the full story. Always drains audioFifo (never backlogs), but
+    // only actually populates outputAudio when enabled — while disabled,
+    // drained audio is simply discarded, keeping this node correctly
+    // "cut" (silent) rather than accidentally pass-through. Reuses the
+    // already-allocated outputAudio member as the drain destination even
+    // while disabled (rather than a new scratch buffer) — this project's
+    // own established rule against heap allocation on the audio thread.
     audioFifo.read (outputAudio, numSamples);
+    if (disabled)
+        outputAudio.clear();
 }
 
 void AudioInDeviceNode::audioDeviceIOCallbackWithContext (

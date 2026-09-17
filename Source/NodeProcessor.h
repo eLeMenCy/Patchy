@@ -89,6 +89,18 @@ public:
 
     virtual void process (int numSamples) = 0;
 
+    // Disable/Enable feature, 2026-09-11. Default: false ("cut" — see
+    // this class's own `disabled` member comment above for the full
+    // reasoning). Overridden to return true only by the specific,
+    // explicit set of pass-through-style nodes (Monitors, MIDI Keyboard)
+    // — for those, ProcessingGraph::process() calls this node's own
+    // process() normally even while disabled (since their own pass-
+    // through is already how they work day to day), and it's each such
+    // node's own responsibility to check `disabled` itself internally to
+    // skip only its own side-effect (e.g. a Monitor's own buffer push),
+    // never the pass-through itself.
+    virtual bool passesThroughWhenDisabled() const { return false; }
+
     juce::AudioBuffer<float> inputAudio,  outputAudio;   // single-port (built-ins)
     juce::MidiBuffer         inputMidi,   outputMidi;
 
@@ -164,6 +176,17 @@ public:
 
     const juce::String id;
     const Type         nodeType;
+    // Disable/Enable toggle, 2026-09-11 — copied from GraphModel::NodeData
+    // during ProcessingGraph::rebuild(), checked directly in
+    // ProcessingGraph::process()'s own main per-block loop. Default
+    // ("cut") behaviour clears every one of this node's own output
+    // buffers and skips calling its own process() entirely — safe and
+    // correct for the vast majority of node types (sources, sinks,
+    // cross-type converters). A small, explicit, opt-in set of
+    // pass-through-style nodes (Monitors, MIDI Keyboard, and specific
+    // same-type Pax like Level/Amp/Transpose/StereoSplitter) override
+    // this default — see passesThroughWhenDisabled() below.
+    bool                disabled = false;
 
 protected:
     double currentSampleRate = 44100.0;

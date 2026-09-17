@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge } from './Bridge';
-import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, _paxInfoMap, detectPaxTheme, resolveCssColor, SliderRow, Stepper, FreqBandDual } from './NodeUtils';
+import { NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, _paxInfoMap, detectPaxTheme, resolveCssColor, SliderRow, Stepper, FreqBandDual } from './NodeUtils';
 import { HintContext } from './HintPanel';
-import { Settings, X } from 'lucide-react';
+import { Settings, X, Power } from 'lucide-react';
 
 // Bespoke UI for AudioPeakToOscPax (2026-08-26), built per the user's own
 // request after comparing this node's original generic look against
@@ -114,6 +114,7 @@ function SimpleLevelMeter({ level, sensitivityDb, color }: {
 export default function AudioPeakToOscNode({ id, data, selected }: NodeProps) {
   const { setHint } = useContext(HintContext);
   const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
+  const { disabled, toggleDisabled } = useNodeDisabled(id, (data as any).disabled);
   const [showSettings, setShowSettings] = useState(() => _settingsOpen.get(id) ?? false);
 
   const nodeData = data as any;
@@ -292,7 +293,7 @@ export default function AudioPeakToOscNode({ id, data, selected }: NodeProps) {
       onMouseEnter={() => setHint({ title: 'Audio to OSC', body: 'Extracts an RMS or Peak level (whole signal or an isolated frequency band) from audio and emits it as an OSC float.' })}
       onMouseLeave={() => setHint(null)}
       style={{
-        ...nodeContainerStyle(ACCENT, !!selected),
+        ...nodeContainerStyle(ACCENT, !!selected, { disabled }),
         minWidth: 300,
       }}
     >
@@ -383,6 +384,14 @@ export default function AudioPeakToOscNode({ id, data, selected }: NodeProps) {
             fontWeight: 700, userSelect: 'none',
           }}>
           {sendMode === 0 ? 'CHANGE' : 'RATE'}
+        </div>
+
+        <div onDoubleClick={e => e.stopPropagation()}>
+          <NodeHeaderButton onClick={toggleDisabled}
+            active={! disabled} activeAccent={ACCENT}
+            onHint={{ onMouseEnter: () => setHint({ title: 'Disable / Enable Node', body: 'Disables or re-enables this node. A disabled node stops processing.' }), onMouseLeave: () => setHint(null) }}>
+            <Power size={11} />
+          </NodeHeaderButton>
         </div>
 
         <div onDoubleClick={e => e.stopPropagation()}>

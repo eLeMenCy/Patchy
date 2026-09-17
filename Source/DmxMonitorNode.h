@@ -64,6 +64,16 @@ public:
         {
             outputDmxFrame      = inputDmxFrame;
             outputDmxFrameValid = true;
+
+            // Disable/Enable feature, 2026-09-14 — deliberately NOT gated
+            // on `disabled` (revised from an earlier "pause monitoring"
+            // design). This node's own buffer push, activity flash, and
+            // value-mirror write all feed visuals the user wants to stay
+            // fully live while disabled — including the downstream edge's
+            // own DMX intensity glow (via outputValues[0], read directly
+            // by PatchyProcessor::getPortActivity()) — since the audio/DMX
+            // genuinely keeps flowing. Only this node's own greyed-out
+            // header should visually change.
             recordMidiActivity (1);
 
             if (buffer != nullptr)
@@ -112,6 +122,8 @@ public:
         // again until a source reconnects, leaving output/mirror/buffer
         // to naturally hold whatever they were last set to.
     }
+
+    bool passesThroughWhenDisabled() const override { return true; }
 
 private:
     DmxMonitorBuffer* buffer = nullptr;

@@ -68,4 +68,14 @@ void PAX_setParameter (PAX_Instance* i, int index, float value)
         static_cast<LevelPax*> (i)->gainDb = std::clamp (value, -60.0f, 6.0f);
 }
 
+// Disable/Enable feature, 2026-09-11 — this Pax is a simple, same-type
+// (audio in, audio out) gain stage, so disabling it should behave like a
+// normal plugin bypass: the signal keeps flowing unchanged, just without
+// the gain applied. Single audio in/out port, so output 0 maps directly
+// to input 0.
+int PAX_getAudioPassthroughInput (PAX_Instance*, int outputIndex)
+{
+    return outputIndex == 0 ? 0 : -1;
+}
+
 } // extern "C"

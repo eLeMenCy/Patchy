@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge } from './Bridge';
-import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, resolveCssColor } from './NodeUtils';
+import { NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, resolveCssColor } from './NodeUtils';
 import { HintContext } from './HintPanel';
-import { Settings, X } from 'lucide-react';
+import { Settings, X, Power } from 'lucide-react';
 
 // Persist settings panel open state across graph updates (survives undo/redo)
 const _settingsOpen = new Map<string, boolean>();
@@ -218,6 +218,7 @@ function Stepper({ label, value, min, max, onChange }: {
 export default function EnvelopeNode({ id, data, selected }: NodeProps) {
   const { setHint }  = useContext(HintContext);
   const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
+  const { disabled, toggleDisabled } = useNodeDisabled(id, (data as any).disabled);
   const [showSettings, setShowSettings] = useState(() => _settingsOpen.get(id) ?? false);
   // FIXED (2026-08-12): resolved once per render, used only where a
   // hex-alpha suffix gets concatenated onto ACCENT (the header background/
@@ -325,7 +326,7 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
       onMouseEnter={() => setHint({ title:'Envelope', body:'Converts audio amplitude or a frequency band into a MIDI CC stream.\nIdeal for driving automation, LED controllers or modulation.' })}
       onMouseLeave={() => setHint(null)}
       style={{
-        ...nodeContainerStyle(ACCENT, !!selected),
+        ...nodeContainerStyle(ACCENT, !!selected, { disabled }),
         minWidth: 280,
       }}
     >
@@ -377,6 +378,14 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
             fontWeight:700, userSelect:'none',
           }}>
           {mode === 0 ? 'AMP' : 'BAND'}
+        </div>
+
+        <div onDoubleClick={e => e.stopPropagation()}>
+          <NodeHeaderButton onClick={toggleDisabled}
+            active={! disabled} activeAccent={ACCENT}
+            onHint={{ onMouseEnter: () => setHint({title:'Disable / Enable Node',body:'Disables or re-enables this node. A disabled node stops processing — its audio side keeps passing through unchanged, but its MIDI/envelope output stops.'}), onMouseLeave: () => setHint(null) }}>
+            <Power size={11} />
+          </NodeHeaderButton>
         </div>
 
         <div onDoubleClick={e => e.stopPropagation()}>

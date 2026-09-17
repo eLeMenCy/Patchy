@@ -148,6 +148,13 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
                                        };
     bridge.onAudioPlayerSetLiveParam  = [&p](const juce::String& nid, const juce::String& key, const juce::String& value)
                                        { p.setAudioPlayerLiveParam (nid, key, value); };
+    bridge.onSetNodeDisabled          = [&p](const juce::String& nid, bool disabled)
+                                       {
+                                           auto* node = p.getProcessingGraph().findNode (nid);
+                                           if (!node && p.getPendingGraph())
+                                               node = p.getPendingGraph()->findNode (nid);
+                                           if (node) node->disabled = disabled;
+                                       };
     bridge.onRestoreDmxConsoleChannels = [&p](const juce::String& nid, const juce::String& json)
                                        { p.restoreDmxConsoleChannels (nid, json); };
     bridge.onResetDmxConsoleChannels   = [&p](const juce::String& nid)

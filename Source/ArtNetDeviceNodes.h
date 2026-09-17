@@ -245,11 +245,21 @@ public:
 
     void process (int /*numSamples*/) override
     {
+        // Real bug found 2026-09-15 (same root cause/fix as
+        // MidiInDeviceNode's own — see that class's own process() comment
+        // for the full story): run() below keeps pushing into fifo
+        // regardless of `disabled`, on its own thread, entirely
+        // independent of whether process() runs. Always drained now
+        // (never backlogging), but only actually forwarded to
+        // outputValues/outputArtNetFrame when enabled — drained and
+        // discarded while disabled, keeping this node correctly "cut".
         ParsedPacket pkt;
         int count = 0;
         bool gotNew = false;
-        while (fifo.pop (pkt) && count < kMaxValueEvents)
+        while ((disabled || count < kMaxValueEvents) && fifo.pop (pkt))
         {
+            if (disabled) continue;
+
             // Filter by universe if set (universe == -1 means accept all)
             if (universe >= 0 && (int) pkt.value.key != universe)
                 continue;
@@ -272,7 +282,7 @@ public:
         // Always emit the last known frame at audio-block rate — same
         // convention DmxInDeviceNode already uses, gives downstream
         // Monitor/Out nodes a steady supply instead of bursty UDP packets.
-        if (hasReceived || gotNew)
+        if (! disabled && (hasReceived || gotNew))
         {
             hasReceived = true;
             outputArtNetFrame      = lastReceived;
@@ -280,6 +290,8 @@ public:
             outputArtNetUniverse   = lastUniverse;
         }
     }
+
+    bool passesThroughWhenDisabled() const override { return true; }
 
     int universe = 0;
 

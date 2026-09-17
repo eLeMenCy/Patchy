@@ -8,7 +8,7 @@
 
 import { useCallback, useState, useEffect, useContext, useRef } from 'react';
 import { Handle, Position, useReactFlow, useUpdateNodeInternals } from '@xyflow/react';
-import { Settings, X } from 'lucide-react';
+import { Settings, X, Power } from 'lucide-react';
 import { Bridge, PaxInfo } from './Bridge';
 import { HintContext, NODE_HINTS, BUTTON_HINTS } from './HintPanel';
 
@@ -331,6 +331,25 @@ export function useNodeDelete (id: string) {
   return { handleDelete };
 }
 
+// ── useNodeDisabled ───────────────────────────────────────────────────────────
+/**
+ * Disable/Enable feature, 2026-09-12. Unlike useNodeSettings' own showSettings
+ * (purely local, ephemeral UI state), `disabled` is genuine, backend-owned,
+ * persisted node data — already pushed as part of each node's own `data`
+ * (see RawNode.disabled, populated via the backend's own toVar()) — so this
+ * hook takes the CURRENT value as a parameter rather than managing its own
+ * state, and simply dispatches the toggle via the existing, generic
+ * Bridge.setNodeParam() rather than needing a brand-new, dedicated Bridge
+ * method.
+ */
+export function useNodeDisabled (id: string, disabled: boolean | undefined) {
+  const toggleDisabled = useCallback(() => {
+    Bridge.setNodeParam(id, 'disabled', disabled ? '0' : '1');
+  }, [id, disabled]);
+
+  return { disabled: !! disabled, toggleDisabled };
+}
+
 // ── useNodeCollapsed ─────────────────────────────────────────────────────────
 /**
  * Manages collapsed/expanded state for a node.
@@ -424,7 +443,7 @@ export function NodeHeaderButton ({
 /** Standard node container style — border, shadow, selection highlight. */
 export function nodeContainerStyle (
   accent: string, selected: boolean,
-  opts?: { bg?: string; glow?: string }
+  opts?: { bg?: string; glow?: string; disabled?: boolean }
 ): React.CSSProperties {
   const bg   = opts?.bg   ?? 'var(--surface2)';
   // FIXED (2026-08-12): opts.glow, when a caller provides one, is already
@@ -445,7 +464,12 @@ export function nodeContainerStyle (
     boxShadow:    selected
       ? `0 0 0 1px ${accent}, 0 8px 32px ${glow}`
       : '0 4px 16px rgba(0,0,0,.5)',
-    transition:   'box-shadow .15s, border-color .15s',
+    // Disable/Enable feature, 2026-09-12 — a disabled node appears
+    // greyed out (desaturated + dimmed), same treatment regardless of
+    // which specific node component renders it, since this is applied
+    // centrally here rather than per-component.
+    filter:       opts?.disabled ? 'grayscale(0.8) opacity(0.55)' : 'none',
+    transition:   'box-shadow .15s, border-color .15s, filter .15s',
     position:     'relative' as const,
   };
 }
@@ -485,7 +509,8 @@ export function NodeCollapseArrow ({ collapsed, accent }: { collapsed: boolean; 
  * between the title and the built-in settings + delete buttons.
  */
 export function NodeHeader ({
-  title, accent, showSettings, onToggleSettings, onDelete, collapsed, onToggleCollapsed, children,
+  title, accent, showSettings, onToggleSettings, onDelete, collapsed, onToggleCollapsed,
+  disabled, onToggleDisabled, children,
 }: {
   title:              string;
   accent:             string;
@@ -494,6 +519,13 @@ export function NodeHeader ({
   onDelete:           () => void;
   collapsed?:         boolean;
   onToggleCollapsed?: () => void;
+  // Disable/Enable feature, 2026-09-12 — both optional: a node that
+  // doesn't pass onToggleDisabled at all (the 3 Console node types, per
+  // the user's own explicit decision — they're only ever driven by
+  // direct manual interaction, so the feature doesn't apply) simply
+  // never renders this button.
+  disabled?:          boolean;
+  onToggleDisabled?:  () => void;
   children?:          React.ReactNode;
 }) {
   const { setHint } = useContext(HintContext);
@@ -554,6 +586,18 @@ export function NodeHeader ({
 
       {/* Action buttons */}
       <div style={{ display: 'flex', gap: 4 }}>
+        {/* Disable/Enable — only rendered for nodes that pass this in */}
+        {onToggleDisabled && (
+          <NodeHeaderButton
+            onClick={onToggleDisabled}
+            active={! disabled}
+            activeAccent={accent}
+            onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.toggleDisabled), onMouseLeave: () => setHint(null) }}
+          >
+            <Power size={14} />
+          </NodeHeaderButton>
+        )}
+
         {/* Extra node-specific buttons (pause, clear, etc.) */}
         {children}
 

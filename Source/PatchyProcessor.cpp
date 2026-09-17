@@ -790,6 +790,7 @@ void PatchyProcessor::setStateInformation (const void* data, int sizeInBytes)
             paxName, portSpec);
         restoredNode.selectedDeviceId = nd->getProperty ("selectedDeviceId").toString();
         restoredNode.settingsJson     = nd->getProperty ("settingsJson").toString();
+        restoredNode.disabled         = (bool) nd->getProperty ("disabled");
     }
 
     // Restore connections (IDs now match because we used restoreNode)

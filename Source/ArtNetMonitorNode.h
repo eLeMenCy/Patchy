@@ -81,6 +81,15 @@ public:
             outputArtNetFrame      = inputArtNetFrame;
             outputArtNetFrameValid = true;
             outputArtNetUniverse   = inputArtNetUniverse;
+
+            // Disable/Enable feature, 2026-09-14 — deliberately NOT gated
+            // on `disabled` (revised from an earlier "pause monitoring"
+            // design), same reasoning as DmxMonitorNode's own identical
+            // fix: this node's own buffer push, activity flash, and
+            // value-mirror write all feed visuals that should stay fully
+            // live while disabled, including the downstream edge's own
+            // intensity glow. Only this node's own greyed-out header
+            // should visually change.
             recordMidiActivity (1);
 
             int filter = universeFilter.load (std::memory_order_relaxed);
@@ -122,6 +131,8 @@ public:
         // jarring inconsistency across the graph. Now consistently holds
         // last known state everywhere, matching DmxMonitorNode's own.
     }
+
+    bool passesThroughWhenDisabled() const override { return true; }
 
 private:
     ArtNetMonitorBuffer* buffer          = nullptr;

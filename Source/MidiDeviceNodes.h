@@ -188,12 +188,32 @@ public:
 
     void process (int /*numSamples*/) override
     {
+        // Real bug found 2026-09-15, reported from the user's own studio:
+        // the OS-driven MIDI input callback below (handleIncomingMidiMessage)
+        // keeps running and keeps pushing into `fifo` regardless of this
+        // node's own `disabled` state — it's driven by the OS's own MIDI
+        // subsystem on its own thread, entirely independent of whether
+        // process() is being called. The central Disable/Enable "cut"
+        // behaviour (skip process() entirely while disabled) is correct
+        // for nodes with no such background accumulation, but here it left
+        // `fifo` silently accumulating every incoming note the whole time
+        // this node stayed disabled, then dumping the entire backlog into
+        // a single block the moment process() ran again on re-enable.
+        // Fixed by overriding passesThroughWhenDisabled() (below) so the
+        // host keeps calling process() unconditionally — draining `fifo`
+        // continuously either way — but only actually forwarding drained
+        // messages into outputMidi when enabled; while disabled they're
+        // drained and discarded, keeping this node correctly "cut"
+        // (silent), not accidentally pass-through.
         outputMidi.clear();
         juce::MidiMessage msg;
         int samplePos = 0;
         while (fifo.pop (msg))
-            outputMidi.addEvent (msg, samplePos++);
+            if (! disabled)
+                outputMidi.addEvent (msg, samplePos++);
     }
+
+    bool passesThroughWhenDisabled() const override { return true; }
 
     juce::String selectedDeviceId;
     juce::String selectedDeviceName;   // human-readable, for MidiMonitor source info

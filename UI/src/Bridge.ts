@@ -26,6 +26,7 @@ export interface RawNode {
   y: number;
   ports: RawPort[];
   selectedDeviceId?: string;
+  disabled?: boolean;   // Disable/Enable feature, 2026-09-12
 }
 
 export interface RawPort {

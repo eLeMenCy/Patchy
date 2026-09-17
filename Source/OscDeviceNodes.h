@@ -372,14 +372,23 @@ public:
 
     void process (int /*numSamples*/) override
     {
+        // Real bug found 2026-09-15 (same root cause/fix as
+        // MidiInDeviceNode's own — see that class's own process() comment
+        // for the full story): run() below keeps pushing into fifo and
+        // monitorFifo regardless of `disabled`, on its own thread,
+        // entirely independent of whether process() runs. Both are always
+        // drained now (never backlogging), but only actually forwarded to
+        // outputValues/lastRawMessages when enabled — drained and
+        // discarded while disabled, keeping this node correctly "cut".
         outputValueCount = 0;
         ParsedMessage msg;
-        while (outputValueCount < kMaxValueEvents && fifo.pop (msg))
+        while ((disabled || outputValueCount < kMaxValueEvents) && fifo.pop (msg))
         {
-            outputValues[static_cast<size_t> (outputValueCount++)] = msg.value;
+            if (! disabled)
+                outputValues[static_cast<size_t> (outputValueCount++)] = msg.value;
         }
 
-        if (outputValueCount > 0)
+        if (! disabled && outputValueCount > 0)
             recordMidiActivity (outputValueCount);
 
         bytesSinceLastPoll.fetch_add (0, std::memory_order_relaxed);
@@ -390,8 +399,11 @@ public:
         lastRawMessages.clear();
         RawMessage raw;
         while (monitorFifo.pop (raw))
-            lastRawMessages.push_back (raw.msg);
+            if (! disabled)
+                lastRawMessages.push_back (raw.msg);
     }
+
+    bool passesThroughWhenDisabled() const override { return true; }
 
     int port = 0;
 

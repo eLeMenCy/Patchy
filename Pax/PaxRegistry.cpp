@@ -107,6 +107,8 @@ void PaxRegistry::load (const std::vector<PaxScanner::ScanResult>& results)
         e.getAudioOutCount  = (Entry::GetAudioOutCountFn) lib->getFunction ("PAX_getAudioOutputCount");
         e.isParamReadOnly   = (Entry::IsParamReadOnlyFn)  lib->getFunction ("PAX_isParameterReadOnly");
         e.isParamLiveSynced = (Entry::IsParamLiveSyncedFn) lib->getFunction ("PAX_isParameterLiveSynced");
+        e.audioPassthroughInput = (Entry::AudioPassthroughInputFn) lib->getFunction ("PAX_getAudioPassthroughInput");
+        e.midiPassthrough = (Entry::MidiPassthroughFn) lib->getFunction ("PAX_getMidiPassthrough");
 
         if (! e.create || ! e.destroy || ! e.prepare || ! e.process)
         {
@@ -162,6 +164,8 @@ DynamicPaxProcessor::DynamicPaxProcessor (const juce::String&             nodeId
       fnGetAudioOutCount  (e.getAudioOutCount),
       fnIsParamReadOnly   (e.isParamReadOnly),
       fnIsParamLiveSynced (e.isParamLiveSynced),
+      fnAudioPassthroughInput (e.audioPassthroughInput),
+      fnMidiPassthrough (e.midiPassthrough),
       paxName       (e.name),
       valueOutputTypes (e.valueOutputTypes),
       lastGenericValueValues (e.valueOutputTypes.size(), 0.0f)
@@ -200,6 +204,45 @@ void DynamicPaxProcessor::prepare (double sampleRate, int maxBlockSize)
 void DynamicPaxProcessor::process (int numSamples)
 {
     if (instance == nullptr) return;
+
+    // Disable/Enable feature, 2026-09-11 — see PaxAPI.h's own
+    // PAX_getAudioPassthroughInput doc comment for the full reasoning.
+    // Never calls this Pax's own fnProcess() while disabled — for each
+    // declared audio output port, either copies the input this Pax
+    // itself declared as that output's pass-through source, or leaves it
+    // silently cleared (the default "cut" — already correctly empty from
+    // resetBuffers(), nothing more to do). Handles both the per-port and
+    // single-port buffer storage styles, matching the same "prefer
+    // per-port, fall back to single-buffer" pattern the normal,
+    // non-disabled path below already establishes.
+    if (disabled)
+    {
+        for (int p = 0; p < audioOutputCount; ++p)
+        {
+            const int inIdx = getAudioPassthroughInput (p);
+            if (inIdx < 0) continue;   // no mapping for this output — stays cut
+
+            const bool perPortOut = ! outputAudioBuffers.empty() && p < (int) outputAudioBuffers.size();
+            const bool perPortIn  = ! inputAudioBuffers.empty()  && inIdx < (int) inputAudioBuffers.size();
+
+            juce::AudioBuffer<float>& out = perPortOut ? outputAudioBuffers[(size_t) p]    : outputAudio;
+            juce::AudioBuffer<float>& in  = perPortIn  ? inputAudioBuffers[(size_t) inIdx] : inputAudio;
+
+            const int ch = std::min (in.getNumChannels(), out.getNumChannels());
+
+            for (int c = 0; c < ch; ++c)
+                out.copyFrom (c, 0, in, c, 0, numSamples);
+        }
+
+        // MIDI side — deliberately simple/single-port (see
+        // PAX_getMidiPassthrough's own doc comment in PaxAPI.h): either
+        // the whole MIDI stream passes through unchanged, or it stays cut
+        // (already correctly empty from resetBuffers()).
+        if (getMidiPassthrough())
+            outputMidi = inputMidi;
+
+        return;
+    }
 
     // ── Convert juce::MidiBuffer → PAX_MidiEvent array ───────────────────
     int inCount = 0;
@@ -394,4 +437,14 @@ bool DynamicPaxProcessor::isParameterReadOnly (int index) const
 bool DynamicPaxProcessor::isParameterLiveSynced (int index) const
 {
     return (fnIsParamLiveSynced && instance) ? (fnIsParamLiveSynced (instance, index) != 0) : false;
+}
+
+int DynamicPaxProcessor::getAudioPassthroughInput (int outputIndex) const
+{
+    return (fnAudioPassthroughInput && instance) ? fnAudioPassthroughInput (instance, outputIndex) : -1;
+}
+
+bool DynamicPaxProcessor::getMidiPassthrough() const
+{
+    return (fnMidiPassthrough && instance) ? (fnMidiPassthrough (instance) != 0) : false;
 }

@@ -415,6 +415,7 @@ juce::var GraphModel::toVar() const
         obj->setProperty ("paxName",        n.paxName);
         obj->setProperty ("selectedDeviceId", n.selectedDeviceId);
         obj->setProperty ("settingsJson",     n.settingsJson);
+        obj->setProperty ("disabled",         n.disabled);
         obj->setProperty ("x",        n.x);
         obj->setProperty ("y",        n.y);
 
@@ -705,6 +706,7 @@ void GraphModel::restoreSnapshot (const juce::var& snapshot)
             nd.selectedDeviceId = nObj->getProperty ("selectedDeviceId").toString();
 
             nd.settingsJson = nObj->getProperty ("settingsJson").toString();
+            nd.disabled     = (bool) nObj->getProperty ("disabled");
             nd.label        = nObj->getProperty ("label").toString();
         }
     }

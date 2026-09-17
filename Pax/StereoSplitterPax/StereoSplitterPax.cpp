@@ -113,4 +113,14 @@ void PAX_setParameter (PAX_Instance* i, int index, float value)
         static_cast<StereoSplitterPax*> (i)->balance = std::clamp (value, -1.0f, 1.0f);
 }
 
+// Disable/Enable feature, 2026-09-11 — this Pax has one input port and
+// two output ("split") ports; disabling it should behave like a normal
+// plugin bypass, so both outputs simply carry the original, unchanged
+// input signal (as if the splitter weren't there), rather than the
+// balance-adjusted split.
+int PAX_getAudioPassthroughInput (PAX_Instance*, int outputIndex)
+{
+    return (outputIndex == 0 || outputIndex == 1) ? 0 : -1;
+}
+
 } // extern "C"

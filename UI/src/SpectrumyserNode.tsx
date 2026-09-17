@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, SpectrumSnapshot } from './Bridge';
-import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, resolveCssColor } from './NodeUtils';
+import { NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, resolveCssColor } from './NodeUtils';
 import { HintContext } from './HintPanel';
-import { Settings, X } from 'lucide-react';
+import { Settings, X, Power } from 'lucide-react';
 
 // Persist settings panel open state across graph updates (survives undo/redo)
 const _settingsOpen = new Map<string, boolean>();
@@ -70,6 +70,7 @@ function SpectrumDisplay({ mags, bands }: { mags: number[]; bands: { lo: number;
 export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
   const { setHint } = useContext(HintContext);
   const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
+  const { disabled, toggleDisabled } = useNodeDisabled(id, (data as any).disabled);
   const [showSettings, setShowSettings] = useState(() => _settingsOpen.get(id) ?? false);
   // FIXED (2026-08-12): resolved once per render, used only where a
   // hex-alpha suffix gets concatenated onto ACCENT (the header background/
@@ -209,7 +210,7 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
       onMouseEnter={() => setHint({ title:'Spectrumyser', body:'FFT spectrum analyser.\nEach output port carries audio filtered to that band.' })}
       onMouseLeave={() => setHint(null)}
       style={{
-        ...nodeContainerStyle(ACCENT, !!selected),
+        ...nodeContainerStyle(ACCENT, !!selected, { disabled }),
         minWidth: 248,
       }}
     >
@@ -245,6 +246,14 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
           letterSpacing:'0.1em', fontFamily:"'Syne', sans-serif",
           whiteSpace:'nowrap', textTransform:'uppercase', userSelect:'none' }}>
           {label}
+        </div>
+
+        <div onDoubleClick={e => e.stopPropagation()}>
+          <NodeHeaderButton onClick={toggleDisabled}
+            active={! disabled} activeAccent={ACCENT}
+            onHint={{ onMouseEnter: () => setHint({title:'Disable / Enable Node',body:'Disables or re-enables this node. A disabled node stops processing.'}), onMouseLeave: () => setHint(null) }}>
+            <Power size={11} />
+          </NodeHeaderButton>
         </div>
 
         <div onDoubleClick={e => e.stopPropagation()}>

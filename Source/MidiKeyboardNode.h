@@ -70,6 +70,17 @@ public:
             }
         }
 
+        // Disable/Enable feature, 2026-09-11 — upstream MIDI keeps
+        // forwarding and its own monitor activity flash stays intact even
+        // while disabled (see passesThroughWhenDisabled below); disabling
+        // specifically stops the virtual keyboard's own notes (drained
+        // below) from reaching the output.
+        if (disabled)
+        {
+            readPos.store (writePos.load (std::memory_order_acquire), std::memory_order_release);
+            return;
+        }
+
         // Drain UI-generated events and merge into output
         int rp = readPos.load (std::memory_order_relaxed);
         int wp = writePos.load (std::memory_order_acquire);
@@ -87,6 +98,8 @@ public:
         }
         readPos.store (rp, std::memory_order_release);
     }
+
+    bool passesThroughWhenDisabled() const override { return true; }
 
 private:
     MidiMonitorBuffer*              inBuffer = nullptr;

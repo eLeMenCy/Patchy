@@ -110,6 +110,8 @@ public:
         // so each event already has the correct source info
     }
 
+    bool passesThroughWhenDisabled() const override { return true; }
+
 private:
     MidiMonitorBuffer* buffer = nullptr;
 

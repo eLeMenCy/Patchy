@@ -62,6 +62,7 @@ StandaloneWindow::StandaloneWindow()
 
     setVisible (true);
     restoreWindowBounds();
+    restoreAudioSettings();
 }
 
 StandaloneWindow::~StandaloneWindow()
@@ -108,6 +109,7 @@ void StandaloneWindow::applyAudioSettings (const AudioSettings& s)
     setup.bufferSize  = s.bufferSize;
     deviceManager.setAudioDeviceSetup (setup, true);
 
+    saveAudioSettings();
     pushAudioSettingsToUI();
 }
 
@@ -225,6 +227,34 @@ void StandaloneWindow::closeButtonPressed()
 {
     saveWindowBounds();
     juce::JUCEApplication::getInstance()->systemRequestedQuit();
+}
+
+// User-requested feature, 2026-09-18 — buffer size remembered across app
+// launches, same appProperties mechanism already used for window bounds
+// and last-open-directory above. Saved immediately on change (not only on
+// clean app close like window bounds) since a crash/force-quit shouldn't
+// lose it.
+void StandaloneWindow::saveAudioSettings()
+{
+    if (auto* p = appProperties.getUserSettings())
+    {
+        p->setValue ("audioBufferSize", audioSettings.bufferSize);
+        p->saveIfNeeded();
+    }
+}
+
+void StandaloneWindow::restoreAudioSettings()
+{
+    if (auto* p = appProperties.getUserSettings())
+    {
+        int savedBufferSize = p->getIntValue ("audioBufferSize", audioSettings.bufferSize);
+        if (savedBufferSize != audioSettings.bufferSize)
+        {
+            AudioSettings s = audioSettings;
+            s.bufferSize = savedBufferSize;
+            applyAudioSettings (s);
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

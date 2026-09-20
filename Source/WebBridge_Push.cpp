@@ -573,7 +573,9 @@ void WebBridge::pushPortActivity()
              << Q << "bytes"    << Q << ":" << a.udpBytes                  << ","
              << Q << "isMk2"    << Q << ":" << (a.dmxIsMk2 ? "true" : "false") << ","
              << Q << "dmxValue" << Q << ":" << dv                          << ","
-             << Q << "genericValuePortValues" << Q << ":" << genericValueStr
+             << Q << "genericValuePortValues" << Q << ":" << genericValueStr << ","
+             << Q << "inChMask"  << Q << ":" << (int) a.inputChannelActivity  << ","
+             << Q << "outChMask" << Q << ":" << (int) a.outputChannelActivity
              << "}";
     }
     json << "]";

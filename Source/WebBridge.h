@@ -112,6 +112,13 @@ struct PortActivity
     // generic value output. Persists between writes, same "current value"
     // (not "did it just change") reasoning as dmxValue above.
     std::vector<float> genericValuePortValues;
+    // Channel-flash feature, 2026-09-20 — one bit per channel (1-16),
+    // MidiChMatrixNode only, empty (0) for every other node. Mirrors the
+    // node-level midiOutEvents flash above, but at channel granularity —
+    // see MidiChMatrixNode.h's own drainInputChannelActivity()/
+    // drainOutputChannelActivity() for the full story.
+    std::uint16_t     inputChannelActivity  = 0;
+    std::uint16_t     outputChannelActivity = 0;
 };
 
 struct SpectrumSnapshot
@@ -194,6 +201,12 @@ public:
     std::function<void(const juce::String&, const juce::String&, int)>                          onSetDmxSettings;
     std::function<std::vector<DmxSnapshot>()>                                                    drainDmxSnapshots;
     std::function<void(const juce::String&, int, uint8_t)>                                       onSetDmxConsoleChannel;
+    // MidiChMatrixNode's own controls — same "live update, no full rebuild"
+    // reasoning as onSetDmxConsoleChannel above.
+    std::function<void(const juce::String&, int, int)>                                            onSetMidiChMatrixCell;
+    std::function<void(const juce::String&, int)>                                                 onSetMidiChMatrixGridSize;
+    std::function<void(const juce::String&, bool)>                                                onSetMidiChMatrixDropUnmapped;
+    std::function<void(const juce::String&)>                                                       onMidiChMatrixReset;
     // AudioPlayerNode's own controls — playback (play/pause/stop/seek/
     // return-to-start) is real-time/discrete, handled separately from the
     // small, discrete settings (mode/frequency/noise type/level/loop),
@@ -297,6 +310,7 @@ private:
     void handleSetNodeParam_ArtNetSettings (const juce::String& nodeId, const juce::String& value);
     void handleSetNodeParam_DmxSettings (const juce::String& nodeId, const juce::String& value);
     void handleSetNodeParam_DmxConsoleChannel (const juce::String& nodeId, const juce::String& value);
+    void handleSetNodeParam_MidiChMatrixCell (const juce::String& nodeId, const juce::String& value);
     void handleSetNodeParam_DmxBlackout (const juce::String& nodeId, const juce::String& value);
     void handleSetNodeParam_ArtNetConsoleChannel (const juce::String& nodeId, const juce::String& value);
     void handleSetNodeParam_ArtNetBlackout (const juce::String& nodeId, const juce::String& value);

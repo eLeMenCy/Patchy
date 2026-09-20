@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.907
+> Version 0.0.908
 
 ---
 
@@ -75,8 +75,9 @@
 - **Fragment export/import** — select any nodes, export as a reusable `.patchy` fragment, reimport with ghost-placement UX
 - **50-step undo/redo** — full graph snapshot history via `⌘Z` / `⌘⇧Z`
 - **Per-node Disable/Enable** — power-icon toggle in most nodes' own header (undo-tracked); most nodes cut (stop processing, output goes silent), same-type in-place Pax (Level/Amp/Transpose/StereoSplitter) pass audio/MIDI through unchanged instead, like a normal plugin bypass; not present on the 3 Console nodes, the 7 Monitor nodes, or MIDI Keyboard, since disabling them wouldn't change anything a user could see or hear
+- **MIDI CH. Matrix** — a resizable (4×4 to 16×16) channel-remap grid: click a cell to route input channel N to output channel M, with one-to-many fan-out; unmapped channels either dropped or passed through unchanged via a header toggle; live per-channel label flash on activity, mirroring the same real-time flash language used for edges elsewhere; disabled state passes every channel straight through unchanged (N→N), matching Transpose's own bypass behaviour
 - **Parameter persistence** — Pax parameters (sliders, steps) survive graph rebuilds, file loads and app restarts
-- **Built-in nodes** — MIDI In/Out, Audio In/Out, MIDI Monitor, Audio Monitor (oscilloscope), Audio Player (file/sine/noise source), MIDI Keyboard, UDP In/Out, OSC In/Out, ArtNet In/Out, DMX In/Out, DMX Monitor, DMX Console, ArtNet Monitor, ArtNet Console, OSC Monitor, UDP Monitor, MQTT Subscribe, MQTT Publish, MQTT Monitor, MQTT Console
+- **Built-in nodes** — MIDI In/Out, Audio In/Out, MIDI Monitor, Audio Monitor (oscilloscope), Audio Player (file/sine/noise source), MIDI Keyboard, MIDI CH. Matrix (resizable channel-remap matrix), UDP In/Out, OSC In/Out, ArtNet In/Out, DMX In/Out, DMX Monitor, DMX Console, ArtNet Monitor, ArtNet Console, OSC Monitor, UDP Monitor, MQTT Subscribe, MQTT Publish, MQTT Monitor, MQTT Console
 - **Protocol device nodes** — Phase 3 built-in nodes for network and hardware protocols; UDP, OSC 1.0, Art-Net (ArtDmx), DMX USB (Enttec Pro/Mk2); live byte-rate labels; change-driven activity flash
 - **DMX Monitor + Console** — vertical fader bank and bargraph display for all 512 DMX channels; configurable visible count (8/16/24/32); page navigation; dec/pct/hex format; custom name; Blackout button; full undo/redo; Console is output-only
 - **ArtNet Monitor + Console** — same 512-channel fader/bargraph as DMX; universe selector (0–32767); universe filter on Monitor (show all or filter by universe, "--" on mismatch); Blackout button; full undo/redo; Console is output-only
@@ -693,4 +694,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.907 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.908 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

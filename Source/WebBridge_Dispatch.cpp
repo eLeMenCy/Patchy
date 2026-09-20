@@ -378,6 +378,26 @@ void WebBridge::handleSetNodeParam (const juce::DynamicObject* obj)
         handleSetNodeParam_DmxConsoleChannel (nodeId, value);
         return;
     }
+    else if (key == "midiChMatrixCell" && onSetMidiChMatrixCell)
+    {
+        handleSetNodeParam_MidiChMatrixCell (nodeId, value);
+        return;
+    }
+    else if (key == "midiChMatrixGridSize" && onSetMidiChMatrixGridSize)
+    {
+        onSetMidiChMatrixGridSize (nodeId, value.getIntValue());
+        return;
+    }
+    else if (key == "midiChMatrixDropUnmapped" && onSetMidiChMatrixDropUnmapped)
+    {
+        onSetMidiChMatrixDropUnmapped (nodeId, value == "1" || value == "true");
+        return;
+    }
+    else if (key == "midiChMatrixReset" && onMidiChMatrixReset)
+    {
+        onMidiChMatrixReset (nodeId);
+        return;
+    }
     else if (key == "dmxBlackout" && onSetDmxBlackout)
     {
         handleSetNodeParam_DmxBlackout (nodeId, value);
@@ -616,6 +636,14 @@ void WebBridge::handleSetNodeParam_DmxConsoleChannel (const juce::String& nodeId
     int channel  = (int) parsed["channel"];
     int val      = (int) parsed["value"];
     onSetDmxConsoleChannel (nodeId, channel, (uint8_t) juce::jlimit (0, 255, val));
+}
+
+void WebBridge::handleSetNodeParam_MidiChMatrixCell (const juce::String& nodeId, const juce::String& value)
+{
+    auto parsed = juce::JSON::parse (value);
+    int r = (int) parsed["r"];
+    int c = (int) parsed["c"];
+    onSetMidiChMatrixCell (nodeId, r, c);
 }
 
 void WebBridge::handleSetNodeParam_DmxBlackout (const juce::String& nodeId, const juce::String& value)

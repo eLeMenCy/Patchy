@@ -322,6 +322,7 @@ static juce::String labelForType (int t, const juce::String& paxName)
         case 24: return "MQTT Monitor";
         case 25: return "MQTT Console";
         case 26: return "Audio Player";
+        case 27: return "Matrix";
         default: return "Pax Node";
     }
 }

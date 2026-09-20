@@ -63,6 +63,38 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
                                            if (node) node->setChannel (channel, value);
                                            p.saveDmxConsoleChannels (nid);
                                        };
+    bridge.onSetMidiChMatrixCell     = [&p](const juce::String& nid, int r, int c)
+                                       {
+                                           auto* node = p.getProcessingGraph().findMidiChMatrixNode (nid);
+                                           if (!node && p.getPendingGraph())
+                                               node = p.getPendingGraph()->findMidiChMatrixNode (nid);
+                                           if (node) node->toggleCell (r, c);
+                                           p.saveMidiChMatrixState (nid);
+                                       };
+    bridge.onSetMidiChMatrixGridSize = [&p](const juce::String& nid, int n)
+                                       {
+                                           auto* node = p.getProcessingGraph().findMidiChMatrixNode (nid);
+                                           if (!node && p.getPendingGraph())
+                                               node = p.getPendingGraph()->findMidiChMatrixNode (nid);
+                                           if (node) node->setGridSize (n);
+                                           p.saveMidiChMatrixState (nid);
+                                       };
+    bridge.onSetMidiChMatrixDropUnmapped = [&p](const juce::String& nid, bool drop)
+                                       {
+                                           auto* node = p.getProcessingGraph().findMidiChMatrixNode (nid);
+                                           if (!node && p.getPendingGraph())
+                                               node = p.getPendingGraph()->findMidiChMatrixNode (nid);
+                                           if (node) node->setDropUnmapped (drop);
+                                           p.saveMidiChMatrixState (nid);
+                                       };
+    bridge.onMidiChMatrixReset       = [&p](const juce::String& nid)
+                                       {
+                                           auto* node = p.getProcessingGraph().findMidiChMatrixNode (nid);
+                                           if (!node && p.getPendingGraph())
+                                               node = p.getPendingGraph()->findMidiChMatrixNode (nid);
+                                           if (node) node->resetToDefault();
+                                           p.saveMidiChMatrixState (nid);
+                                       };
     // AudioPlayerNode's own controls — all operate directly on the shared,
     // persistent AudioPlayerState (see AudioPlayerNode.h's own comment for
     // why this differs from the DMX Console callback above, which needs

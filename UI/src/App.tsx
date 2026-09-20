@@ -26,6 +26,7 @@ import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
 import AudioPlayerNode,    { AudioPlayerNodeData }    from './AudioPlayerNode';
+import MidiChMatrixNode,   { MidiChMatrixNodeData }   from './MidiChMatrixNode';
 import MidiKeyboardNode,  { MidiKeyboardNodeData }  from './MidiKeyboardNode';
 import { DmxMonitorNode, DmxMonitorNodeData } from './DmxMonitorNode';
 import { DmxConsoleNode } from './DmxConsoleNode';
@@ -46,7 +47,7 @@ import AudioPeakToOscNode from './AudioPeakToOscNode';
 import { _paxInfoMap } from './NodeUtils';
 
 // ── Node type registry ────────────────────────────────────────────────────────
-const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, audioPlayer: AudioPlayerNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode };
+const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, audioPlayer: AudioPlayerNode, midiChMatrix: MidiChMatrixNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 // _paxInfoMap lives in NodeUtils.tsx (not declared here) — GenericNode.tsx
@@ -55,7 +56,7 @@ const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMoni
 // create a circular import. NodeUtils.tsx is a lower-level shared utility
 // file both already depend on safely.
 
-function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<NodeData | MidiMonitorNodeData | DmxMonitorNodeData | OscMonitorNodeData | UdpMonitorNodeData | MqttMonitorNodeData | MqttConsoleNodeData> {
+function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<NodeData | MidiMonitorNodeData | DmxMonitorNodeData | OscMonitorNodeData | UdpMonitorNodeData | MqttMonitorNodeData | MqttConsoleNodeData | MidiChMatrixNodeData> {
   const isMidiMonitor    = raw.nodeType === 5;
   const isAudioMonitor   = raw.nodeType === 6;
   const isMidiKeyboard   = raw.nodeType === 7;
@@ -68,6 +69,7 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
   const isMqttMonitor    = raw.nodeType === 24;
   const isMqttConsole    = raw.nodeType === 25;
   const isAudioPlayer    = raw.nodeType === 26;
+  const isMidiChMatrix   = raw.nodeType === 27;
   return {
     id:       raw.id,
     type:     isMidiMonitor    ? 'midiMonitor'
@@ -82,6 +84,7 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
             : isMqttMonitor    ? 'mqttMonitor'
             : isMqttConsole    ? 'mqttConsole'
             : isAudioPlayer    ? 'audioPlayer'
+            : isMidiChMatrix   ? 'midiChMatrix'
             : raw.paxName === 'Spectrumyser' ? 'spectrumyser'
             : raw.paxName === 'Envelope'     ? 'envelope'
             : raw.paxName === 'Audio to DMX' ? 'audioToDmx'
@@ -111,6 +114,8 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
       ? { label: raw.label, nodeType: 25, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as MqttConsoleNodeData
       : isAudioPlayer
       ? { label: raw.label, nodeType: 26, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as AudioPlayerNodeData
+      : isMidiChMatrix
+      ? { label: raw.label, nodeType: 27, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as MidiChMatrixNodeData
       : { label: raw.label, nodeType: raw.nodeType,
           ports: raw.ports, selectedDeviceId: raw.selectedDeviceId,
           paxName: raw.paxName,
@@ -195,6 +200,10 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
   const dmxTimers     = useRef<Map<string, number>>(new Map());
   const mqttTimers    = useRef<Map<string, number>>(new Map());
   const paxValueTimers = useRef<Map<string, number>>(new Map());
+  // MidiChMatrixNode's own channel-flash feature — needs per-CHANNEL
+  // timestamps, unlike every other map above (one expiry per node only).
+  // node id -> { in: {channel -> expiry}, out: {channel -> expiry} }.
+  const matrixChannelTimers = useRef<Map<string, { in: Map<number, number>; out: Map<number, number> }>>(new Map());
   const audioLevels   = useRef<Map<string, number>>(new Map());
   const portRmsLevels = useRef<Map<string, number[]>>(new Map());
   // Current DMX channel level per node (0-1), from the backend's own
@@ -249,6 +258,21 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
             paxValueTimers.current.set(entry.id, now + 80);
           } else {
             midiTimers.current.set(entry.id, now + 80);
+          }
+        }
+        // MidiChMatrixNode's own per-channel flash — independent of
+        // entry.midi above, since this node never touches the base
+        // class's own recordMidiActivity() counter at all, only its own
+        // two dedicated bitmasks.
+        if (entry.inChMask || entry.outChMask) {
+          let bucket = matrixChannelTimers.current.get(entry.id);
+          if (! bucket) {
+            bucket = { in: new Map(), out: new Map() };
+            matrixChannelTimers.current.set(entry.id, bucket);
+          }
+          for (let ch = 0; ch < 16; ch++) {
+            if (entry.inChMask  & (1 << ch)) bucket.in.set(ch, now + 80);
+            if (entry.outChMask & (1 << ch)) bucket.out.set(ch, now + 80);
           }
         }
         const rms  = Math.min(Math.max(entry.l, entry.r) / 1000 * 4, 1.0);

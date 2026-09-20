@@ -46,6 +46,15 @@ PatchyProcessor::PatchyProcessor()
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+void PatchyProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
+{
+    lastSampleRate = sampleRate;
+    lastBlockSize  = samplesPerBlock;
+    rebuildProcessingGraph();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 bool PatchyProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
     // Accept stereo in/out or mono in/out
@@ -57,37 +66,6 @@ bool PatchyProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
         return false;
 
     return true;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-void PatchyProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
-{
-    lastSampleRate = sampleRate;
-    lastBlockSize  = samplesPerBlock;
-    processingGraph.rebuild (graphModel, &registry,
-                             [this](const juce::String& nid) { return getOrCreateMidiMonitorBuffer(nid); },
-                             [this](const juce::String& nid) { return getOrCreateAudioMonitorBuffer(nid); },
-                             [this](const juce::String& nid) { return getOrCreateKeyboardMonitorBuffer(nid); },
-                             [this](const juce::String& nid) { return getOrCreateDmxMonitorBuffer(nid); },
-                             [this](const juce::String& nid) { return getOrCreateDmxConsoleBuffer(nid); },
-                             [this](const juce::String& nid) { return getOrCreateArtNetMonitorBuffer(nid); },
-                             [this](const juce::String& nid) { return getOrCreateArtNetConsoleBuffer(nid); },
-                             [this](const juce::String& nid) { return getOrCreateOscMonitorBuffer(nid); },
-                             [this](const juce::String& nid) { return getOrCreateUdpMonitorBuffer(nid); },
-                             [this](const juce::String& nid) { return getOrCreateMqttMonitorBuffer(nid); },
-                             [this](const juce::String& nid) { return getOrCreateAudioPlayerState(nid); });
-    processingGraph.isStandaloneMode = isStandalone;
-    processingGraph.graphModel        = &graphModel;
-    processingGraph.prepare (sampleRate, samplesPerBlock);
-midiDeviceManager.applyDeviceSelections  (processingGraph);
-    audioDeviceManager.applyDeviceSelections (processingGraph);
-    audioDeviceManager.pruneDeletedNodeManagers (processingGraph);
-    udpDeviceManager.applyAllSettings        (processingGraph);
-    oscDeviceManager.applyAllSettings        (processingGraph);
-    mqttDeviceManager.applyAllSettings       (processingGraph);
-    artNetDeviceManager.applyAllSettings     (processingGraph);
-    dmxDeviceManager.applyAllSettings        (processingGraph);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -182,17 +160,23 @@ void PatchyProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         // (a genuinely new device selection, or no prior node at all)
         // correctly already went through a normal, full configure()/
         // openDevice() instead, with nothing here to transfer from.
+        // Real bug found 2026-09-18 — see hasSameAudioConfigAs()'s own doc
+        // comment in ProcessingGraph.h for the full story: a genuine
+        // sample-rate/buffer-size change must NOT carry the old, now-stale
+        // fifo content across — only an ordinary graph-structure edit
+        // (same configuration either side) should.
+        const bool sameAudioConfig = processingGraph.hasSameAudioConfigAs (*pendingGraph);
         for (auto& newNode : processingGraph.getNodes())
         {
             if (auto* newOut = dynamic_cast<AudioOutDeviceNode*> (newNode.get()))
             {
-                if (newOut->wasTransferred())
+                if (newOut->wasTransferred() && sameAudioConfig)
                     if (auto* oldOut = pendingGraph->findAudioOutNode (newOut->id))
                         newOut->transferFifoFrom (*oldOut);
             }
             else if (auto* newIn = dynamic_cast<AudioInDeviceNode*> (newNode.get()))
             {
-                if (newIn->wasTransferred())
+                if (newIn->wasTransferred() && sameAudioConfig)
                     if (auto* oldIn = pendingGraph->findAudioInNode (newIn->id))
                         newIn->transferFifoFrom (*oldIn);
             }
@@ -530,6 +514,14 @@ void PatchyProcessor::rebuildProcessingGraph()
             if (n.settingsJson.isNotEmpty())
                 channelRestores.push_back ({ n.id, n.settingsJson, 26 });
         }
+        else if (n.nodeType == 27)
+        {
+            // Restore MidiChMatrixNode's own grid size, drop/pass-through
+            // mode, and lit-cell list from settingsJson — same "survive a
+            // rebuild" reasoning as the others above.
+            if (n.settingsJson.isNotEmpty())
+                channelRestores.push_back ({ n.id, n.settingsJson, 27 });
+        }
     }
 
     // If selections changed (e.g. after undo), close all transferred devices
@@ -641,6 +633,8 @@ void PatchyProcessor::rebuildProcessingGraph()
             restoreArtNetConsoleChannels (r.nodeId, r.settingsJson, newGraph.get());
         else if (r.nodeType == 26)
             restoreAudioPlayerSettings (r.nodeId, r.settingsJson, newGraph.get());
+        else if (r.nodeType == 27)
+            restoreMidiChMatrixState (r.nodeId, r.settingsJson, newGraph.get());
     }
 
     // Real bug found and fixed 2026-09-02 — prepare() calls

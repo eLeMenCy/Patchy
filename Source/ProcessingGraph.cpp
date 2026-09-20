@@ -12,6 +12,7 @@
 #include "OscMonitorNode.h"
 #include "UdpMonitorNode.h"
 #include "MqttDeviceNodes.h"
+#include "MidiChMatrixNode.h"
 #include <unordered_set>
 #include <algorithm>
 
@@ -101,6 +102,7 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                 case 24: proc = std::make_unique<MqttMonitorNode>     (id, getMqttMonitorBuffer ? getMqttMonitorBuffer(id) : nullptr); break;
                 case 25: proc = std::make_unique<MqttConsoleNode>     (id); break;
                 case 26: proc = std::make_unique<AudioPlayerNode>     (id, getAudioPlayerState ? getAudioPlayerState(id) : nullptr); break;
+                case 27: proc = std::make_unique<MidiChMatrixNode>    (id); break;
                 default:
                     juce::Logger::writeToLog ("ProcessingGraph: unknown built-in type " + juce::String (type));
                     break;
@@ -819,6 +821,13 @@ DmxConsoleNode* ProcessingGraph::findDmxConsoleNode (const juce::String& nodeId)
     auto it = nodeMap.find (nodeId);
     if (it == nodeMap.end()) return nullptr;
     return dynamic_cast<DmxConsoleNode*> (it->second);
+}
+
+MidiChMatrixNode* ProcessingGraph::findMidiChMatrixNode (const juce::String& nodeId)
+{
+    auto it = nodeMap.find (nodeId);
+    if (it == nodeMap.end()) return nullptr;
+    return dynamic_cast<MidiChMatrixNode*> (it->second);
 }
 
 ArtNetConsoleNode* ProcessingGraph::findArtNetConsoleNode (const juce::String& nodeId)

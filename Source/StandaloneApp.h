@@ -47,6 +47,8 @@ public:
     void closeButtonPressed() override;
     void saveWindowBounds();
     void restoreWindowBounds();
+    void saveAudioSettings();
+    void restoreAudioSettings();
 
 private:
     juce::ApplicationProperties appProperties;

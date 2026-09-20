@@ -6,6 +6,7 @@
 #include "MidiDeviceNodes.h"
 #include "MidiMonitorNode.h"
 #include "DmxConsoleNode.h"
+#include "MidiChMatrixNode.h"
 #include "ArtNetConsoleNode.h"
 #include "AudioMonitorNode.h"
 #include "AudioPlayerNode.h"
@@ -553,6 +554,91 @@ public:
         juce::ignoreUnused (graph);   // node itself holds no restorable state — everything lives in *state
     }
 
+    /** Reads MidiChMatrixNode's own current live state (grid size,
+     *  drop/pass-through mode, and every lit cell) and merges it into
+     *  the node's own settingsJson — same "survive a rebuild" reasoning
+     *  as saveDmxConsoleChannels() above, but using a sparse [r,c] pair
+     *  list rather than a base64-encoded byte array, since this node's
+     *  own state (a boolean grid, typically mostly unlit) is a genuinely
+     *  different shape of data than DMX's dense 512-channel array. */
+    void saveMidiChMatrixState (const juce::String& nodeId)
+    {
+        auto* node = processingGraph.findMidiChMatrixNode (nodeId);
+        if (node == nullptr && pendingGraph != nullptr)
+            node = pendingGraph->findMidiChMatrixNode (nodeId);
+        if (node == nullptr) return;
+
+        if (auto* nd = graphModel.findNode (nodeId))
+        {
+            juce::var existing;
+            try { existing = juce::JSON::parse (nd->settingsJson); } catch (...) {}
+            if (existing.getDynamicObject() == nullptr)
+                existing = new juce::DynamicObject();
+            auto* obj = existing.getDynamicObject();
+
+            const int  n    = node->getGridSize();
+            const bool drop = node->getDropUnmapped();
+            const auto snapshot = node->getMatrixSnapshot();
+
+            juce::Array<juce::var> cells;
+            for (int r = 0; r < MidiChMatrixNode::kMaxGrid; ++r)
+                for (int c = 0; c < MidiChMatrixNode::kMaxGrid; ++c)
+                    if (snapshot[static_cast<size_t> (r * MidiChMatrixNode::kMaxGrid + c)])
+                    {
+                        juce::Array<juce::var> pair;
+                        pair.add (r);
+                        pair.add (c);
+                        cells.add (pair);
+                    }
+
+            obj->setProperty ("gridSize",     n);
+            obj->setProperty ("dropUnmapped", drop);
+            obj->setProperty ("cells",        cells);
+            nd->settingsJson = juce::JSON::toString (existing, true);
+        }
+    }
+
+    void restoreMidiChMatrixState (const juce::String& nodeId, const juce::String& settingsJson)
+    {
+        restoreMidiChMatrixState (nodeId, settingsJson, nullptr);
+    }
+
+    void restoreMidiChMatrixState (const juce::String& nodeId, const juce::String& settingsJson,
+                                   ProcessingGraph* graph)
+    {
+        MidiChMatrixNode* node = nullptr;
+        if (graph != nullptr)
+            node = graph->findMidiChMatrixNode (nodeId);
+        if (node == nullptr)
+            node = processingGraph.findMidiChMatrixNode (nodeId);
+        if (node == nullptr && pendingGraph != nullptr)
+            node = pendingGraph->findMidiChMatrixNode (nodeId);
+        if (node == nullptr) return;
+
+        try
+        {
+            auto parsed = juce::JSON::parse (settingsJson);
+
+            const int  n    = parsed.hasProperty ("gridSize")     ? (int) parsed["gridSize"] : MidiChMatrixNode::kMinGrid;
+            const bool drop = parsed.hasProperty ("dropUnmapped") ? (bool) parsed["dropUnmapped"] : true;
+
+            std::array<bool, MidiChMatrixNode::kCellCount> cells {};
+            if (auto* arr = parsed["cells"].getArray())
+                for (const auto& pairVar : *arr)
+                    if (auto* pair = pairVar.getArray())
+                        if (pair->size() == 2)
+                        {
+                            const int r = (int) (*pair)[0];
+                            const int c = (int) (*pair)[1];
+                            if (r >= 0 && r < MidiChMatrixNode::kMaxGrid && c >= 0 && c < MidiChMatrixNode::kMaxGrid)
+                                cells[static_cast<size_t> (r * MidiChMatrixNode::kMaxGrid + c)] = true;
+                        }
+
+            node->restoreState (n, cells, drop);
+        }
+        catch (...) {}
+    }
+
     /** Live, single-field settings update — writes straight to the shared
      *  AudioPlayerState's own atomics, with no rebuild involved at all.
      *  This is the fix for a real gap: committing a settings change
@@ -786,6 +872,16 @@ public:
             PortActivity a;
             a.nodeId        = node->id;
             a.midiOutEvents = node->drainMidiActivity();
+
+            // Channel-flash feature, 2026-09-20 — per-channel activity,
+            // MidiChMatrixNode only. See MidiChMatrixNode.h's own
+            // drainInputChannelActivity()/drainOutputChannelActivity()
+            // doc comment for the full story.
+            if (auto* matrix = dynamic_cast<MidiChMatrixNode*> (node.get()))
+            {
+                a.inputChannelActivity  = matrix->drainInputChannelActivity();
+                a.outputChannelActivity = matrix->drainOutputChannelActivity();
+            }
 
             // Current DMX channel level, for gradual intensity rendering —
             // works for any node whose lightweight Value mirror is DMX-typed

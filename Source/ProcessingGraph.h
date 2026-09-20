@@ -14,6 +14,7 @@
 #include "GraphModel.h"
 #include "../Pax/PaxRegistry.h"
 #include <memory>
+#include <cmath>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -33,6 +34,7 @@ class DmxInDeviceNode;
 class DmxOutDeviceNode;
 class DmxMonitorNode;
 class DmxConsoleNode;
+class MidiChMatrixNode;
 class ArtNetMonitorNode;
 class ArtNetConsoleNode;
 
@@ -57,6 +59,38 @@ public:
                  std::function<MqttMonitorBuffer*(const juce::String&)>    getMqttMonitorBuffer   = nullptr,
                  std::function<AudioPlayerState*(const juce::String&)>     getAudioPlayerState    = nullptr);
     void prepare (double sampleRate, int maxBlockSize);
+
+    // Real bug found 2026-09-18, following the prepareToPlay()/
+    // rebuildProcessingGraph() unification fix earlier this same day: a
+    // genuine sample-rate/buffer-size change (as opposed to an ordinary
+    // graph-structure edit, where this correctly stays true) still went
+    // through the same transferFifoFrom() path used for structure edits —
+    // moving each AudioIn/OutDeviceNode's own already-queued, real audio
+    // data straight across into the newly-reconfigured node, recorded
+    // under the OLD sample rate/block size, genuinely incompatible with
+    // the new one. This surfaced as a persistent ~half-second lag on every
+    // audio path, fixable only by a full app restart (the stale, wrongly-
+    // primed fifo content had no other way to flush). Used at the
+    // fifo-transfer call site (see PatchyProcessor.cpp's own processBlock()
+    // swap logic) to skip that transfer specifically when the two graphs'
+    // own configurations genuinely differ — the callback/device connection
+    // itself still transfers either way (see transferAudioDevicesFrom()),
+    // only the stale audio content is skipped, letting the reconfigured
+    // node's own fifo start cleanly empty instead.
+    bool hasSameAudioConfigAs (const ProcessingGraph& other) const
+    {
+        // Epsilon comparison rather than == — avoids -Wfloat-equal, same
+        // version-safe reasoning AudioPlayerNode.cpp's own sample-rate
+        // comparison already established (no assumption about whether
+        // juce::exactlyEqual()/approximatelyEqual() exist in this
+        // project's own unconfirmed JUCE version). Sample rates are
+        // always exact values in practice (44100.0, 48000.0, etc), never
+        // computed, so this remains a genuine equality check in effect,
+        // not a tolerance one.
+        return isPrepared && other.isPrepared
+            && std::abs (preparedSampleRate - other.preparedSampleRate) < 0.01
+            && preparedBlockSize == other.preparedBlockSize;
+    }
     void process (juce::AudioBuffer<float>& hostAudio, juce::MidiBuffer& hostMidi);
 
     bool isEmpty()    const { return nodes.empty(); }
@@ -114,6 +148,7 @@ public:
     DmxInDeviceNode*     findDmxInNode      (const juce::String& nodeId);
     DmxOutDeviceNode*    findDmxOutNode     (const juce::String& nodeId);
     DmxConsoleNode*      findDmxConsoleNode    (const juce::String& nodeId);
+    MidiChMatrixNode*    findMidiChMatrixNode  (const juce::String& nodeId);
     ArtNetMonitorNode*   findArtNetMonitorNode (const juce::String& nodeId);
     ArtNetConsoleNode*   findArtNetConsoleNode (const juce::String& nodeId);
 

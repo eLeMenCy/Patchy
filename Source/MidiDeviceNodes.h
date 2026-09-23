@@ -2,6 +2,8 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_devices/juce_audio_devices.h>
 #include "NodeProcessor.h"
+#include <atomic>
+#include <cstdint>
 
 // Forward declare to avoid circular include (ProcessingGraph includes NodeProcessor
 // which would then include ProcessingGraph again)
@@ -111,18 +113,37 @@ public:
         if (inputMidi.getNumEvents() > 0)
             recordMidiActivity (inputMidi.getNumEvents());
 
-        // Send to the physical device
+        // Send to the physical device — gated by the channel filter.
+        // 0 = omni (every channel sent, matching this node's own default/
+        // original behaviour before this feature existed). A channel-less
+        // message (sysex etc, getChannel()==0) always passes through,
+        // matching MIDI CH. MATRIX's own established convention: it was
+        // never addressable by a per-channel filter in the first place.
+        const std::uint16_t mask = channelFilter.load (std::memory_order_relaxed);
         juce::SpinLock::ScopedLockType sl (outputLock);
         if (output)
             for (const auto& meta : inputMidi)
-                output->sendMessageNow (meta.getMessage());
+            {
+                const auto msg = meta.getMessage();
+                const int  ch  = msg.getChannel();
+                if (mask == 0 || ch == 0 || (mask & static_cast<std::uint16_t> (1u << (ch - 1))) != 0)
+                    output->sendMessageNow (msg);
+            }
     }
+
+    // Live-dispatch accessor pair, same reasoning as every other node in
+    // this project whose own settings genuinely drive real-time processing
+    // (see this project's own established "commit alone doesn't reach a
+    // running node" lesson) — bypasses the rebuild requirement entirely.
+    void setChannelFilter (std::uint16_t mask) { channelFilter.store (mask, std::memory_order_relaxed); }
+    std::uint16_t getChannelFilter() const     { return channelFilter.load (std::memory_order_relaxed); }
 
     juce::String selectedDeviceId;
 
 private:
     std::unique_ptr<juce::MidiOutput> output;
     juce::SpinLock outputLock;   // protects output from the message-thread/audio-thread race above
+    std::atomic<std::uint16_t> channelFilter { 0 }; // one bit per channel (1-16); 0 = omni
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MidiOutDeviceNode)
 };
 

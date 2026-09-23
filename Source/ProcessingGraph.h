@@ -149,6 +149,7 @@ public:
     DmxOutDeviceNode*    findDmxOutNode     (const juce::String& nodeId);
     DmxConsoleNode*      findDmxConsoleNode    (const juce::String& nodeId);
     MidiChMatrixNode*    findMidiChMatrixNode  (const juce::String& nodeId);
+    MidiOutDeviceNode*   findMidiOutDeviceNode (const juce::String& nodeId);
     ArtNetMonitorNode*   findArtNetMonitorNode (const juce::String& nodeId);
     ArtNetConsoleNode*   findArtNetConsoleNode (const juce::String& nodeId);
 

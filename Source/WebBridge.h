@@ -207,6 +207,10 @@ public:
     std::function<void(const juce::String&, int)>                                                 onSetMidiChMatrixGridSize;
     std::function<void(const juce::String&, bool)>                                                onSetMidiChMatrixDropUnmapped;
     std::function<void(const juce::String&)>                                                       onMidiChMatrixReset;
+    // MidiOutDeviceNode's own channel filter — same "live update, no full
+    // rebuild" reasoning as the above; mask is a bitmask (bit N-1 set for
+    // channel N), 0 = omni.
+    std::function<void(const juce::String&, std::uint16_t)>                                        onSetMidiOutDeviceChannelFilter;
     // AudioPlayerNode's own controls — playback (play/pause/stop/seek/
     // return-to-start) is real-time/discrete, handled separately from the
     // small, discrete settings (mode/frequency/noise type/level/loop),
@@ -311,6 +315,7 @@ private:
     void handleSetNodeParam_DmxSettings (const juce::String& nodeId, const juce::String& value);
     void handleSetNodeParam_DmxConsoleChannel (const juce::String& nodeId, const juce::String& value);
     void handleSetNodeParam_MidiChMatrixCell (const juce::String& nodeId, const juce::String& value);
+    void handleSetNodeParam_MidiOutDeviceChannelFilter (const juce::String& nodeId, const juce::String& value);
     void handleSetNodeParam_DmxBlackout (const juce::String& nodeId, const juce::String& value);
     void handleSetNodeParam_ArtNetConsoleChannel (const juce::String& nodeId, const juce::String& value);
     void handleSetNodeParam_ArtNetBlackout (const juce::String& nodeId, const juce::String& value);

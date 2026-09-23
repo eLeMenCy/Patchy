@@ -639,6 +639,65 @@ public:
         catch (...) {}
     }
 
+    void saveMidiOutDeviceChannelFilter (const juce::String& nodeId)
+    {
+        auto* node = processingGraph.findMidiOutDeviceNode (nodeId);
+        if (node == nullptr && pendingGraph != nullptr)
+            node = pendingGraph->findMidiOutDeviceNode (nodeId);
+        if (node == nullptr) return;
+
+        if (auto* nd = graphModel.findNode (nodeId))
+        {
+            juce::var existing;
+            try { existing = juce::JSON::parse (nd->settingsJson); } catch (...) {}
+            if (existing.getDynamicObject() == nullptr)
+                existing = new juce::DynamicObject();
+            auto* obj = existing.getDynamicObject();
+
+            const std::uint16_t mask = node->getChannelFilter();
+            juce::Array<juce::var> channels;
+            for (int ch = 1; ch <= 16; ++ch)
+                if ((mask & static_cast<std::uint16_t> (1u << (ch - 1))) != 0)
+                    channels.add (ch);
+
+            obj->setProperty ("channels", channels);
+            nd->settingsJson = juce::JSON::toString (existing, true);
+        }
+    }
+
+    void restoreMidiOutDeviceChannelFilter (const juce::String& nodeId, const juce::String& settingsJson)
+    {
+        restoreMidiOutDeviceChannelFilter (nodeId, settingsJson, nullptr);
+    }
+
+    void restoreMidiOutDeviceChannelFilter (const juce::String& nodeId, const juce::String& settingsJson,
+                                             ProcessingGraph* graph)
+    {
+        MidiOutDeviceNode* node = nullptr;
+        if (graph != nullptr)
+            node = graph->findMidiOutDeviceNode (nodeId);
+        if (node == nullptr)
+            node = processingGraph.findMidiOutDeviceNode (nodeId);
+        if (node == nullptr && pendingGraph != nullptr)
+            node = pendingGraph->findMidiOutDeviceNode (nodeId);
+        if (node == nullptr) return;
+
+        try
+        {
+            auto parsed = juce::JSON::parse (settingsJson);
+            std::uint16_t mask = 0;
+            if (auto* arr = parsed["channels"].getArray())
+                for (const auto& chVar : *arr)
+                {
+                    const int ch = (int) chVar;
+                    if (ch >= 1 && ch <= 16)
+                        mask |= static_cast<std::uint16_t> (1u << (ch - 1));
+                }
+            node->setChannelFilter (mask);
+        }
+        catch (...) {}
+    }
+
     /** Live, single-field settings update — writes straight to the shared
      *  AudioPlayerState's own atomics, with no rebuild involved at all.
      *  This is the fix for a real gap: committing a settings change

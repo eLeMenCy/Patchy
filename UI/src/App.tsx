@@ -41,13 +41,14 @@ import { HintProvider, HintContext, BUTTON_HINTS, PORT_HINTS, EDGE_HINTS } from 
 import { Menu, ChevronsDownUp, ChevronsUpDown, Settings, ChevronLeft } from 'lucide-react';
 import Sidebar from './Sidebar';
 import SpectrumyserNode from './SpectrumyserNode';
+import ChannelFilterPaxNode from './ChannelFilterPaxNode';
 import EnvelopeNode     from './EnvelopeNode';
 import AudioToDmxNode from './AudioToDmxNode';
 import AudioPeakToOscNode from './AudioPeakToOscNode';
 import { _paxInfoMap } from './NodeUtils';
 
 // ── Node type registry ────────────────────────────────────────────────────────
-const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, audioPlayer: AudioPlayerNode, midiChMatrix: MidiChMatrixNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode };
+const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, audioPlayer: AudioPlayerNode, midiChMatrix: MidiChMatrixNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, channelFilterPax: ChannelFilterPaxNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 // _paxInfoMap lives in NodeUtils.tsx (not declared here) — GenericNode.tsx
@@ -86,6 +87,7 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
             : isAudioPlayer    ? 'audioPlayer'
             : isMidiChMatrix   ? 'midiChMatrix'
             : raw.paxName === 'Spectrumyser' ? 'spectrumyser'
+            : raw.paxName === 'Channel Filter' ? 'channelFilterPax'
             : raw.paxName === 'Envelope'     ? 'envelope'
             : raw.paxName === 'Audio to DMX' ? 'audioToDmx'
             : raw.paxName === 'Audio Peak to OSC' ? 'audioPeakToOsc' : 'custom',

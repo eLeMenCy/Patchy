@@ -398,6 +398,11 @@ void WebBridge::handleSetNodeParam (const juce::DynamicObject* obj)
         onMidiChMatrixReset (nodeId);
         return;
     }
+    else if (key == "midiOutChannelFilter" && onSetMidiOutDeviceChannelFilter)
+    {
+        handleSetNodeParam_MidiOutDeviceChannelFilter (nodeId, value);
+        return;
+    }
     else if (key == "dmxBlackout" && onSetDmxBlackout)
     {
         handleSetNodeParam_DmxBlackout (nodeId, value);
@@ -644,6 +649,20 @@ void WebBridge::handleSetNodeParam_MidiChMatrixCell (const juce::String& nodeId,
     int r = (int) parsed["r"];
     int c = (int) parsed["c"];
     onSetMidiChMatrixCell (nodeId, r, c);
+}
+
+void WebBridge::handleSetNodeParam_MidiOutDeviceChannelFilter (const juce::String& nodeId, const juce::String& value)
+{
+    auto parsed = juce::JSON::parse (value);
+    std::uint16_t mask = 0;
+    if (auto* arr = parsed.getArray())
+        for (const auto& chVar : *arr)
+        {
+            const int ch = (int) chVar;
+            if (ch >= 1 && ch <= 16)
+                mask |= static_cast<std::uint16_t> (1u << (ch - 1));
+        }
+    onSetMidiOutDeviceChannelFilter (nodeId, mask);
 }
 
 void WebBridge::handleSetNodeParam_DmxBlackout (const juce::String& nodeId, const juce::String& value)

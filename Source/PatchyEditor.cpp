@@ -95,6 +95,14 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
                                            if (node) node->resetToDefault();
                                            p.saveMidiChMatrixState (nid);
                                        };
+    bridge.onSetMidiOutDeviceChannelFilter = [&p](const juce::String& nid, std::uint16_t mask)
+                                       {
+                                           auto* node = p.getProcessingGraph().findMidiOutDeviceNode (nid);
+                                           if (!node && p.getPendingGraph())
+                                               node = p.getPendingGraph()->findMidiOutDeviceNode (nid);
+                                           if (node) node->setChannelFilter (mask);
+                                           p.saveMidiOutDeviceChannelFilter (nid);
+                                       };
     // AudioPlayerNode's own controls — all operate directly on the shared,
     // persistent AudioPlayerState (see AudioPlayerNode.h's own comment for
     // why this differs from the DMX Console callback above, which needs

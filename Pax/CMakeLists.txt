@@ -31,6 +31,7 @@ endmacro()
 # ── Bundled Pax ───────────────────────────────────────────────────────────────
 add_pax(LevelPax         LevelPax/LevelPax.cpp)
 add_pax(TransposePax     TransposePax/TransposePax.cpp)
+add_pax(ChannelFilterPax ChannelFilterPax/ChannelFilterPax.cpp)
 add_pax(AmpPax           AmpPax/AmpPax.cpp)
 add_pax(EnvelopePax      EnvelopePax/EnvelopePax.cpp)
 add_pax(StereoSplitterPax StereoSplitterPax/StereoSplitterPax.cpp)
@@ -53,6 +54,6 @@ else()
     set(PAX_INSTALL_DIR "$ENV{HOME}/.patchy/pax")
 endif()
 
-install(TARGETS LevelPax TransposePax AmpPax EnvelopePax StereoSplitterPax SpectrumyserPax MqttToValuePax OscToValuePax ValueToDMXPax AudioToDmxPax MidiToDmxPax UdpValueToMidiCCPax AudioPeakToOscPax
+install(TARGETS LevelPax TransposePax ChannelFilterPax AmpPax EnvelopePax StereoSplitterPax SpectrumyserPax MqttToValuePax OscToValuePax ValueToDMXPax AudioToDmxPax MidiToDmxPax UdpValueToMidiCCPax AudioPeakToOscPax
         LIBRARY DESTINATION "${PAX_INSTALL_DIR}"
         RUNTIME DESTINATION "${PAX_INSTALL_DIR}")

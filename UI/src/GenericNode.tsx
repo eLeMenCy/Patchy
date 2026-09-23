@@ -7,6 +7,7 @@ import { Bridge, PaxParamInfo } from './Bridge';
 import { useNodeDelete, useNodeDisabled, NodeHeaderButton, useNodeCollapsed, useNodeSettings, NodeHandle, nodeContainerStyle, portColour, _paxInfoMap, detectPaxTheme, detectPaxTagPrefix } from './NodeUtils';
 
 import { DeviceSelector, AudioDeviceSettingsPanel, ChannelSummary } from './AudioDeviceUI';
+import { MidiChannelSummary, MidiOutChannelFilterPanel } from './MidiDeviceUI';
 import { UdpPortSummary, UdpDeviceSettingsPanel } from './UdpDeviceUI';
 import { OscDeviceSettingsPanel, OscPortSummary } from './OscDeviceUI';
 import { MqttSubscribeSettingsPanel, MqttSubscribeSummary, MqttPublishSettingsPanel, MqttPublishSummary } from './MqttDeviceUI';
@@ -82,6 +83,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
   const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
   const isPax = paxType !== null;
   const isAudioDevice = nodeData.nodeType === 3 || nodeData.nodeType === 4;
+  const isMidiOutDevice = nodeData.nodeType === 2;
   const isUdpDevice    = nodeData.nodeType === 8  || nodeData.nodeType === 9;
   const isOscDevice    = nodeData.nodeType === 10 || nodeData.nodeType === 11;
   const isMqttSubscribeDevice = nodeData.nodeType === 22;
@@ -120,6 +122,35 @@ function GenericNode({ id, data, selected }: NodeProps) {
       setDeviceChannelCount(2);
     }
   }, [nodeData.settingsJson, isAudioDevice]);
+
+  // ── MIDI Out device channel filter state ────────────────────────────────────
+  const [midiOutChannels, setMidiOutChannels] = useState<number[]>(() => {
+    if (!isMidiOutDevice) return [];
+    try {
+      const parsed = nodeData.settingsJson ? JSON.parse(nodeData.settingsJson) : null;
+      return Array.isArray(parsed?.channels) ? parsed.channels : [];
+    } catch { return []; }
+  });
+
+  // Sync midiOutChannels when settingsJson changes (undo / redo / reload)
+  useEffect(() => {
+    if (!isMidiOutDevice) return;
+    try {
+      const parsed = nodeData.settingsJson ? JSON.parse(nodeData.settingsJson as string) : null;
+      setMidiOutChannels(Array.isArray(parsed?.channels) ? parsed.channels : []);
+    } catch {
+      setMidiOutChannels([]);
+    }
+  }, [nodeData.settingsJson, isMidiOutDevice]);
+
+  // Optimistic local update (fixes the same stale-visual bug already found
+  // once for MIDI CH. MATRIX — settingsJson only refreshes on a structural
+  // graph change/undo/redo, never on a live dispatch alone) alongside the
+  // actual backend dispatch.
+  const handleMidiOutChannelsChange = useCallback((next: number[]) => {
+    setMidiOutChannels(next);
+    Bridge.setNodeParam(id, 'midiOutChannelFilter', JSON.stringify(next));
+  }, [id]);
 
   // ── UDP IN/OUT settings state ───────────────────────────────────────────────
   const [udpPort, setUdpPort] = useState<number>(0);
@@ -579,7 +610,21 @@ function GenericNode({ id, data, selected }: NodeProps) {
           </div>
         )}
 
-        {/* UDP device settings button */}
+        {/* MIDI Out device channel-filter settings button */}
+        {isMidiOutDevice && (
+          <div style={{ position: 'relative', display: 'inline-flex' }}>
+            <NodeHeaderButton
+              onClick={toggleSettings}
+              active={showSettings}
+              activeAccent="var(--midi)"
+              onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.settings), onMouseLeave: () => setHint(null) }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </NodeHeaderButton>
+          </div>
+        )}
+
         {isUdpDevice && (
           <div style={{ position: 'relative', display: 'inline-flex' }}>
             <NodeHeaderButton
@@ -712,13 +757,28 @@ function GenericNode({ id, data, selected }: NodeProps) {
       <div ref={portBodyRef} style={{ padding: !isPax ? '8px 10px' : '0',
                                          minHeight: isPax && paxParams.length === 0 ? 32 : undefined,
                                          position: 'relative' }}>
-        {(nodeData.nodeType === 1 || nodeData.nodeType === 2) && (
+        {nodeData.nodeType === 1 && (
           <DeviceSelector
             nodeId={id}
-            nodeType={nodeData.nodeType as 1 | 2}
+            nodeType={1}
             selectedDeviceId={nodeData.selectedDeviceId}
           />
         )}
+        {isMidiOutDevice && (<>
+          <MidiChannelSummary channels={midiOutChannels} />
+          <DeviceSelector
+            nodeId={id}
+            nodeType={2}
+            selectedDeviceId={nodeData.selectedDeviceId}
+          />
+          {showSettings && (
+            <MidiOutChannelFilterPanel
+              channels={midiOutChannels}
+              onChannelsChange={handleMidiOutChannelsChange}
+              onClose={closeSettings}
+            />
+          )}
+        </>)}
         {(nodeData.nodeType === 3 || nodeData.nodeType === 4) && (<>
           {nodeData.selectedDeviceId && <ChannelSummary channels={selectedChannels} />}
           <DeviceSelector

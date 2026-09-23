@@ -344,7 +344,15 @@ void PatchyProcessor::rebuildProcessingGraph()
     for (const auto& n : graphModel.getNodes())
     {
         if (n.nodeType == 1 || n.nodeType == 2)
+        {
             midiDeviceManager.storeSelection (n.id, n.selectedDeviceId);
+            // Restore MidiOutDeviceNode's own channel filter from
+            // settingsJson — same "survive a rebuild" reasoning as the
+            // others below. MidiInDeviceNode (nodeType 1) has no channel
+            // filter at all, so this only ever applies to nodeType 2.
+            if (n.nodeType == 2 && n.settingsJson.isNotEmpty())
+                channelRestores.push_back ({ n.id, n.settingsJson, 2 });
+        }
         else if (n.nodeType == 3 || n.nodeType == 4)
         {
             juce::String devName = n.selectedDeviceId;
@@ -635,6 +643,8 @@ void PatchyProcessor::rebuildProcessingGraph()
             restoreAudioPlayerSettings (r.nodeId, r.settingsJson, newGraph.get());
         else if (r.nodeType == 27)
             restoreMidiChMatrixState (r.nodeId, r.settingsJson, newGraph.get());
+        else if (r.nodeType == 2)
+            restoreMidiOutDeviceChannelFilter (r.nodeId, r.settingsJson, newGraph.get());
     }
 
     // Real bug found and fixed 2026-09-02 — prepare() calls

@@ -830,6 +830,13 @@ MidiChMatrixNode* ProcessingGraph::findMidiChMatrixNode (const juce::String& nod
     return dynamic_cast<MidiChMatrixNode*> (it->second);
 }
 
+MidiOutDeviceNode* ProcessingGraph::findMidiOutDeviceNode (const juce::String& nodeId)
+{
+    auto it = nodeMap.find (nodeId);
+    if (it == nodeMap.end()) return nullptr;
+    return dynamic_cast<MidiOutDeviceNode*> (it->second);
+}
+
 ArtNetConsoleNode* ProcessingGraph::findArtNetConsoleNode (const juce::String& nodeId)
 {
     auto it = nodeMap.find (nodeId);

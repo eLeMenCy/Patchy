@@ -1,4 +1,5 @@
 #include "WebBridge.h"
+#include "StartupFadeRegistry.h"
 #include "MidiDeviceNodes.h"
 #include "AudioDeviceNodes.h"
 #include "ProcessingGraph.h"
@@ -88,6 +89,7 @@ void WebBridge::handleReady ()
     pushToUI ("onFileState", buildFileStateJson());
     pushMidiDevices();
     pushAudioDevices();
+    pushStartupFadeDevices();
     pushSerialPorts();
     pushGraphToUI();
     pushUndoState();
@@ -345,12 +347,31 @@ void WebBridge::handleSetNodeParam (const juce::DynamicObject* obj)
     // indistinguishable from the current one, making undo appear to do nothing.
     if (key != "dmxConsoleChannel" && key != "artNetConsoleChannel"
         && key != "dmxBlackout"    && key != "artNetBlackout"
+        && key != "audioInStartupFade"   // app-wide device list, not graph state — never undoable
         && ! key.startsWith ("audioPlayer"))
     {
         // Clear any pending settings snapshot — device change is a new action
         pendingSettingsSnapshot = juce::var();
         pendingSettingsNodeId.clear();
         graph.pushSnapshot();
+    }
+
+    // Targeted AudioIn startup fade, 2026-09-24. value = { enabled, muteMs }.
+    // Applies to the node's currently selected DEVICE, app-wide (see
+    // StartupFadeRegistry.h) — not to the node or the graph, so no graph
+    // push, no undo snapshot (excluded above), and an early return. Takes
+    // effect from that device's next fresh open.
+    if (key == "audioInStartupFade")
+    {
+        if (auto* nd = graph.findNode (nodeId))
+        {
+            auto parsed = juce::JSON::parse (value);
+            StartupFadeRegistry::setDevice (nd->selectedDeviceId,
+                                            (bool) parsed["enabled"],
+                                            (int)  parsed["muteMs"]);
+            pushStartupFadeDevices();
+        }
+        return;
     }
 
     if (key == "midiDeviceId" && onSetMidiDevice)

@@ -15,7 +15,7 @@
  */
 
 import { useState, useEffect, useContext } from 'react';
-import { Bridge } from './Bridge';
+import { Bridge, type StartupFadeDevices } from './Bridge';
 import { Checkbox, SettingsPanelHeader } from './NodeUtils';
 import { NodeSelect } from './NodeSelect';
 import { DawContext } from './DawContext';
@@ -86,6 +86,31 @@ export function AudioDeviceSettingsPanel ({ nodeId, nodeType, selectedChannels, 
   onClose:            () => void;
 }) {
   const accent = 'var(--audio)';
+
+  // ── Targeted startup fade (2026-09-24), Audio IN only ──────────────────────
+  // No per-node state: the toggle is derived from whether this node's
+  // selected DEVICE is in the app-wide list (backend: StartupFadeRegistry.h).
+  // Ticking it lists the device with a mute duration; every node on that
+  // device, in every graph, shares it from the device's next fresh open.
+  const FADE_DEFAULT_MS = 1250;
+  const FADE_MAX_MS     = 5000;
+  const [fadeDevices, setFadeDevices] = useState<StartupFadeDevices>({});
+  useEffect(() => Bridge.onStartupFadeDevices(setFadeDevices), []);
+  const fadeMs  = selectedDeviceId ? fadeDevices[selectedDeviceId] : undefined;
+  const fadeOn  = fadeMs !== undefined;
+  const [msDraft, setMsDraft] = useState<string>(String(FADE_DEFAULT_MS));
+  useEffect(() => { setMsDraft(String(fadeOn ? fadeMs : FADE_DEFAULT_MS)); }, [fadeOn, fadeMs]);
+  const showFade = nodeType === 3 && !!selectedDeviceId && selectedDeviceId !== 'DAW' && deviceChannelCount > 0;
+
+  const toggleFade = () =>
+    Bridge.setAudioInStartupFade(nodeId, !fadeOn, fadeOn ? 0 : FADE_DEFAULT_MS);
+
+  const commitFadeMs = () => {
+    const parsed = parseInt(msDraft, 10);
+    const v = Number.isFinite(parsed) ? Math.min(FADE_MAX_MS, Math.max(0, parsed)) : (fadeMs ?? FADE_DEFAULT_MS);
+    setMsDraft(String(v));
+    if (fadeOn && v !== fadeMs) Bridge.setAudioInStartupFade(nodeId, true, v);
+  };
 
   const toggle = (ch: number) => {
     const next = selectedChannels.includes(ch)
@@ -166,6 +191,42 @@ export function AudioDeviceSettingsPanel ({ nodeId, nodeType, selectedChannels, 
           {selectedChannels.length === 0 && (
             <div style={{ fontSize: 9, color: '#ef5350', marginTop: 6 }}>
               At least one channel required
+            </div>
+          )}
+
+          {showFade && (
+            <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+              <label style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                fontSize: 10, color: 'var(--text-dim)', cursor: 'pointer',
+              }}>
+                <Checkbox checked={fadeOn} onChange={toggleFade} accent={accent} />
+                Startup fade
+              </label>
+              {fadeOn && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, marginLeft: 18 }}>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Mute</span>
+                  <input
+                    type="number" min={0} max={FADE_MAX_MS} step={50}
+                    value={msDraft}
+                    onChange={e => setMsDraft(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+                    onBlur={commitFadeMs}
+                    style={{
+                      width: 64, fontSize: 10, padding: '3px 6px',
+                      background: 'var(--surface)', border: '1px solid var(--border)',
+                      borderRadius: 3, color: 'var(--text-dim)',
+                      fontFamily: "'JetBrains Mono', monospace",
+                    }}
+                  />
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>ms</span>
+                </div>
+              )}
+              <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.4 }}>
+                {fadeOn
+                  ? 'Remembered for this device in every graph. Applies from its next open.'
+                  : 'Silences this device briefly after it opens, to hide a startup pop.'}
+              </div>
             </div>
           )}
         </>

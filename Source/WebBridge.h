@@ -385,6 +385,7 @@ private:
     std::function<void(const juce::String&)> onLoadGraph;
     void pushMidiDevices();
     void pushAudioDevices();
+    void pushStartupFadeDevices();   // targeted AudioIn startup fade, 2026-09-24 — see StartupFadeRegistry.h
     void pushSerialPorts();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WebBridge)

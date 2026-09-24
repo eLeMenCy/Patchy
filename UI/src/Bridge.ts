@@ -288,6 +288,19 @@ function _dispatchAudioDevices(list: AudioDeviceList) {
   _audioDeviceSubscribers.forEach(cb => cb(list));
 }
 
+// ── Targeted AudioIn startup fade (2026-09-24) ────────────────────────────────
+// App-wide device list { deviceName: muteMs } — see the backend's
+// StartupFadeRegistry.h. Same subscriber+cache pattern as audio devices.
+export type StartupFadeDevices = Record<string, number>;
+type StartupFadeCallback = (devices: StartupFadeDevices) => void;
+const _startupFadeSubscribers: StartupFadeCallback[] = [];
+let   _startupFadeCache: StartupFadeDevices | null = null;
+
+function _dispatchStartupFadeDevices(devices: StartupFadeDevices) {
+  _startupFadeCache = devices;
+  _startupFadeSubscribers.forEach(cb => cb(devices));
+}
+
 // ── Serial ports ──────────────────────────────────────────────────────────────
 type SerialPortsCallback = (ports: string[]) => void;
 const _serialPortSubscribers: SerialPortsCallback[] = [];
@@ -435,6 +448,14 @@ function _dispatchClaimed() {
       _dispatchMidiDevices(data);
     } catch (e) {
       console.error('Bridge midiDevices parse error', e);
+    }
+  },
+  onStartupFadeDevices: (json: string) => {
+    try {
+      const data: StartupFadeDevices = JSON.parse(json);
+      _dispatchStartupFadeDevices(data ?? {});
+    } catch (e) {
+      console.error('Bridge startupFadeDevices parse error', e);
     }
   },
   onSerialPorts: (json: string) => {
@@ -749,6 +770,21 @@ export const Bridge = {
       const idx = _audioDeviceSubscribers.indexOf(cb);
       if (idx !== -1) _audioDeviceSubscribers.splice(idx, 1);
     };
+  },
+  onStartupFadeDevices(cb: StartupFadeCallback) {
+    _startupFadeSubscribers.push(cb);
+    if (_startupFadeCache) cb(_startupFadeCache);
+    return () => {
+      const idx = _startupFadeSubscribers.indexOf(cb);
+      if (idx !== -1) _startupFadeSubscribers.splice(idx, 1);
+    };
+  },
+  /** Add/update (enabled) or remove the node's CURRENT device from the
+   *  app-wide startup-fade list. Not graph state: no undo, applies to that
+   *  device in every graph from its next fresh open. */
+  setAudioInStartupFade(nodeId: string, enabled: boolean, muteMs: number) {
+    sendToJuce({ type: 'setNodeParam', nodeId, key: 'audioInStartupFade',
+                 value: JSON.stringify({ enabled, muteMs }) });
   },
   onSerialPorts(cb: SerialPortsCallback) {
     _serialPortSubscribers.push(cb);

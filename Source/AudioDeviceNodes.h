@@ -2,6 +2,7 @@
 #include <juce_audio_devices/juce_audio_devices.h>
 #include "NodeProcessor.h"
 #include "GraphModel.h"
+#include "StartupFadeRegistry.h"
 #include <atomic>
 #include <vector>
 #include <mutex>
@@ -407,6 +408,7 @@ public:
         // Fix, 2026-09-24 — a fade-in armed by openDevice() but not yet
         // started (no real audio read yet) must follow the device to its
         // new node, or a rebuild landing in that window would skip it.
+        dst.fadeInMuteMs.store (fadeInMuteMs.load (std::memory_order_relaxed), std::memory_order_relaxed);
         dst.fadeInArmed.store (fadeInArmed.load (std::memory_order_relaxed), std::memory_order_relaxed);
         devManager->addAudioCallback (&dst);
         devManager->removeAudioCallback (this);
@@ -601,7 +603,7 @@ private:
     // hardware-side. Patchy can't stop it at the source, but can keep it
     // out of its own audio path: after each FRESH open (never after a mere
     // transfer between graphs, which doesn't restart the stream), the first
-    // real audio read is held silent for kFadeInMuteSeconds, then ramped
+    // real audio read is held silent for fadeInMuteMs, then ramped
     // up linearly over kFadeInRampSeconds. Counting starts at the first
     // successful read, not at open, so a slow-starting device can't
     // silently use up the window before its pop arrives. fadeInArmed is
@@ -612,8 +614,16 @@ private:
     // (0.878), then a decaying tail (0.053 -> 0.010 by ~1335 ms) — likely
     // the interface unmuting its inputs ~1 s after the stream starts. The
     // mute covers both spikes with margin; the ramp swallows the tail.
-    static constexpr double kFadeInMuteSeconds = 1.250;
+    //
+    // Targeted, 2026-09-24: the fade is now only armed for devices listed
+    // in StartupFadeRegistry (see that header), and the mute duration comes
+    // from the registry per device (FCA1616's measured default: 1250 ms)
+    // instead of a fixed constant. The ramp stays fixed — it only smooths
+    // the return. fadeInMuteMs is set together with fadeInArmed in
+    // openDevice() (message thread) and read when the fade starts in
+    // process() (audio thread).
     static constexpr double kFadeInRampSeconds = 0.150;
+    std::atomic<int>          fadeInMuteMs { 0 };
     std::atomic<bool>         fadeInArmed { false };
     int                       fadeInPos   = -1;
 

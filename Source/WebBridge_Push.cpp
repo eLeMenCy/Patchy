@@ -1,4 +1,5 @@
 #include "WebBridge.h"
+#include "StartupFadeRegistry.h"
 #include "MidiDeviceNodes.h"
 #include "AudioDeviceNodes.h"
 #include "ProcessingGraph.h"
@@ -105,6 +106,15 @@ void WebBridge::pushMidiDevices()
 void WebBridge::pushAudioDevices()
 {
     pushToUI ("onAudioDevices", juce::JSON::toString (AudioDeviceManager::getAvailableDevicesVar (isStandalone), true));
+}
+
+// Targeted AudioIn startup fade, 2026-09-24 — the whole app-wide device
+// list { "deviceName": muteMs, ... } (see StartupFadeRegistry.h). Pushed at
+// UI ready and after every change, so every AudioIn node's settings panel
+// can derive its own toggle from its selected device alone.
+void WebBridge::pushStartupFadeDevices()
+{
+    pushToUI ("onStartupFadeDevices", juce::JSON::toString (StartupFadeRegistry::toVar(), true));
 }
 
 void WebBridge::pushSerialPorts()

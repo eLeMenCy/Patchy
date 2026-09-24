@@ -275,7 +275,23 @@ void AudioInDeviceNode::openDevice (const juce::String& deviceName,
             {
                 if (auto* dev = manager.getCurrentAudioDevice())
                     deviceChannelCount = dev->getInputChannelNames().size();
-                fadeInArmed.store (true, std::memory_order_relaxed);   // Fix, 2026-09-24 — see fadeInArmed's own comment; armed BEFORE the callback starts writing
+                // Fix, 2026-09-24 — see fadeInArmed's own comment; armed BEFORE
+                // the callback starts writing. Targeted: only for devices listed
+                // in StartupFadeRegistry, with that device's own mute duration.
+                {
+                    const int muteMs = StartupFadeRegistry::getMuteMs (deviceName);
+                    if (muteMs >= 0)
+                    {
+                        fadeInMuteMs.store (muteMs, std::memory_order_relaxed);
+                        fadeInArmed.store (true, std::memory_order_relaxed);
+                    }
+                    else
+                    {
+                        // Not listed: clear any arm left over from a previous,
+                        // listed device on this node that never got to start.
+                        fadeInArmed.store (false, std::memory_order_relaxed);
+                    }
+                }
                 manager.addAudioCallback (this);
                 juce::Logger::writeToLog ("AudioInDeviceNode: opened " + deviceName
                                           + " (" + juce::String (deviceChannelCount) + " ch)");
@@ -323,7 +339,7 @@ void AudioInDeviceNode::process (int numSamples)
         fadeInPos = 0;
     if (fadeInPos >= 0)
     {
-        const int muteLen = (int) (currentSampleRate * kFadeInMuteSeconds);
+        const int muteLen = (int) (currentSampleRate * 0.001 * fadeInMuteMs.load (std::memory_order_relaxed));
         const int rampLen = juce::jmax (1, (int) (currentSampleRate * kFadeInRampSeconds));
         for (int ch = 0; ch < outputAudio.getNumChannels(); ++ch)
         {

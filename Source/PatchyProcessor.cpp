@@ -142,45 +142,15 @@ void PatchyProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         // a transfer of an already-existing unique_ptr's own ownership.
         std::swap (processingGraph, *pendingGraph);
 
-        // Real fix, 2026-09-03 (3rd revision) — see AudioOutDeviceNode's
-        // own transferCallbackTo() comment for the full story of why this
-        // moved here specifically. At this exact point, *pendingGraph
-        // holds the OLD graph's own nodes (via the swap just above) and
-        // processingGraph holds the NEW, now-live one — the old graph is
-        // no longer being processed by anyone (this swap is what made it
-        // stop), and the message thread's own rebuildProcessingGraph()
-        // finished constructing/configuring the new graph well before
-        // this point — meaning the audio thread, right here, right now,
-        // is the ONLY thread that could possibly touch either fifo,
-        // eliminating the cross-thread race an earlier attempt at this
-        // same transfer (on the message thread, during the rebuild
-        // itself) risked. Only nodes the message thread already marked
-        // wasTransferred() (meaning a genuinely matching, same-device
-        // node exists in both graphs) are handled — everything else
-        // (a genuinely new device selection, or no prior node at all)
-        // correctly already went through a normal, full configure()/
-        // openDevice() instead, with nothing here to transfer from.
-        // Real bug found 2026-09-18 — see hasSameAudioConfigAs()'s own doc
-        // comment in ProcessingGraph.h for the full story: a genuine
-        // sample-rate/buffer-size change must NOT carry the old, now-stale
-        // fifo content across — only an ordinary graph-structure edit
-        // (same configuration either side) should.
-        const bool sameAudioConfig = processingGraph.hasSameAudioConfigAs (*pendingGraph);
-        for (auto& newNode : processingGraph.getNodes())
-        {
-            if (auto* newOut = dynamic_cast<AudioOutDeviceNode*> (newNode.get()))
-            {
-                if (newOut->wasTransferred() && sameAudioConfig)
-                    if (auto* oldOut = pendingGraph->findAudioOutNode (newOut->id))
-                        newOut->transferFifoFrom (*oldOut);
-            }
-            else if (auto* newIn = dynamic_cast<AudioInDeviceNode*> (newNode.get()))
-            {
-                if (newIn->wasTransferred() && sameAudioConfig)
-                    if (auto* oldIn = pendingGraph->findAudioInNode (newIn->id))
-                        newIn->transferFifoFrom (*oldIn);
-            }
-        }
+        // Shared-fifo fix, 2026-09-24 — the swap-time fifo copy that used
+        // to live here (transferFifoFrom(), 2026-09-03 3rd revision) is
+        // gone. It allocated on the audio thread, and processingGraph.
+        // prepare() just below immediately reset the fifo it had filled,
+        // so it never actually carried any audio across. Old and new
+        // device nodes now share one fifo from the moment the device's
+        // callback is handed over (see AudioOutDeviceNode::
+        // transferCallbackTo()), and prepare() no longer resets a fifo
+        // whose audio config hasn't changed (AudioFifo::prepareFor()).
 
         graphTrash = std::move (pendingGraph);
         graphTrashPending.store (true);

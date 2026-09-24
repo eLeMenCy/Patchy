@@ -215,7 +215,7 @@ void AudioOutDeviceNode::closeDevice()
 void AudioOutDeviceNode::prepare (double sampleRate, int maxBlockSize)
 {
     NodeProcessor::prepare (sampleRate, maxBlockSize);
-    audioFifo.reset (deviceChannelCount, (int) sampleRate);
+    audioFifo->prepareFor (deviceChannelCount, (int) sampleRate, maxBlockSize);   // Shared-fifo fix, 2026-09-24
 }
 
 void AudioOutDeviceNode::process (int numSamples)
@@ -225,7 +225,7 @@ void AudioOutDeviceNode::process (int numSamples)
 
     std::vector<int> chans;
     { juce::SpinLock::ScopedLockType sl (channelLock); chans = selectedChannels; }
-    audioFifo.write (inputAudio, numSamples, chans);
+    audioFifo->write (inputAudio, numSamples, chans);
 }
 
 void AudioOutDeviceNode::audioDeviceIOCallbackWithContext (
@@ -233,9 +233,19 @@ void AudioOutDeviceNode::audioDeviceIOCallbackWithContext (
     float* const* outputChannelData, int numOutputChannels,
     int numSamples, const juce::AudioIODeviceCallbackContext&)
 {
+    // Shared-fifo fix, 2026-09-24 — handed over: output silence, never
+    // touch the shared fifo (JUCE sums overlapping callbacks' outputs).
+    if (callbackHandedOver.load (std::memory_order_acquire))
+    {
+        for (int ch = 0; ch < numOutputChannels; ++ch)
+            if (outputChannelData[ch] != nullptr)
+                juce::FloatVectorOperations::clear (outputChannelData[ch], numSamples);
+        return;
+    }
+
     std::vector<int> chans;
     { juce::SpinLock::ScopedLockType sl (channelLock); chans = selectedChannels; }
-    audioFifo.read (outputChannelData, numOutputChannels, numSamples, chans);
+    audioFifo->read (outputChannelData, numOutputChannels, numSamples, chans);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -316,7 +326,7 @@ void AudioInDeviceNode::closeDevice()
 void AudioInDeviceNode::prepare (double sampleRate, int maxBlockSize)
 {
     NodeProcessor::prepare (sampleRate, maxBlockSize);
-    audioFifo.reset (deviceChannelCount, (int) sampleRate);
+    audioFifo->prepareFor (deviceChannelCount, (int) sampleRate, maxBlockSize);   // Shared-fifo fix, 2026-09-24
 }
 
 void AudioInDeviceNode::process (int numSamples)
@@ -329,7 +339,7 @@ void AudioInDeviceNode::process (int numSamples)
     // already-allocated outputAudio member as the drain destination even
     // while disabled (rather than a new scratch buffer) — this project's
     // own established rule against heap allocation on the audio thread.
-    const bool gotAudio = audioFifo.read (outputAudio, numSamples);
+    const bool gotAudio = audioFifo->read (outputAudio, numSamples);
     if (disabled)
         outputAudio.clear();
 
@@ -362,7 +372,12 @@ void AudioInDeviceNode::audioDeviceIOCallbackWithContext (
     float* const*, int, int numSamples,
     const juce::AudioIODeviceCallbackContext&)
 {
+    // Shared-fifo fix, 2026-09-24 — handed over: the new node's callback
+    // is the only writer now (see transferCallbackTo()).
+    if (callbackHandedOver.load (std::memory_order_acquire))
+        return;
+
     std::vector<int> chans;
     { juce::SpinLock::ScopedLockType sl (channelLock); chans = selectedChannels; }
-    audioFifo.write (inputChannelData, numInputChannels, numSamples, chans);
+    audioFifo->write (inputChannelData, numInputChannels, numSamples, chans);
 }

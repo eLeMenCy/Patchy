@@ -35,13 +35,6 @@ public:
     void markTransferred() { transferred = true; }
     bool wasTransferred()  const { return transferred; }
 
-    // Real fix, 2026-09-03 (3rd revision) — public wrapper so
-    // PatchyProcessor's own processBlock() can call this from outside
-    // the class, at the one moment it's genuinely safe to (immediately
-    // after the audio-thread swap — see that function's own comment for
-    // the full story). audioFifo itself stays private; this is the only
-    // sanctioned way in.
-    void transferFifoFrom (AudioOutDeviceNode& other) { audioFifo.transferFrom (other.audioFifo); }
     bool getIsDawDevice()  const { return isDawDevice; }
     template <typename NodeT>
     void transferCallbackTo (NodeT& dst)
@@ -56,6 +49,8 @@ public:
         // per JUCE's own documented support for briefly overlapping
         // callbacks, avoiding any "nothing registered" window at all.
         //
+        // [Superseded 2026-09-24 by the shared-fifo fix further down —
+        // the paragraphs below are kept for history.]
         // The audio content itself — this node's own audioFifo — is
         // deliberately NOT transferred here anymore. An earlier version
         // of this fix did it right here, on the message thread, but that
@@ -84,7 +79,28 @@ public:
         dst.registeredDeviceName = registeredDeviceName;
         dst.currentSampleRate    = currentSampleRate;
         dst.currentBlockSize     = currentBlockSize;
+        // Shared-fifo fix, 2026-09-24 — the new node takes over THIS
+        // node's own fifo (shared, not copied) before its callback is
+        // registered. From here until processBlock()'s swap, the device
+        // talks to the new node while the graph still runs this old one —
+        // with separate fifos that window was a real gap (the device read
+        // an empty fifo / wrote into one nobody read). Sharing one fifo
+        // makes the handover seamless by construction: old graph and
+        // device keep meeting in the same fifo, and after the swap the new
+        // node simply carries on in it. Still single-producer/single-
+        // consumer: the graph side is one audio thread processing either
+        // the old node or (after the swap) the new one, never both.
+        // Replaces the old swap-time transferFifoFrom() copy, which
+        // allocated on the audio thread and was immediately wiped by the
+        // swap's own prepare() anyway.
+        dst.audioFifo = audioFifo;
         devManager->addAudioCallback (&dst);
+        // Shared-fifo fix, 2026-09-24 — JUCE may call both callbacks for
+        // a block while they overlap (add-then-remove, above/below). With
+        // one shared fifo, the old callback must stop touching it the
+        // moment the new one is live, or that block would be consumed
+        // (Out) or written (In) twice.
+        callbackHandedOver.store (true, std::memory_order_release);
         devManager->removeAudioCallback (this);
         devManager = nullptr; registeredDeviceName = {};
     }
@@ -130,80 +146,25 @@ private:
                            data[static_cast<size_t>(i)].end(), 0.0f);
         }
 
-        // Real fix, 2026-09-03 — found while investigating a longstanding,
-        // user-reported audio-stream glitch specifically on graph edits,
-        // after 6 separate investigations of PatchyProcessor::processBlock()'s
-        // own internal timing had already, conclusively ruled out
-        // everything measurable inside that one function. The real cause
-        // turned out to be architectural: AudioOutDeviceNode/AudioInDeviceNode
-        // register directly as their own AudioIODeviceCallback with a
-        // separate, dedicated juce::AudioDeviceManager — meaning their own
-        // real, hardware-level audio callback runs on a genuinely different
-        // thread than PatchyProcessor::processBlock() ever touches, which
-        // is exactly why none of those 6 investigations could ever have
-        // found this. Every node instance is destroyed and recreated on
-        // every single graph rebuild (this project's own established,
-        // unavoidable pattern), meaning a fresh AudioFifo — this one —
-        // starts completely empty, requiring roughly 2 full block periods
-        // of re-priming (see this fifo's own write()) before it will
-        // output anything but correct, graceful silence — a real, audible
-        // gap on the actual hardware output, entirely independent of how
-        // fast the graph's own internal processing runs, since the real
-        // audio-hardware callback for a transferred device never actually
-        // stops running at all.
-        //
-        // Transfers whatever audio content is genuinely still queued in
-        // the OLD fifo into this one, so a transferred device can
-        // continue outputting real, correct audio immediately rather than
-        // falling silent and re-priming from scratch. Uses only
-        // AbstractFifo's own well-documented public read/write API
-        // (prepareToRead/finishedRead/prepareToWrite/finishedWrite) rather
-        // than assuming anything about its own copy or move semantics,
-        // which aren't documented or verified anywhere. Must only ever be
-        // called after the old node's own audio callback has been fully,
-        // synchronously removed from its device manager (JUCE's own
-        // removeAudioCallback() guarantees no further callbacks fire on
-        // it once that call returns) — calling this while the old fifo
-        // might still be concurrently read from another thread would
-        // violate AbstractFifo's own single-reader contract. Verified
-        // this exact logic, including a genuine ring-buffer wraparound
-        // case, with a standalone simulation before writing this.
-        void transferFrom (AudioFifo& old)
+        // Shared-fifo fix, 2026-09-24 — see transferCallbackTo()'s own
+        // comment. A fifo handed over from an old node (same device, same
+        // audio config) must keep its content and state: resetting it here
+        // was exactly what wiped the audio on every graph edit. Only a real
+        // config change (sample rate or block size — the same criterion as
+        // ProcessingGraph::hasSameAudioConfigAs()) still resets it, keeping
+        // the 2026-09-18 "no stale content across a buffer/rate change"
+        // behaviour. A fresh node's fifo starts unconfigured, so it always
+        // resets on its first prepare, exactly as before.
+        void prepareFor (int numPhysical, int sampleRate, int blockSize)
         {
-            numChannels = old.numChannels;
-
-            int available = old.fifo.getNumReady();
-            if (available <= 0) { fifo.reset(); primed = false; return; }
-            available = juce::jmin (available, kFifoFrames);
-
-            int rs1, rn1, rs2, rn2;
-            old.fifo.prepareToRead (available, rs1, rn1, rs2, rn2);
-
-            fifo.reset();
-            int ws1, wn1, ws2, wn2;
-            fifo.prepareToWrite (available, ws1, wn1, ws2, wn2);
-
-            for (int ch = 0; ch < numChannels; ++ch)
-            {
-                // Read the old fifo's own (possibly wrapped) content into a
-                // temporary linear buffer first, then write that into this
-                // fifo's own (possibly differently-wrapped) write positions —
-                // the two fifos' own read/write pointers have no reason to
-                // align, so each side's own wrap must be handled separately.
-                std::vector<float> temp (static_cast<size_t> (available));
-                auto& oldChan = old.data[static_cast<size_t> (ch)];
-                if (rn1 > 0) std::memcpy (temp.data(), oldChan.data() + rs1, static_cast<size_t> (rn1) * sizeof (float));
-                if (rn2 > 0) std::memcpy (temp.data() + rn1, oldChan.data() + rs2, static_cast<size_t> (rn2) * sizeof (float));
-
-                auto& newChan = data[static_cast<size_t> (ch)];
-                if (wn1 > 0) std::memcpy (newChan.data() + ws1, temp.data(), static_cast<size_t> (wn1) * sizeof (float));
-                if (wn2 > 0) std::memcpy (newChan.data() + ws2, temp.data() + wn1, static_cast<size_t> (wn2) * sizeof (float));
-            }
-
-            old.fifo.finishedRead (rn1 + rn2);
-            fifo.finishedWrite (wn1 + wn2);
-            primed = old.primed;
+            if (sampleRate == configuredRate && blockSize == configuredBlock)
+                return;
+            reset (numPhysical, sampleRate);
+            configuredRate  = sampleRate;
+            configuredBlock = blockSize;
         }
+        int configuredRate  = 0;
+        int configuredBlock = 0;
 
         // Write graph channels 0,1,2… into contiguous FIFO slots.
         // selected[slot] = physical output channel — used by read() for routing.
@@ -305,7 +266,17 @@ private:
         // lastWriteFrames: writer's most recent block size (writer thread
         // stores, reader thread loads).
         std::atomic<int> lastWriteFrames { 0 };
-    } audioFifo;
+    };
+    // Shared-fifo fix, 2026-09-24: held by shared_ptr so an old and a new
+    // node for the same device can share ONE fifo across a graph rebuild
+    // (see transferCallbackTo()). Only ever reassigned in
+    // transferCallbackTo(), on the message thread, before the new node's
+    // callback is registered and before the new node is ever processed.
+    std::shared_ptr<AudioFifo> audioFifo { std::make_shared<AudioFifo>() };
+    // Shared-fifo fix, 2026-09-24 — set in transferCallbackTo() once the
+    // new node's callback is registered; this node's own device callback
+    // then leaves the shared fifo alone (see that function's comment).
+    std::atomic<bool> callbackHandedOver { false };
 
     juce::AudioDeviceManager* devManager = nullptr;
     juce::String              registeredDeviceName;
@@ -359,10 +330,6 @@ public:
     void markTransferred() { transferred = true; }
     bool wasTransferred()  const { return transferred; }
 
-    // Real fix, 2026-09-03 (3rd revision) — same reasoning as
-    // AudioOutDeviceNode's own equivalent (see that class's own comment
-    // for the full story).
-    void transferFifoFrom (AudioInDeviceNode& other) { audioFifo.transferFrom (other.audioFifo); }
     bool getIsDawDevice()  const { return isDawDevice; }
     template <typename NodeT>
     void transferCallbackTo (NodeT& dst)
@@ -377,6 +344,8 @@ public:
         // per JUCE's own documented support for briefly overlapping
         // callbacks, avoiding any "nothing registered" window at all.
         //
+        // [Superseded 2026-09-24 by the shared-fifo fix further down —
+        // the paragraphs below are kept for history.]
         // The audio content itself — this node's own audioFifo — is
         // deliberately NOT transferred here anymore. An earlier version
         // of this fix did it right here, on the message thread, but that
@@ -410,7 +379,16 @@ public:
         // new node, or a rebuild landing in that window would skip it.
         dst.fadeInMuteMs.store (fadeInMuteMs.load (std::memory_order_relaxed), std::memory_order_relaxed);
         dst.fadeInArmed.store (fadeInArmed.load (std::memory_order_relaxed), std::memory_order_relaxed);
+        // Shared-fifo fix, 2026-09-24 — same as AudioOutDeviceNode's own
+        // transferCallbackTo(); see its comment.
+        dst.audioFifo = audioFifo;
         devManager->addAudioCallback (&dst);
+        // Shared-fifo fix, 2026-09-24 — JUCE may call both callbacks for
+        // a block while they overlap (add-then-remove, above/below). With
+        // one shared fifo, the old callback must stop touching it the
+        // moment the new one is live, or that block would be consumed
+        // (Out) or written (In) twice.
+        callbackHandedOver.store (true, std::memory_order_release);
         devManager->removeAudioCallback (this);
         devManager = nullptr; registeredDeviceName = {};
     }
@@ -469,40 +447,25 @@ private:
                            data[static_cast<size_t>(i)].end(), 0.0f);
         }
 
-        // Real fix, 2026-09-03 — same reasoning and same fix as
-        // AudioOutDeviceNode's own equivalent (see that struct's own
-        // comment for the full story).
-        void transferFrom (AudioFifo& old)
+        // Shared-fifo fix, 2026-09-24 — see transferCallbackTo()'s own
+        // comment. A fifo handed over from an old node (same device, same
+        // audio config) must keep its content and state: resetting it here
+        // was exactly what wiped the audio on every graph edit. Only a real
+        // config change (sample rate or block size — the same criterion as
+        // ProcessingGraph::hasSameAudioConfigAs()) still resets it, keeping
+        // the 2026-09-18 "no stale content across a buffer/rate change"
+        // behaviour. A fresh node's fifo starts unconfigured, so it always
+        // resets on its first prepare, exactly as before.
+        void prepareFor (int numPhysical, int sampleRate, int blockSize)
         {
-            numChannels = old.numChannels;
-
-            int available = old.fifo.getNumReady();
-            if (available <= 0) { fifo.reset(); primed = false; return; }
-            available = juce::jmin (available, kFifoFrames);
-
-            int rs1, rn1, rs2, rn2;
-            old.fifo.prepareToRead (available, rs1, rn1, rs2, rn2);
-
-            fifo.reset();
-            int ws1, wn1, ws2, wn2;
-            fifo.prepareToWrite (available, ws1, wn1, ws2, wn2);
-
-            for (int ch = 0; ch < numChannels; ++ch)
-            {
-                std::vector<float> temp (static_cast<size_t> (available));
-                auto& oldChan = old.data[static_cast<size_t> (ch)];
-                if (rn1 > 0) std::memcpy (temp.data(), oldChan.data() + rs1, static_cast<size_t> (rn1) * sizeof (float));
-                if (rn2 > 0) std::memcpy (temp.data() + rn1, oldChan.data() + rs2, static_cast<size_t> (rn2) * sizeof (float));
-
-                auto& newChan = data[static_cast<size_t> (ch)];
-                if (wn1 > 0) std::memcpy (newChan.data() + ws1, temp.data(), static_cast<size_t> (wn1) * sizeof (float));
-                if (wn2 > 0) std::memcpy (newChan.data() + ws2, temp.data() + wn1, static_cast<size_t> (wn2) * sizeof (float));
-            }
-
-            old.fifo.finishedRead (rn1 + rn2);
-            fifo.finishedWrite (wn1 + wn2);
-            primed = old.primed;
+            if (sampleRate == configuredRate && blockSize == configuredBlock)
+                return;
+            reset (numPhysical, sampleRate);
+            configuredRate  = sampleRate;
+            configuredBlock = blockSize;
         }
+        int configuredRate  = 0;
+        int configuredBlock = 0;
 
         // Write selected physical input channels into contiguous FIFO slots.
         // Unselected channels are simply not written — numChannels == selected.size().
@@ -590,7 +553,17 @@ private:
         // lastWriteFrames: writer's most recent block size (writer thread
         // stores, reader thread loads).
         std::atomic<int> lastWriteFrames { 0 };
-    } audioFifo;
+    };
+    // Shared-fifo fix, 2026-09-24: held by shared_ptr so an old and a new
+    // node for the same device can share ONE fifo across a graph rebuild
+    // (see transferCallbackTo()). Only ever reassigned in
+    // transferCallbackTo(), on the message thread, before the new node's
+    // callback is registered and before the new node is ever processed.
+    std::shared_ptr<AudioFifo> audioFifo { std::make_shared<AudioFifo>() };
+    // Shared-fifo fix, 2026-09-24 — set in transferCallbackTo() once the
+    // new node's callback is registered; this node's own device callback
+    // then leaves the shared fifo alone (see that function's comment).
+    std::atomic<bool> callbackHandedOver { false };
 
     juce::AudioDeviceManager* devManager = nullptr;
     juce::String              registeredDeviceName;

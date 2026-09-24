@@ -232,6 +232,7 @@ private:
                 }
             }
             fifo.finishedWrite (n1 + n2);
+            lastWriteFrames.store (numFrames, std::memory_order_relaxed);
             if (! primed && fifo.getNumReady() >= numFrames * 2)
                 primed = true;
         }
@@ -254,6 +255,32 @@ private:
                 return;
             }
 
+            // Real fix, 2026-09-23 — buffer-size/sample-rate lag. read()
+            // only ever consumes exactly numFrames, so any surplus that
+            // builds up in this fifo (a skipped read, a burst around a
+            // graph swap, two independent hardware clocks drifting apart)
+            // was never discarded — it became permanent extra latency,
+            // up to the full 8192-frame capacity (~170-186 ms per fifo),
+            // clearable only by a restart. Trims the fifo back to a safe
+            // target whenever its fill exceeds a limit. Wide hysteresis
+            // (limit = target + one full block of the larger side) so it
+            // only fires on genuine standing surplus, never on normal
+            // reader/writer block-size jitter. Discarding is a read-side
+            // operation, so this stays within AbstractFifo's own
+            // single-reader contract.
+            {
+                const int writer = juce::jmax (1, lastWriteFrames.load (std::memory_order_relaxed));
+                const int target = numFrames + 2 * writer;
+                const int limit  = target + juce::jmax (numFrames, writer);
+                const int ready  = fifo.getNumReady();
+                if (ready > limit)
+                {
+                    int t1, tn1, t2, tn2;
+                    fifo.prepareToRead (ready - target, t1, tn1, t2, tn2);
+                    fifo.finishedRead (tn1 + tn2);
+                }
+            }
+
             int s1, n1, s2, n2;
             fifo.prepareToRead (numFrames, s1, n1, s2, n2);
             const int slots = juce::jlimit (0, numChannels, (int) selected.size());
@@ -273,6 +300,10 @@ private:
         std::vector<std::vector<float>>             data;   // kMaxFifoChans × kFifoFrames, fixed after ctor
         int  numChannels = 2;
         bool primed      = false;
+        // Real fix, 2026-09-23 — see read()'s own trim comment.
+        // lastWriteFrames: writer's most recent block size (writer thread
+        // stores, reader thread loads).
+        std::atomic<int> lastWriteFrames { 0 };
     } audioFifo;
 
     juce::AudioDeviceManager* devManager = nullptr;
@@ -373,6 +404,10 @@ public:
         dst.registeredDeviceName = registeredDeviceName;
         dst.currentSampleRate    = currentSampleRate;
         dst.currentBlockSize     = currentBlockSize;
+        // Fix, 2026-09-24 — a fade-in armed by openDevice() but not yet
+        // started (no real audio read yet) must follow the device to its
+        // new node, or a rebuild landing in that window would skip it.
+        dst.fadeInArmed.store (fadeInArmed.load (std::memory_order_relaxed), std::memory_order_relaxed);
         devManager->addAudioCallback (&dst);
         devManager->removeAudioCallback (this);
         devManager = nullptr; registeredDeviceName = {};
@@ -495,13 +530,41 @@ private:
                 }
             }
             fifo.finishedWrite (n1 + n2);
+            lastWriteFrames.store (numFrames, std::memory_order_relaxed);
         }
 
         // Read FIFO slots into contiguous dst channels 0, 1, …
-        void read (juce::AudioBuffer<float>& dst, int numFrames)
+        bool read (juce::AudioBuffer<float>& dst, int numFrames)   // true = real audio delivered (FCA1616 fade-in fix, 2026-09-24)
         {
             dst.clear();
-            if (fifo.getNumReady() < numFrames) return;
+            if (fifo.getNumReady() < numFrames)
+                return false;
+
+            // Real fix, 2026-09-23 — buffer-size/sample-rate lag. read()
+            // only ever consumes exactly numFrames, so any surplus that
+            // builds up in this fifo (a skipped read, a burst around a
+            // graph swap, two independent hardware clocks drifting apart)
+            // was never discarded — it became permanent extra latency,
+            // up to the full 8192-frame capacity (~170-186 ms per fifo),
+            // clearable only by a restart. Trims the fifo back to a safe
+            // target whenever its fill exceeds a limit. Wide hysteresis
+            // (limit = target + one full block of the larger side) so it
+            // only fires on genuine standing surplus, never on normal
+            // reader/writer block-size jitter. Discarding is a read-side
+            // operation, so this stays within AbstractFifo's own
+            // single-reader contract.
+            {
+                const int writer = juce::jmax (1, lastWriteFrames.load (std::memory_order_relaxed));
+                const int target = numFrames + 2 * writer;
+                const int limit  = target + juce::jmax (numFrames, writer);
+                const int ready  = fifo.getNumReady();
+                if (ready > limit)
+                {
+                    int t1, tn1, t2, tn2;
+                    fifo.prepareToRead (ready - target, t1, tn1, t2, tn2);
+                    fifo.finishedRead (tn1 + tn2);
+                }
+            }
 
             int s1, n1, s2, n2;
             fifo.prepareToRead (numFrames, s1, n1, s2, n2);
@@ -514,18 +577,45 @@ private:
                 if (n2 > 0) std::memcpy (wr + n1, rd + s2, static_cast<size_t>(n2) * sizeof(float));
             }
             fifo.finishedRead (n1 + n2);
+            return true;
         }
 
         juce::AbstractFifo              fifo { kFifoFrames };
         std::vector<std::vector<float>> data;   // kMaxFifoChans × kFifoFrames, fixed after ctor
         int  numChannels = 2;
         bool primed      = false;
+        // Real fix, 2026-09-23 — see read()'s own trim comment.
+        // lastWriteFrames: writer's most recent block size (writer thread
+        // stores, reader thread loads).
+        std::atomic<int> lastWriteFrames { 0 };
     } audioFifo;
 
     juce::AudioDeviceManager* devManager = nullptr;
     juce::String              registeredDeviceName;
     bool                      transferred = false;
     bool                      isDawDevice = false;
+
+    // Fix, 2026-09-24 — open-time click. Some interfaces (confirmed: the
+    // Behringer FCA1616) emit a sharp pop in their own input stream when it
+    // starts — audible even on the interface's own headphone out, so it's
+    // hardware-side. Patchy can't stop it at the source, but can keep it
+    // out of its own audio path: after each FRESH open (never after a mere
+    // transfer between graphs, which doesn't restart the stream), the first
+    // real audio read is held silent for kFadeInMuteSeconds, then ramped
+    // up linearly over kFadeInRampSeconds. Counting starts at the first
+    // successful read, not at open, so a slow-starting device can't
+    // silently use up the window before its pop arrives. fadeInArmed is
+    // set on the message thread (openDevice) and consumed on the audio
+    // thread (process); fadeInPos is audio-thread-only (-1 = inactive).
+    // Measured 2026-09-24 (pop-timing diagnostic): the FCA1616's pop lands
+    // ~987 ms after the first audio (peak 0.914), a second spike at ~1045 ms
+    // (0.878), then a decaying tail (0.053 -> 0.010 by ~1335 ms) — likely
+    // the interface unmuting its inputs ~1 s after the stream starts. The
+    // mute covers both spikes with margin; the ramp swallows the tail.
+    static constexpr double kFadeInMuteSeconds = 1.250;
+    static constexpr double kFadeInRampSeconds = 0.150;
+    std::atomic<bool>         fadeInArmed { false };
+    int                       fadeInPos   = -1;
 
     // selectedChannels is written from the message thread and read from the
     // device callback thread — protect with a SpinLock.

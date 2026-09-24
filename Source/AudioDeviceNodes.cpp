@@ -2,6 +2,7 @@
 
 #include "ProcessingGraph.h"
 
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  AudioDeviceManager
 // ─────────────────────────────────────────────────────────────────────────────
@@ -274,6 +275,7 @@ void AudioInDeviceNode::openDevice (const juce::String& deviceName,
             {
                 if (auto* dev = manager.getCurrentAudioDevice())
                     deviceChannelCount = dev->getInputChannelNames().size();
+                fadeInArmed.store (true, std::memory_order_relaxed);   // Fix, 2026-09-24 — see fadeInArmed's own comment; armed BEFORE the callback starts writing
                 manager.addAudioCallback (this);
                 juce::Logger::writeToLog ("AudioInDeviceNode: opened " + deviceName
                                           + " (" + juce::String (deviceChannelCount) + " ch)");
@@ -311,9 +313,32 @@ void AudioInDeviceNode::process (int numSamples)
     // already-allocated outputAudio member as the drain destination even
     // while disabled (rather than a new scratch buffer) — this project's
     // own established rule against heap allocation on the audio thread.
-    audioFifo.read (outputAudio, numSamples);
+    const bool gotAudio = audioFifo.read (outputAudio, numSamples);
     if (disabled)
         outputAudio.clear();
+
+    // Fix, 2026-09-24 — open-time click: mute-then-ramp after a fresh open.
+    // See fadeInArmed's own comment in AudioDeviceNodes.h.
+    if (gotAudio && fadeInArmed.exchange (false, std::memory_order_relaxed))
+        fadeInPos = 0;
+    if (fadeInPos >= 0)
+    {
+        const int muteLen = (int) (currentSampleRate * kFadeInMuteSeconds);
+        const int rampLen = juce::jmax (1, (int) (currentSampleRate * kFadeInRampSeconds));
+        for (int ch = 0; ch < outputAudio.getNumChannels(); ++ch)
+        {
+            float* d = outputAudio.getWritePointer (ch);
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const int pos = fadeInPos + i;
+                if (pos < muteLen)                d[i] = 0.0f;
+                else if (pos < muteLen + rampLen) d[i] *= (float) (pos - muteLen) / (float) rampLen;
+            }
+        }
+        fadeInPos += numSamples;
+        if (fadeInPos >= muteLen + rampLen)
+            fadeInPos = -1;
+    }
 }
 
 void AudioInDeviceNode::audioDeviceIOCallbackWithContext (

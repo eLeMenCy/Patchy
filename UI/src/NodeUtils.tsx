@@ -6,9 +6,9 @@
  * MidiKeyboardNode and GenericNode.
  */
 
-import { useCallback, useState, useEffect, useContext, useRef } from 'react';
+import { useCallback, useState, useEffect, useLayoutEffect, useContext, useRef } from 'react';
 import { Handle, Position, useReactFlow, useUpdateNodeInternals } from '@xyflow/react';
-import { Settings, X, Power } from 'lucide-react';
+import { Settings, X, Power, Pencil } from 'lucide-react';
 import { Bridge, PaxInfo } from './Bridge';
 import { HintContext, NODE_HINTS, BUTTON_HINTS } from './HintPanel';
 
@@ -510,12 +510,17 @@ export function NodeCollapseArrow ({ collapsed, accent }: { collapsed: boolean; 
  */
 export function NodeHeader ({
   title, accent, showSettings, onToggleSettings, onDelete, collapsed, onToggleCollapsed,
-  disabled, onToggleDisabled, children,
+  disabled, onToggleDisabled, children, rename,
 }: {
   title:              string;
   accent:             string;
-  showSettings:       boolean;
-  onToggleSettings:   () => void;
+  // Optional since 2026-09-25 — a node with nothing left in its settings
+  // panel once the Name row moved to the header (MQTT Console) has no cog.
+  showSettings?:      boolean;
+  onToggleSettings?:  () => void;
+  // Phase 6 in-place rename, 2026-09-25 — when given, the title becomes an
+  // EditableTitle (pencil on hover). value = current custom name ('' = none).
+  rename?:            { value: string; placeholder: string; onCommit: (name: string) => void };
   onDelete:           () => void;
   collapsed?:         boolean;
   onToggleCollapsed?: () => void;
@@ -573,15 +578,22 @@ export function NodeHeader ({
               </svg>
             </span>
         )}
-        <div style={{
-          fontSize:     11,
-          fontWeight:   700,
-          color:        accent,
-          letterSpacing:'0.1em',
-          fontFamily:   "'Syne', sans-serif",
-        }}>
-          {title}
-        </div>
+        {rename ? (
+          <EditableTitle display={title} value={rename.value} placeholder={rename.placeholder}
+            onCommit={rename.onCommit}
+            textStyle={{ fontSize: 11, fontWeight: 700, color: accent, letterSpacing: '0.1em',
+                         fontFamily: "'Syne', sans-serif" }} />
+        ) : (
+          <div style={{
+            fontSize:     11,
+            fontWeight:   700,
+            color:        accent,
+            letterSpacing:'0.1em',
+            fontFamily:   "'Syne', sans-serif",
+          }}>
+            {title}
+          </div>
+        )}
       </div>
 
       {/* Action buttons */}
@@ -601,16 +613,17 @@ export function NodeHeader ({
         {/* Extra node-specific buttons (pause, clear, etc.) */}
         {children}
 
-        {/* Settings */}
-        <NodeHeaderButton
-          onClick={onToggleSettings}
-         
-          active={showSettings}
-          activeAccent={accent}
-          onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.settings), onMouseLeave: () => setHint(null) }}
-        >
-          <Settings size={14} />
-        </NodeHeaderButton>
+        {/* Settings — only when the node has a settings panel */}
+        {onToggleSettings && (
+          <NodeHeaderButton
+            onClick={onToggleSettings}
+            active={!! showSettings}
+            activeAccent={accent}
+            onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.settings), onMouseLeave: () => setHint(null) }}
+          >
+            <Settings size={14} />
+          </NodeHeaderButton>
+        )}
 
         {/* Delete */}
         <NodeHeaderButton onClick={onDelete} danger
@@ -648,6 +661,165 @@ export function SettingsPanelHeader ({ title, onReset, onClose }: {
       </div>
     </div>
   );
+}
+
+// ── EditableTitle ───────────────────────────────────────────────────────────
+// Phase 6 "universal, persistent node rename" — in-place version, 2026-09-25.
+// Replaces the earlier settings-panel "Name" rows (NameField), at the user's
+// request: renaming now happens directly in the header. Shows the title; a
+// small pencil appears on hover; clicking it turns the title into a field
+// right where it is. Enter or clicking away commits (one undo step, via the
+// caller's own onCommit); Escape cancels without committing. Chosen over
+// Cmd+Click (already ReactFlow's multi-select) and double-click (already
+// fold/unfold). Every pointer/double-click event on the pencil and the field
+// is stopped, so neither drags the node nor folds it.
+//
+// Escape: in the standalone app C++ (PatchyEditor::keyPressed) re-sends it as
+// a synthetic keydown on `window`, not on the field — both paths handled.
+// WebKit's autocomplete drop-down (which ate the first Escape) is off, both
+// here and app-wide (App.tsx).
+// Layout (user's requests, 2026-09-25): titles always show in UPPERCASE, on a
+// single line. The title area grows with its text up to TITLE_MAX_W (the node
+// grows with the header — nodes that used a fixed `width` now use `minWidth`).
+// A longer title is cut with an ellipsis at rest and, on hover, scrolls
+// slowly right-to-left in a continuous loop (marquee). The edit field is a
+// plain single-line input that grows up to TITLE_MAX_W, then scrolls natively.
+// (An intermediate 2-line version was dropped: editing behaved oddly.)
+const TITLE_MAX_W     = 200;
+const TITLE_MIN_W     = 60;
+const MARQUEE_GAP     = 40;    // px between the end of the text and its repeat
+const MARQUEE_SPEED   = 30;    // px per second
+let _titleMeasureCanvas: HTMLCanvasElement | null = null;   // shared, for text measurement
+
+export function EditableTitle ({ display, value, placeholder, onCommit, textStyle }: {
+  display:     string;                  // what the header shows (custom name or default title)
+  value:       string;                  // the current CUSTOM name ('' = none)
+  placeholder: string;                  // default title, shown while the field is empty
+  onCommit:    (name: string) => void;  // persist the new custom name ('' = back to default)
+  textStyle:   React.CSSProperties;     // the header's own title typography
+}) {
+  const [editing,   setEditing]   = useState (false);
+  const [hover,     setHover]     = useState (false);
+  const [scrolling, setScrolling] = useState (false);
+  const [draft,     setDraft]     = useState (value);
+  const inputRef      = useRef<HTMLInputElement>(null);
+  const boxRef        = useRef<HTMLDivElement>(null);
+  const trackRef      = useRef<HTMLSpanElement>(null);
+  const skipCommitRef = useRef (false);
+
+  const start = () => { setDraft (value); skipCommitRef.current = false; setScrolling (false); setEditing (true); };
+  const commit = () => {
+    setEditing (false);
+    if (skipCommitRef.current) { skipCommitRef.current = false; return; }
+    const v = draft.trim();
+    if (v !== value) onCommit (v);
+  };
+  const cancel = () => { skipCommitRef.current = true; inputRef.current?.blur(); };
+
+  useEffect (() => {
+    if (! editing) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
+    const onWindowKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && document.activeElement === inputRef.current) cancel();
+    };
+    window.addEventListener ('keydown', onWindowKey);
+    return () => window.removeEventListener ('keydown', onWindowKey);
+  }, [editing]);
+
+  // Edit field width, from the text itself (or the placeholder when empty),
+  // uppercased and measured with a canvas using the field's own computed
+  // font + letter spacing — independent of the surrounding layout (an
+  // earlier layout-based measurement came back far too narrow).
+  useLayoutEffect (() => {
+    if (! editing) return;
+    const el = inputRef.current;
+    if (! el) return;
+    const cs  = getComputedStyle (el);
+    const ctx = (_titleMeasureCanvas ??= document.createElement ('canvas')).getContext ('2d');
+    if (! ctx) return;
+    ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    const text  = (draft || placeholder).toUpperCase();
+    const textW = ctx.measureText (text).width + (parseFloat (cs.letterSpacing) || 0) * text.length;
+    el.style.width = `${Math.min (TITLE_MAX_W, Math.max (TITLE_MIN_W, Math.ceil (textW) + 14))}px`;
+  }, [editing, draft, placeholder]);
+
+  // Hover marquee: only if the title actually overflows its box.
+  useEffect (() => {
+    if (editing || ! hover) { setScrolling (false); return; }
+    const box = boxRef.current;
+    setScrolling (!! box && box.scrollWidth > box.clientWidth + 1);
+  }, [hover, editing, display]);
+
+  // The scroll itself: the track holds the text twice (with a gap), and moves
+  // left by exactly one text + gap, looping — seamless, continuous.
+  useEffect (() => {
+    if (! scrolling) return;
+    const track = trackRef.current;
+    if (! track || typeof track.animate !== 'function') return;
+    const dist = (track.scrollWidth + MARQUEE_GAP) / 2;
+    const anim = track.animate (
+      [{ transform: 'translateX(0)' }, { transform: `translateX(-${dist}px)` }],
+      { duration: (dist / MARQUEE_SPEED) * 1000, iterations: Infinity, easing: 'linear' });
+    return () => anim.cancel();
+  }, [scrolling, display]);
+
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  const caps: React.CSSProperties = { ...textStyle, textTransform: 'uppercase', whiteSpace: 'nowrap' };
+
+  if (editing)
+    return (
+      <input ref={inputRef} type="text" value={draft} placeholder={placeholder}
+        autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+        className="nodrag nopan"
+        onMouseDown={stop} onPointerDown={stop} onDoubleClick={stop} onClick={stop}
+        onChange={e => setDraft (e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => {
+          if (e.key === 'Enter')  { e.preventDefault(); inputRef.current?.blur(); }
+          if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); }
+        }}
+        style={{ ...caps, background: 'var(--surface)', border: '1px solid var(--border-hi)',
+                 borderRadius: 3, outline: 'none', padding: '0 4px', margin: 0,
+                 width: TITLE_MIN_W, flexShrink: 0, boxSizing: 'border-box',
+                 // headers use userSelect:'none', which WebKit would apply
+                 // inside the field too (no selecting/placing the caret)
+                 userSelect: 'text', WebkitUserSelect: 'text', cursor: 'text' }} />
+    );
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}
+      onMouseEnter={() => setHover (true)} onMouseLeave={() => setHover (false)}>
+      <div ref={boxRef}
+        style={{ ...caps, overflow: 'hidden', minWidth: 0, maxWidth: TITLE_MAX_W,
+                 textOverflow: scrolling ? 'clip' : 'ellipsis' }}>
+        {scrolling ? (
+          <span ref={trackRef} style={{ display: 'inline-block', whiteSpace: 'nowrap', willChange: 'transform' }}>
+            {display}<span style={{ display: 'inline-block', width: MARQUEE_GAP }} />{display}
+          </span>
+        ) : display}
+      </div>
+      <span className="nodrag"
+        onMouseDown={stop} onPointerDown={stop} onDoubleClick={stop}
+        onClick={e => { e.stopPropagation(); start(); }}
+        title="Rename"
+        style={{ display: 'inline-flex', cursor: 'pointer', color: 'var(--text-muted)',
+                 opacity: hover ? 0.9 : 0, transition: 'opacity 0.15s', flexShrink: 0 }}>
+        <Pencil size={10} />
+      </span>
+    </div>
+  );
+}
+
+/** Phase 6 in-place rename, 2026-09-25 — onCommit for nodes whose name lives
+ *  in the graph model's own `customName` (all Pax + MIDI CH. Matrix; the
+ *  monitors/consoles keep theirs in settingsJson and pass their own commit).
+ *  One undoable step; setNodeLabel kept alongside as the old Pax rename did. */
+export function commitModelName (nodeId: string) {
+  return (name: string) => {
+    Bridge.setNodeCustomName (nodeId, name);
+    Bridge.setNodeLabel (nodeId, name);
+  };
 }
 
 // ── isLikelyCompleteHost ────────────────────────────────────────────────────

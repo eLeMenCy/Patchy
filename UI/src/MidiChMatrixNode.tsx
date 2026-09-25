@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge } from './Bridge';
 import type { RawPort } from './Bridge';
-import { NodeHandle, useNodeDisabled, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow } from './NodeUtils';
+import { NodeHandle, useNodeDisabled, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow, EditableTitle, commitModelName } from './NodeUtils';
 import { Power, X, Funnel, FunnelX } from 'lucide-react';
 
 export interface MidiChMatrixNodeData {
@@ -18,6 +18,7 @@ export interface MidiChMatrixNodeData {
   ports:         RawPort[];
   disabled?:     boolean;
   settingsJson?: string;
+  customName?:   string;   // Phase 6 persistent rename, 2026-09-25
   [key: string]: unknown;
 }
 
@@ -47,6 +48,8 @@ function parseSettings (json: string | undefined): MidiChMatrixSettings {
 export default function MidiChMatrixNode ({ id, data, selected }: NodeProps) {
   const { disabled, toggleDisabled }    = useNodeDisabled (id, (data as any).disabled);
   const { collapsed, toggleCollapsed }  = useNodeCollapsed (id, (data as any)._forceCollapsed);
+  // Phase 6 persistent rename, 2026-09-25 — edited in place in the header.
+  const customName: string = (data as any).customName ?? '';
 
   // Local state, optimistically updated on every interaction — matches
   // DmxConsoleNode.tsx's own established pattern. data.settingsJson only
@@ -177,13 +180,12 @@ export default function MidiChMatrixNode ({ id, data, selected }: NodeProps) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <NodeCollapseArrow collapsed={collapsed} accent={ACCENT} />
 
-          <div style={{
-            fontSize: '11px', fontWeight: 700, color: ACCENT,
-            letterSpacing: '0.1em', fontFamily: "'Syne', sans-serif",
-            textTransform: 'uppercase', userSelect: 'none', whiteSpace: 'nowrap',
-          }}>
-            MIDI CH. MATRIX
-          </div>
+          {/* Phase 6 in-place rename, 2026-09-25 — pencil on hover */}
+          <EditableTitle display={customName || 'MIDI CH. MATRIX'} value={customName} placeholder="MIDI CH. Matrix"
+            onCommit={commitModelName (id)}
+            textStyle={{ fontSize: '11px', fontWeight: 700, color: ACCENT,
+                         letterSpacing: '0.1em', fontFamily: "'Syne', sans-serif",
+                         textTransform: 'uppercase', userSelect: 'none', whiteSpace: 'nowrap' }} />
 
           {/* Stepper — deliberately inline (not a settings-panel slider), so
               the node itself visibly grows/shrinks with the grid */}

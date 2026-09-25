@@ -416,6 +416,7 @@ juce::var GraphModel::toVar() const
         obj->setProperty ("paxName",        n.paxName);
         obj->setProperty ("selectedDeviceId", n.selectedDeviceId);
         obj->setProperty ("settingsJson",     n.settingsJson);
+        obj->setProperty ("customName",       n.customName);   // Phase 6 rename, 2026-09-25
         obj->setProperty ("disabled",         n.disabled);
         obj->setProperty ("x",        n.x);
         obj->setProperty ("y",        n.y);
@@ -709,6 +710,7 @@ void GraphModel::restoreSnapshot (const juce::var& snapshot)
             nd.settingsJson = nObj->getProperty ("settingsJson").toString();
             nd.disabled     = (bool) nObj->getProperty ("disabled");
             nd.label        = nObj->getProperty ("label").toString();
+            nd.customName   = nObj->getProperty ("customName").toString();   // Phase 6 rename, 2026-09-25 (absent in older files -> empty)
         }
     }
 

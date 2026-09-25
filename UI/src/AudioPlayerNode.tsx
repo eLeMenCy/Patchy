@@ -388,7 +388,7 @@ function AudioPlayerNode ({ id, data, selected }: NodeProps) {
 
   return (
     <div style={{
-      width: W,
+      minWidth: W,   // was width — grows with a long title (in-place rename, 2026-09-25)
       background: 'var(--surface)',
       border: `1px solid ${selected ? 'var(--audio)' : 'var(--border)'}`,
       borderTop: '3px solid var(--audio)',
@@ -406,7 +406,8 @@ function AudioPlayerNode ({ id, data, selected }: NodeProps) {
       <NodeHandle nodeId={id} label="Audio Out" direction="out" colour="rgb(20,80,20)" index={0} total={1} offset={46} portBodyRef={portBodyRef} />
 
       {/* Header */}
-      <NodeHeader title={settings.customName || "AUDIO PLAYER"} accent="var(--audio)"
+      <NodeHeader title={settings.customName || "AUDIO PLAYER"}
+        rename={{ value: settings.customName ?? '', placeholder: 'Audio Player', onCommit: v => commitPatch({ customName: v }) }} accent="var(--audio)"
         showSettings={showSettings} onToggleSettings={toggleSettings}
         onDelete={handleDelete} collapsed={collapsed} onToggleCollapsed={toggleCollapsed}
         disabled={disabled} onToggleDisabled={toggleDisabled} />
@@ -524,15 +525,6 @@ function SettingsPanel ({ s, onChange, onDiscreteChange, onClose, onReset, onCom
         overflow: 'visible',
       }}>
       <SettingsPanelHeader title="Audio Player" onReset={onReset} onClose={onClose} />
-
-      {section ('Display')}
-      {row ('Name', (
-        <input type="text" value={s.customName} placeholder="Audio Player"
-          onChange={e => onChange ({ customName: e.target.value })}
-          onBlur={onCommit}
-          style={{ width:'100%', background:'var(--surface)', border:'1px solid var(--border)',
-                   borderRadius:3, color:'var(--text)', fontSize:10, padding:'3px 6px' }} />
-      ))}
 
       {section ('Source')}
       {row ('Mode', (

@@ -7,7 +7,7 @@ import { NodeSelect } from './NodeSelect';
 import {
   DmxMonitorNodeData, DmxNodeSettings, DEFAULT_SETTINGS,
   CHANNELS, COL_W, FADER_H,
-  formatVal, navBtnStyle, NameInput,
+  formatVal, navBtnStyle,
 } from './DmxShared';
 
 // ArtNet uses its own colour
@@ -218,7 +218,8 @@ export const ArtNetMonitorNode = memo(function ArtNetMonitorNode ({ id, data, se
       boxShadow: selected ? `0 0 0 1px ${ACCENT}, 0 8px 32px var(--artnet-glow)` : '0 4px 16px rgba(0,0,0,.5)',
       minWidth: nodeW, fontFamily: "'JetBrains Mono', monospace", position: 'relative',
     }}>
-      <NodeHeader title={headerTitle} accent={ACCENT}
+      <NodeHeader title={headerTitle}
+        rename={{ value: settings.customName ?? '', placeholder: 'ArtNet Monitor', onCommit: v => commitPatch({ customName: v }) }} accent={ACCENT}
         showSettings={showSettings} onToggleSettings={toggleSettings}
         onDelete={handleDelete} collapsed={collapsed} onToggleCollapsed={toggleCollapsed}
       />
@@ -309,14 +310,6 @@ function ArtNetMonitorSettingsPanel ({ settings, onChange, onCommit, onClose }: 
         userSelect: 'none',
       }}>
       <SettingsPanelHeader title="ARTNET MONITOR" onReset={() => onCommit({ ...DEFAULT_ARTNET_SETTINGS })} onClose={onClose} />
-      {row('Name', (
-        <NameInput
-          value={settings.customName}
-          placeholder="ArtNet Monitor"
-          onChange={v => onChange({ customName: v })}
-          onCommit={v => onCommit({ customName: v })}
-        />
-      ))}
       {row('Channels', (
         <NodeSelect value={String(settings.visibleCount)} showEmpty={false} accent={ACCENT}
           onChange={(v: string) => onCommit({ visibleCount: Number(v) as 8|16|24|32, startChannel: 0 })}

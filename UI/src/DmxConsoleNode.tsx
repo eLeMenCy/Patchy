@@ -204,7 +204,8 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
       boxShadow: selected ? `0 0 0 1px ${ACCENT}, 0 8px 32px var(--dmx-glow)` : '0 4px 16px rgba(0,0,0,.5)',
       minWidth: nodeW, fontFamily: "'JetBrains Mono', monospace", position: 'relative',
     }}>
-      <NodeHeader title={settings.customName || 'DMX CONSOLE'} accent={ACCENT}
+      <NodeHeader title={settings.customName || 'DMX CONSOLE'}
+        rename={{ value: settings.customName ?? '', placeholder: 'DMX Console', onCommit: v => commitPatch({ customName: v }) }} accent={ACCENT}
         showSettings={showSettings} onToggleSettings={toggleSettings}
         onDelete={handleDelete} collapsed={collapsed} onToggleCollapsed={toggleCollapsed}>
         <NodeHeaderButton

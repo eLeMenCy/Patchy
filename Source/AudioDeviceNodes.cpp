@@ -246,6 +246,43 @@ void AudioOutDeviceNode::audioDeviceIOCallbackWithContext (
     std::vector<int> chans;
     { juce::SpinLock::ScopedLockType sl (channelLock); chans = selectedChannels; }
     audioFifo->read (outputChannelData, numOutputChannels, numSamples, chans);
+
+    // TEMPORARY diagnostic (2026-09-25) — log each new starved/trim event.
+    {
+        const int st = audioFifo->starvedCount.load (std::memory_order_relaxed);
+        if (st != diagLastStarved)
+        {
+            diagLastStarved = st;
+            diagLog ("AudioOut[" + registeredDeviceName + "] STARVED — underrun, silent block + re-prime (total " + juce::String (st) + ")");
+        }
+        const int tr = audioFifo->trimCount.load (std::memory_order_relaxed);
+        if (tr != diagLastTrims)
+        {
+            diagLastTrims = tr;
+            diagLog ("AudioOut[" + registeredDeviceName + "] TRIM — surplus discarded (total " + juce::String (tr) + ")");
+        }
+    }
+
+    // TEMPORARY diagnostic (2026-09-25) — driver-level dropouts, polled
+    // about every 250 ms on the device thread; logged only when the
+    // device's own xrun count goes up.
+    diagXrunSamples += numSamples;
+    if (diagXrunSamples >= (int) (currentSampleRate * 0.25))
+    {
+        diagXrunSamples = 0;
+        if (auto* mgr = devManager)
+            if (auto* dev = mgr->getCurrentAudioDevice())
+            {
+                const int x = dev->getXRunCount();
+                if (x >= 0)
+                {
+                    if (diagLastXruns >= 0 && x > diagLastXruns)
+                        diagLog ("AudioOut[" + registeredDeviceName + "] XRUN — driver dropout (+"
+                                 + juce::String (x - diagLastXruns) + ", total " + juce::String (x) + ")");
+                    diagLastXruns = x;
+                }
+            }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -365,6 +402,22 @@ void AudioInDeviceNode::process (int numSamples)
         if (fadeInPos >= muteLen + rampLen)
             fadeInPos = -1;
     }
+
+    // TEMPORARY diagnostic (2026-09-25) — log each new starved/trim event.
+    {
+        const int st = audioFifo->starvedCount.load (std::memory_order_relaxed);
+        if (st != diagLastStarved)
+        {
+            diagLastStarved = st;
+            diagLog ("AudioIn[" + registeredDeviceName + "] STARVED — short read, silent block (total " + juce::String (st) + ")");
+        }
+        const int tr = audioFifo->trimCount.load (std::memory_order_relaxed);
+        if (tr != diagLastTrims)
+        {
+            diagLastTrims = tr;
+            diagLog ("AudioIn[" + registeredDeviceName + "] TRIM — surplus discarded (total " + juce::String (tr) + ")");
+        }
+    }
 }
 
 void AudioInDeviceNode::audioDeviceIOCallbackWithContext (
@@ -379,5 +432,63 @@ void AudioInDeviceNode::audioDeviceIOCallbackWithContext (
 
     std::vector<int> chans;
     { juce::SpinLock::ScopedLockType sl (channelLock); chans = selectedChannels; }
+
+    // TEMPORARY diagnostic (2026-09-25) — click detector on the RAW input,
+    // before anything in Patchy touches it. See the diag members' comment.
+    {
+        float worstJump = 0.0f;
+        int   worstCh   = -1;
+        for (int ch : chans)
+        {
+            if (ch < 0 || ch >= numInputChannels || ch >= kMaxFifoChans || inputChannelData[ch] == nullptr)
+                continue;
+            const float* x = inputChannelData[ch];
+            float prev = diagDetectorPrimed ? diagPrevSample[(size_t) ch] : x[0];
+            float peak = diagPeakJump[(size_t) ch];
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const float jump = std::abs (x[i] - prev);
+                if (jump > kClickMinJump && jump > kClickPeakRatio * peak && jump > worstJump)
+                {
+                    worstJump = jump;
+                    worstCh   = ch;
+                }
+                peak = juce::jmax (peak * kClickPeakDecay, jump);
+                prev = x[i];
+            }
+            diagPrevSample[(size_t) ch] = prev;
+            diagPeakJump[(size_t) ch]   = peak;
+        }
+        diagDetectorPrimed = true;
+        diagSamplesSinceClick = juce::jmin (diagSamplesSinceClick + numSamples, 1 << 30);
+        if (worstCh >= 0 && diagSamplesSinceClick >= (int) (currentSampleRate * 0.25))
+        {
+            diagSamplesSinceClick = 0;
+            diagLog ("AudioIn[" + registeredDeviceName + "] CLICK in raw input — ch "
+                     + juce::String (worstCh + 1) + ", jump " + juce::String (worstJump, 3));
+        }
+    }
+
+    // TEMPORARY diagnostic (2026-09-25) — driver-level dropouts, polled
+    // about every 250 ms on the device thread; logged only when the
+    // device's own xrun count goes up.
+    diagXrunSamples += numSamples;
+    if (diagXrunSamples >= (int) (currentSampleRate * 0.25))
+    {
+        diagXrunSamples = 0;
+        if (auto* mgr = devManager)
+            if (auto* dev = mgr->getCurrentAudioDevice())
+            {
+                const int x = dev->getXRunCount();
+                if (x >= 0)
+                {
+                    if (diagLastXruns >= 0 && x > diagLastXruns)
+                        diagLog ("AudioIn[" + registeredDeviceName + "] XRUN — driver dropout (+"
+                                 + juce::String (x - diagLastXruns) + ", total " + juce::String (x) + ")");
+                    diagLastXruns = x;
+                }
+            }
+    }
+
     audioFifo->write (inputChannelData, numInputChannels, numSamples, chans);
 }

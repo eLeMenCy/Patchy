@@ -117,12 +117,13 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
       : isAudioPlayer
       ? { label: raw.label, nodeType: 26, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as AudioPlayerNodeData
       : isMidiChMatrix
-      ? { label: raw.label, nodeType: 27, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as MidiChMatrixNodeData
+      ? { label: raw.label, nodeType: 27, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson, customName: raw.customName } as MidiChMatrixNodeData
       : { label: raw.label, nodeType: raw.nodeType,
           ports: raw.ports, selectedDeviceId: raw.selectedDeviceId,
           paxName: raw.paxName,
           paxParams: raw.paxName ? (paxInfoMap?.get(raw.paxName)?.params ?? []) : [],
-          disabled: raw.disabled, settingsJson: raw.settingsJson } as NodeData,
+          disabled: raw.disabled, settingsJson: raw.settingsJson,
+          customName: raw.customName } as NodeData,   // Phase 6 rename, 2026-09-25
   };
 }
 
@@ -862,11 +863,62 @@ function FlowCanvas() {
     };
   }, [setHint]);
 
+  // Phase 6 rename fix, 2026-09-25 — report text-field focus to C++ (its own
+  // Cmd+Z shortcut in PatchyEditor::keyPressed() checks it), for every
+  // input/textarea/contentEditable in the UI, not just node names. The state
+  // is always recomputed from document.activeElement (on focus changes AND
+  // on every key press, in the capture phase) rather than trusted from
+  // focusin/focusout alone: a focused field removed from the DOM (node
+  // deleted, graph loaded) doesn't reliably fire focusout, which would leave
+  // C++ blocking graph undo. Only actual changes are sent.
+  useEffect(() => {
+    let reported = false;
+    const isEditable = (el: Element | null) =>
+      el instanceof HTMLElement &&
+      (el.tagName === 'TEXTAREA' || el.isContentEditable ||
+       (el.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'button', 'submit', 'color', 'file']
+          .includes((el as HTMLInputElement).type)));
+    const sync = () => {
+      const now = isEditable(document.activeElement);
+      if (now !== reported) { reported = now; Bridge.setTextEditing(now); }
+    };
+    const syncSoon = () => setTimeout(sync, 0);   // after focus has actually moved
+    // Fix 2026-09-25 — WebKit's own autocomplete drop-down (values typed
+    // before in similar fields) popped up in text fields, and the first
+    // Escape only closed that list. Switched off on every text field at the
+    // moment it gains focus, before any typing, so no component needs to
+    // remember to set it itself.
+    const noAutocomplete = (e: FocusEvent) => {
+      const el = e.target;
+      if (el instanceof HTMLInputElement && isEditable(el)) {
+        el.setAttribute('autocomplete',   'off');
+        el.setAttribute('autocorrect',    'off');
+        el.setAttribute('autocapitalize', 'off');
+        el.spellcheck = false;
+      }
+    };
+    document.addEventListener('focusin',  noAutocomplete);
+    document.addEventListener('focusin',  syncSoon);
+    document.addEventListener('focusout', syncSoon);
+    window.addEventListener('keydown',    sync, true);
+    return () => {
+      document.removeEventListener('focusin',  noAutocomplete);
+      document.removeEventListener('focusin',  syncSoon);
+      document.removeEventListener('focusout', syncSoon);
+      window.removeEventListener('keydown',    sync, true);
+    };
+  }, []);
+
   // Keyboard shortcuts: Cmd+Z = undo, Cmd+Shift+Z = redo
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const cmd = e.metaKey;  // Mac only — Cmd+Z, not Ctrl+Z
       if (!cmd) return;
+      // Phase 6 rename fix, 2026-09-25 — never undo/redo the graph while
+      // typing in a text field (native text undo applies instead).
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && (ae.tagName === 'TEXTAREA' || ae.isContentEditable ||
+                 (ae.tagName === 'INPUT' && (ae as HTMLInputElement).type === 'text'))) return;
       if (e.key === 'z' || e.key === 'Z') {
         e.preventDefault();
         if (e.shiftKey) Bridge.redo();

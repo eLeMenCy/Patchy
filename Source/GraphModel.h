@@ -85,6 +85,15 @@ struct NodeData
     juce::String      paxName;        // empty = built-in, non-empty = dynamic Pax
     juce::String      selectedDeviceId;  // for nodeType 4 and 5
     juce::String      settingsJson;      // UI settings blob (JSON string)
+    // User-given display name, 2026-09-25 — Phase 6 "universal, persistent
+    // node rename". Separate from `label` on purpose: GenericNode.tsx derives
+    // a Pax's own header title FROM `label` (e.g. "MIDI TRANSPOSE"), and a
+    // Pax's settingsJson is a plain array of parameter values, so neither
+    // could carry a name without breaking something. Empty = no custom
+    // name (the node shows its default title). Saved to .patchy files and
+    // carried in undo snapshots via toVar()/fromVar(); set through
+    // WebBridge's setNodeCustomName (one undoable step, no graph rebuild).
+    juce::String      customName;
     float             x = 100.f, y = 100.f;
     bool              disabled = false;  // Disable/Enable toggle, 2026-09-11 — see ProcessingGraph's own process() for what this actually does at runtime
     std::vector<Port> ports;

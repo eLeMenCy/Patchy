@@ -100,7 +100,7 @@ void PatchyProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                      ? (1'000'000.0 * (double) buffer.getNumSamples() / lastSampleRate)
                                      : 11600.0;
             if ((double) gapMicros > expectedMicros * 1.5)
-                juce::Logger::writeToLog ("PatchyProcessor: callback gap " + juce::String ((int) gapMicros)
+                diagLog ("PatchyProcessor: callback gap " + juce::String ((int) gapMicros)
                                           + " microseconds (expected ~" + juce::String ((int) expectedMicros) + ")");
         }
         lastCallbackTime = now;
@@ -171,7 +171,7 @@ void PatchyProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
         auto timingEnd = std::chrono::high_resolution_clock::now();
         auto timingMicros = std::chrono::duration_cast<std::chrono::microseconds> (timingEnd - timingStart).count();
-        juce::Logger::writeToLog ("PatchyProcessor: graph swap took " + juce::String ((int) timingMicros) + " microseconds");
+        diagLog ("PatchyProcessor: graph swap took " + juce::String ((int) timingMicros) + " microseconds");
 
         // TEMPORARY diagnostic (2026-09-02) — flags that the very next
         // process() call below is the FIRST one on freshly swapped-in
@@ -217,7 +217,7 @@ void PatchyProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     {
         auto baselineEnd = std::chrono::high_resolution_clock::now();
         auto baselineMicros = std::chrono::duration_cast<std::chrono::microseconds> (baselineEnd - baselineStart).count();
-        juce::Logger::writeToLog ("PatchyProcessor: FIRST process() after swap took " + juce::String ((int) baselineMicros) + " microseconds");
+        diagLog ("PatchyProcessor: FIRST process() after swap took " + juce::String ((int) baselineMicros) + " microseconds");
     }
 
     // Reset regardless of whether this block's own timing was logged —
@@ -765,6 +765,11 @@ void PatchyProcessor::setStateInformation (const void* data, int sizeInBytes)
         restoredNode.selectedDeviceId = nd->getProperty ("selectedDeviceId").toString();
         restoredNode.settingsJson     = nd->getProperty ("settingsJson").toString();
         restoredNode.disabled         = (bool) nd->getProperty ("disabled");
+        // Phase 6 rename fix, 2026-09-25 — this is the file-open / plugin-
+        // state restore path (onLoadGraph, setStateInformation), separate
+        // from GraphModel::fromVar() and WebBridge's own loader; it was
+        // missed in the first pass, so names didn't survive save/reload.
+        restoredNode.customName       = nd->getProperty ("customName").toString();
     }
 
     // Restore connections (IDs now match because we used restoreNode)

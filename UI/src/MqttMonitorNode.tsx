@@ -118,14 +118,6 @@ function SettingsPanel({ s, onChange, onDiscreteChange, onClose, onReset, onComm
       }}>
       <SettingsPanelHeader title="MQTT Monitor" onReset={onReset} onClose={onClose} />
 
-      {row('Name', (
-        <input type="text" value={s.customName} placeholder="MQTT Monitor"
-          onChange={e => onChange({ customName: e.target.value })}
-          onBlur={onCommit}
-          style={{ flex:1, background:'transparent', border:'1px solid var(--border)',
-                   color:'var(--text)', fontSize:10, borderRadius:3,
-                   padding:'2px 6px', outline:'none', width:'100%' }} />
-      ))}
 
       {section('Format')}
       {row('Time', select('timeFormat', [{v:'wall',l:'Wall clock'},{v:'delta',l:'Delta'}]))}
@@ -238,7 +230,7 @@ export const MqttMonitorNode = memo(function MqttMonitorNode({ id, data, selecte
   return (
     <div
       style={{
-        width: displayW + 2,
+        minWidth: displayW + 2,   // was width — grows with a long title (in-place rename, 2026-09-25)
         background: 'var(--surface)',
         border: `1px solid ${selected ? 'var(--mqtt)' : 'var(--border)'}`,
         borderTop: '3px solid var(--mqtt)',
@@ -251,7 +243,8 @@ export const MqttMonitorNode = memo(function MqttMonitorNode({ id, data, selecte
       <NodeHandle nodeId={id} label="MQTT In"  direction="in"  colour="var(--mqtt)" index={0} total={1} offset={-3} portBodyRef={portBodyRef} />
       <NodeHandle nodeId={id} label="MQTT Out" direction="out" colour="var(--mqtt)" index={0} total={1} offset={-3} portBodyRef={portBodyRef} />
 
-      <NodeHeader title={settings.customName || "MQTT MONITOR"} accent="var(--mqtt)"
+      <NodeHeader title={settings.customName || "MQTT MONITOR"}
+        rename={{ value: settings.customName ?? '', placeholder: 'MQTT Monitor', onCommit: v => commitPatch({ customName: v }) }} accent="var(--mqtt)"
         showSettings={showSettings} onToggleSettings={toggleSettings}
         onDelete={handleDelete} collapsed={collapsed} onToggleCollapsed={toggleCollapsed}>
         <NodeHeaderButton onClick={() => patch({ paused: !settings.paused })}

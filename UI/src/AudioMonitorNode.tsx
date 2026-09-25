@@ -274,14 +274,6 @@ function SettingsPanel ({ s, onChange, onDiscreteChange, onClose, onReset, onCom
       <SettingsPanelHeader title="Audio Monitor" onReset={onReset} onClose={onClose} />
 
       {section('Display')}
-      {row('Name', (
-        <input type="text" value={s.customName} placeholder="Audio Monitor"
-          onChange={e => onChange({ customName: e.target.value })}
-          onBlur={onCommit}
-          style={{ flex:1, background:'transparent', border:'1px solid var(--border)',
-                   color:'var(--text)', fontSize:10, borderRadius:3,
-                   padding:'2px 6px', outline:'none', width:'100%' }} />
-      ))}
       {row('Channels', sel('channelMode', [
         {v:'L',       l:'Left only'},
         {v:'R',       l:'Right only'},
@@ -416,7 +408,7 @@ function AudioMonitorNode ({ id, data, selected }: NodeProps) {
 
   return (
     <div style={{
-      width: W,
+      minWidth: W,   // was width — grows with a long title (in-place rename, 2026-09-25)
       background: 'var(--surface)',
       border: `1px solid ${selected ? 'var(--audio)' : 'var(--border)'}`,
       borderTop: '3px solid var(--audio)',
@@ -435,7 +427,8 @@ function AudioMonitorNode ({ id, data, selected }: NodeProps) {
       <NodeHandle nodeId={id} label="Audio Out" direction="out" colour="rgb(20,80,20)" index={0} total={1} offset={46} portBodyRef={portBodyRef} />
 
       {/* Header */}
-      <NodeHeader title={settings.customName || "AUDIO MONITOR"} accent="var(--audio)"
+      <NodeHeader title={settings.customName || "AUDIO MONITOR"}
+        rename={{ value: settings.customName ?? '', placeholder: 'Audio Monitor', onCommit: v => commitPatch({ customName: v }) }} accent="var(--audio)"
         showSettings={showSettings} onToggleSettings={toggleSettings}
         onDelete={handleDelete} collapsed={collapsed} onToggleCollapsed={toggleCollapsed}>
         <NodeHeaderButton onClick={() => patch({ paused: !settings.paused })}

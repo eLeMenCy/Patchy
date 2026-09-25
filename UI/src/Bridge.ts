@@ -27,6 +27,7 @@ export interface RawNode {
   ports: RawPort[];
   selectedDeviceId?: string;
   disabled?: boolean;   // Disable/Enable feature, 2026-09-12
+  customName?: string;  // Phase 6 persistent rename, 2026-09-25 — empty/absent = default title
 }
 
 export interface RawPort {
@@ -838,6 +839,16 @@ export const Bridge = {
   },
   setNodeLabel(nodeId: string, label: string) {
     sendToJuce({ type: 'setNodeLabel', nodeId, label });
+  },
+  /** Phase 6 persistent rename, 2026-09-25 — one undoable step per call,
+   *  saved with the graph. Send on commit (blur/Enter), not per keystroke. */
+  setNodeCustomName(nodeId: string, name: string) {
+    sendToJuce({ type: 'setNodeCustomName', nodeId, name });
+  },
+  /** Phase 6 rename fix, 2026-09-25 — tells C++ a text field has focus, so
+   *  its Cmd+Z shortcut leaves the graph alone while the user is typing. */
+  setTextEditing(editing: boolean) {
+    sendToJuce({ type: 'setTextEditing', editing });
   },
   sendMidiKeyEvent(nodeId: string, status: number, data1: number, data2: number) {
     sendToJuce({ type: 'midiKeyEvent', nodeId, status, data1, data2 });

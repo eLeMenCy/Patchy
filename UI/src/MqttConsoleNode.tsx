@@ -1,7 +1,7 @@
 import { memo, useContext, useCallback, useEffect, useRef, useState } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge } from './Bridge';
-import { useNodeSettings, useNodeDelete, NodeHeader, NodeHandle, useNodeCollapsed, SettingsPanelHeader } from './NodeUtils';
+import { useNodeDelete, NodeHeader, NodeHandle, useNodeCollapsed } from './NodeUtils';
 import { Send } from 'lucide-react';
 import { HintContext } from './HintPanel';
 
@@ -38,7 +38,7 @@ export const MqttConsoleNode = memo(function MqttConsoleNode({ id, data, selecte
     ...DEFAULT_SETTINGS, ...(d.settings ?? {}),
     ...(d.settingsJson ? JSON.parse(d.settingsJson) : {})
   });
-  const { showSettings, toggleSettings, closeSettings } = useNodeSettings(id);
+  // Settings panel removed 2026-09-25 — its only content (Name) moved to the header (in-place rename).
   const { handleDelete } = useNodeDelete(id);
   const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
   const { setHint } = useContext(HintContext);
@@ -107,7 +107,7 @@ export const MqttConsoleNode = memo(function MqttConsoleNode({ id, data, selecte
   return (
     <div
       style={{
-        width: 220,
+        minWidth: 220,   // was width — grows with a long title (in-place rename, 2026-09-25)
         background: 'var(--surface)',
         border: `1px solid ${selected ? 'var(--mqtt)' : 'var(--border)'}`,
         borderTop: '3px solid var(--mqtt)',
@@ -119,8 +119,8 @@ export const MqttConsoleNode = memo(function MqttConsoleNode({ id, data, selecte
 
       <NodeHandle nodeId={id} label="MQTT Out" direction="out" colour="var(--mqtt)" index={0} total={1} offset={-3} portBodyRef={portBodyRef} />
 
-      <NodeHeader title={settings.customName || "MQTT CONSOLE"} accent="var(--mqtt)"
-        showSettings={showSettings} onToggleSettings={toggleSettings}
+      <NodeHeader title={settings.customName || "MQTT CONSOLE"}
+        rename={{ value: settings.customName ?? '', placeholder: 'MQTT Console', onCommit: v => commitName(v) }} accent="var(--mqtt)"
         onDelete={handleDelete} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
 
       {!collapsed && (
@@ -202,35 +202,6 @@ export const MqttConsoleNode = memo(function MqttConsoleNode({ id, data, selecte
         </div>
       )}
 
-      {showSettings && (
-        <div
-          className="nodrag"
-          onMouseDown={e => e.stopPropagation()}
-          onPointerDown={e => e.stopPropagation()}
-          onClick={e => e.stopPropagation()}
-          style={{
-            position: 'absolute', top: 0, left: '100%', marginLeft: 6,
-            width: 200, background: 'var(--surface2)',
-            border: '1px solid var(--border-hi)', borderRadius: 'var(--radius)',
-            padding: '10px 12px', zIndex: 1000,
-            boxShadow: '0 8px 32px rgba(0,0,0,.6)',
-            fontFamily: "'JetBrains Mono', monospace",
-            userSelect: 'none',
-          }}>
-          <SettingsPanelHeader title="MQTT Console" onReset={() => commitName('')} onClose={() => closeSettings()} />
-          <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em',
-                        textTransform: 'uppercase', marginTop: 8, marginBottom: 4 }}>
-            Name
           </div>
-          <input type="text" defaultValue={settings.customName} placeholder="MQTT Console"
-            onBlur={e => commitName(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-            style={{ width: '100%', fontSize: 10, padding: '3px 6px',
-                     background: 'var(--surface)', border: '1px solid var(--border)',
-                     borderRadius: 3, color: 'var(--text-dim)', outline: 'none',
-                     fontFamily: "'JetBrains Mono', monospace" }} />
-        </div>
-      )}
-    </div>
   );
 });

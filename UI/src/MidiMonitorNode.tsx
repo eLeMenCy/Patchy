@@ -278,14 +278,6 @@ function SettingsPanel({ s, onChange, onDiscreteChange, onClose, onReset, onComm
       }}>
       <SettingsPanelHeader title="MIDI Monitor" onReset={onReset} onClose={onClose} />
 
-      {row('Name', (
-        <input type="text" value={s.customName} placeholder="MIDI Monitor"
-          onChange={e => onChange({ customName: e.target.value })}
-          onBlur={onCommit}
-          style={{ flex:1, background:'transparent', border:'1px solid var(--border)',
-                   color:'var(--text)', fontSize:10, borderRadius:3,
-                   padding:'2px 6px', outline:'none', width:'100%' }} />
-      ))}
       {section('Format')}
       {row('Numbers',    select('numberFormat',   [{v:'dec',l:'Decimal'},{v:'hex',l:'Hex'}]))}
       {row('Note C3/C4', select('noteOctave',     [{v:'yamaha',l:'Yamaha (C3)'},{v:'roland',l:'Roland (C4)'}]))}
@@ -454,7 +446,7 @@ function MidiMonitorNode({ id, data, selected }: NodeProps) {
   return (
     <div
       style={{
-        width: displayW + 2,
+        minWidth: displayW + 2,   // was width — grows with a long title (in-place rename, 2026-09-25)
         background: 'var(--surface)',
         border: `1px solid ${selected ? 'var(--midi)' : 'var(--border)'}`,
         borderTop: '3px solid var(--midi)',
@@ -471,7 +463,8 @@ function MidiMonitorNode({ id, data, selected }: NodeProps) {
       <NodeHandle nodeId={id} label="MIDI Out" direction="out" colour="var(--midi)" index={0} total={1} offset={-3} portBodyRef={portBodyRef} />
 
       {/* Header */}
-      <NodeHeader title={settings.customName || "MIDI MONITOR"} accent="var(--midi)"
+      <NodeHeader title={settings.customName || "MIDI MONITOR"}
+        rename={{ value: settings.customName ?? '', placeholder: 'MIDI Monitor', onCommit: v => commitPatch({ customName: v }) }} accent="var(--midi)"
         showSettings={showSettings} onToggleSettings={toggleSettings}
         onDelete={handleDelete} collapsed={collapsed} onToggleCollapsed={toggleCollapsed}>
         <NodeHeaderButton onClick={() => patch({ paused: !settings.paused })}

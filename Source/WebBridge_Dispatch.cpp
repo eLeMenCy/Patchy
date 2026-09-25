@@ -37,6 +37,10 @@ void WebBridge::handleMessage (const juce::String& json)
         handleCommitSettingsChange (obj);
     else if (type == "setNodeLabel")
         handleSetNodeLabel (obj);
+    else if (type == "setNodeCustomName")
+        handleSetNodeCustomName (obj);
+    else if (type == "setTextEditing")   // Phase 6 rename fix, 2026-09-25 — see WebBridge::isTextEditing()
+        textEditing = (bool) obj->getProperty ("editing");
     else if (type == "midiKeyEvent")
         handleMidiKeyEvent (obj);
     else if (type == "removeNode")
@@ -270,6 +274,27 @@ void WebBridge::handleSetNodeLabel (const juce::DynamicObject* obj)
     // Note: we do NOT call graph.renameNode() — the node label in the
     // NODE column always shows the original type name. The custom name
     // only appears in the NAME column of MidiMonitor.
+}
+
+// Phase 6 "universal, persistent node rename", 2026-09-25. The frontend
+// sends this once per committed edit (blur/Enter), not per keystroke. One
+// undoable step, same shape as handleCommitSettingsChange(): pre-change
+// snapshot, apply, push the snapshot + undo state. Writes the model field
+// directly (no notifyChange), so a rename never rebuilds the audio graph.
+void WebBridge::handleSetNodeCustomName (const juce::DynamicObject* obj)
+{
+    const juce::String nodeId = obj->getProperty ("nodeId").toString();
+    const juce::String name   = obj->getProperty ("name").toString().trim();
+    auto* nd = graph.findNode (nodeId);
+    if (nd == nullptr || nd->customName == name)
+        return;
+
+    pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
+    auto preSnapshot = graph.toVar();
+    nd->customName = name;
+    graph.pushExistingSnapshot (std::move (preSnapshot));
+    pushUndoState();
+    pushGraphToUI();
 }
 
 void WebBridge::handleMidiKeyEvent (const juce::DynamicObject* obj)
@@ -772,6 +797,8 @@ void WebBridge::handleImportFragmentNodes (const juce::DynamicObject* obj)
         // Restore custom label if present
         juce::String label = nObj->getProperty ("label").toString();
         if (label.isNotEmpty()) nd.label = label;
+        // Phase 6 rename, 2026-09-25 — absent in older files -> empty.
+        nd.customName = nObj->getProperty ("customName").toString();
         // Restore Disable/Enable state
         nd.disabled = (bool) nObj->getProperty ("disabled");
     }

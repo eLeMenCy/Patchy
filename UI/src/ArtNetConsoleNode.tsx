@@ -8,7 +8,7 @@ import { HintContext } from './HintPanel';
 import {
   DmxMonitorNodeData, DmxNodeSettings, DEFAULT_SETTINGS,
   CHANNELS, COL_W,
-  navBtnStyle, DmxFader, NameInput,
+  navBtnStyle, DmxFader,
 } from './DmxShared';
 
 const ACCENT = 'var(--artnet)';
@@ -200,7 +200,8 @@ export const ArtNetConsoleNode = memo(function ArtNetConsoleNode ({ id, data, se
       boxShadow: selected ? `0 0 0 1px ${ACCENT}, 0 8px 32px var(--artnet-glow)` : '0 4px 16px rgba(0,0,0,.5)',
       minWidth: nodeW, fontFamily: "'JetBrains Mono', monospace", position: 'relative',
     }}>
-      <NodeHeader title={settings.customName || 'ARTNET CONSOLE'} accent={ACCENT}
+      <NodeHeader title={settings.customName || 'ARTNET CONSOLE'}
+        rename={{ value: settings.customName ?? '', placeholder: 'ArtNet Console', onCommit: v => commitPatch({ customName: v }) }} accent={ACCENT}
         showSettings={showSettings} onToggleSettings={toggleSettings}
         onDelete={handleDelete} collapsed={collapsed} onToggleCollapsed={toggleCollapsed}>
         <NodeHeaderButton
@@ -315,14 +316,6 @@ function ArtNetConsoleSettingsPanel ({ settings, onChange, onCommit, onClose }: 
         onReset={() => onCommit({ ...DEFAULT_ARTNET_CONSOLE_SETTINGS })}
         onClose={onClose}
       />
-      {row('Name', (
-        <NameInput
-          value={settings.customName}
-          placeholder="ArtNet Console"
-          onChange={v => onChange({ customName: v })}
-          onCommit={v => onCommit({ customName: v })}
-        />
-      ))}
       {row('Universe', (
         // 0-32767: ArtNet 4's Port-Address is a 15-bit value (Net × 7 bits
         // + Sub-Net × 4 bits + Universe × 4 bits) — not an arbitrary limit,

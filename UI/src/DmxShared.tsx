@@ -260,14 +260,6 @@ export function DmxSettingsPanel ({ settings, isConsole, onChange, onCommit, onC
         onReset={() => onCommit({ ...DEFAULT_SETTINGS })}
         onClose={onClose}
       />
-      {row('Name', (
-        <NameInput
-          value={settings.customName}
-          placeholder={isConsole ? 'DMX Console' : 'DMX Monitor'}
-          onChange={v => onChange({ customName: v })}
-          onCommit={v => onCommit({ customName: v })}
-        />
-      ))}
       {row('Channels', (
         <NodeSelect value={String(settings.visibleCount)} showEmpty={false} accent={accent}
           onChange={v => onCommit({ visibleCount: Number(v) as 8|16|24|32, startChannel: 0 })}

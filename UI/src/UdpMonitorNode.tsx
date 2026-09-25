@@ -140,14 +140,6 @@ function SettingsPanel({ s, onChange, onDiscreteChange, onClose, onReset, onComm
       }}>
       <SettingsPanelHeader title="UDP Monitor" onReset={onReset} onClose={onClose} />
 
-      {row('Name', (
-        <input type="text" value={s.customName} placeholder="UDP Monitor"
-          onChange={e => onChange({ customName: e.target.value })}
-          onBlur={onCommit}
-          style={{ flex:1, background:'transparent', border:'1px solid var(--border)',
-                   color:'var(--text)', fontSize:10, borderRadius:3,
-                   padding:'2px 6px', outline:'none', width:'100%' }} />
-      ))}
 
       {section('Format')}
       {row('Time',    select('timeFormat', [{v:'wall',l:'Wall clock'},{v:'delta',l:'Delta'}]))}
@@ -263,7 +255,7 @@ export const UdpMonitorNode = memo(function UdpMonitorNode({ id, data, selected 
   return (
     <div
       style={{
-        width: displayW + 2,
+        minWidth: displayW + 2,   // was width — grows with a long title (in-place rename, 2026-09-25)
         background: 'var(--surface)',
         border: `1px solid ${selected ? 'var(--udp)' : 'var(--border)'}`,
         borderTop: '3px solid var(--udp)',
@@ -276,7 +268,8 @@ export const UdpMonitorNode = memo(function UdpMonitorNode({ id, data, selected 
       <NodeHandle nodeId={id} label="UDP In"  direction="in"  colour="var(--udp)" index={0} total={1} offset={-3} portBodyRef={portBodyRef} />
       <NodeHandle nodeId={id} label="UDP Out" direction="out" colour="var(--udp)" index={0} total={1} offset={-3} portBodyRef={portBodyRef} />
 
-      <NodeHeader title={settings.customName || "UDP MONITOR"} accent="var(--udp)"
+      <NodeHeader title={settings.customName || "UDP MONITOR"}
+        rename={{ value: settings.customName ?? '', placeholder: 'UDP Monitor', onCommit: v => commitPatch({ customName: v }) }} accent="var(--udp)"
         showSettings={showSettings} onToggleSettings={toggleSettings}
         onDelete={handleDelete} collapsed={collapsed} onToggleCollapsed={toggleCollapsed}>
         <NodeHeaderButton onClick={() => patch({ paused: !settings.paused })}

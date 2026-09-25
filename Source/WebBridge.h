@@ -159,6 +159,12 @@ public:
                        std::function<void(const juce::String&)>                                       onLoadGraph         = nullptr);
     ~WebBridge() override { stopTimer(); }
 
+    // Phase 6 rename fix, 2026-09-25 — true while a text field in the UI has
+    // focus (the frontend reports focusin/focusout). PatchyEditor::keyPressed()
+    // checks it so Cmd+Z / Cmd+Shift+Z don't undo/redo the GRAPH while the
+    // user is typing (which removed a just-dropped node mid-rename).
+    bool isTextEditing() const { return textEditing; }
+
     void resized() override;
     void loadUI();
     void pushGraphToUI();
@@ -287,6 +293,7 @@ private:
     void handleCommitNodeSettings ();
     void handleCommitSettingsChange (const juce::DynamicObject* obj);
     void handleSetNodeLabel (const juce::DynamicObject* obj);
+    void handleSetNodeCustomName (const juce::DynamicObject* obj);   // Phase 6 rename, 2026-09-25
     void handleMidiKeyEvent (const juce::DynamicObject* obj);
     void handleRemoveNode (const juce::DynamicObject* obj);
     void handleAddConnection (const juce::DynamicObject* obj);
@@ -342,6 +349,7 @@ private:
     std::function<void()> clearGraphTrash;
     std::function<void(const juce::String&, uint8_t, uint8_t, uint8_t)> onMidiKeyEvent;
     std::function<void(const juce::String&, const juce::String&)>          onSetNodeLabel;
+    bool textEditing = false;   // Phase 6 rename fix, 2026-09-25 — see isTextEditing()
     std::function<void(const juce::String&, int, float)> onSetPaxParameter;
     std::function<void(const juce::String&, const juce::String&)> onSetMidiDevice;
     std::function<void(const juce::String&, const juce::String&)> onSetAudioDevice;

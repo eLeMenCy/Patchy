@@ -4,7 +4,7 @@ import { DawContext } from './DawContext';
 import { X, Settings, Power } from 'lucide-react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, PaxParamInfo } from './Bridge';
-import { useNodeDelete, useNodeDisabled, NodeHeaderButton, useNodeCollapsed, useNodeSettings, NodeHandle, nodeContainerStyle, portColour, _paxInfoMap, detectPaxTheme, detectPaxTagPrefix } from './NodeUtils';
+import { useNodeDelete, useNodeDisabled, NodeHeaderButton, useNodeCollapsed, useNodeSettings, NodeHandle, nodeContainerStyle, portColour, _paxInfoMap, detectPaxTheme, detectPaxTagPrefix, EditableTitle, commitModelName } from './NodeUtils';
 
 import { DeviceSelector, AudioDeviceSettingsPanel, ChannelSummary } from './AudioDeviceUI';
 import { MidiChannelSummary, MidiOutChannelFilterPanel } from './MidiDeviceUI';
@@ -490,11 +490,10 @@ function GenericNode({ id, data, selected }: NodeProps) {
   const foldedSummaryParams = paxParams
     .map((p, i) => ({ p, i }))
     .filter(({ p }) => p.name !== 'DMX Channel');
-  const [customName, setCustomName] = useState('');
-  const onNameChange = useCallback((name: string) => {
-    setCustomName(name);
-    Bridge.setNodeLabel(id, name);
-  }, [id]);
+  // Phase 6 persistent rename, 2026-09-25 — was a standalone useState('')
+  // (lost on every reload/undo); now read from the graph model's own
+  // customName, edited in place in the header (EditableTitle).
+  const customName: string = (nodeData as any).customName ?? '';
 
   return (
     <div
@@ -540,31 +539,27 @@ function GenericNode({ id, data, selected }: NodeProps) {
                 <polygon points="0,0 8,5 0,10" fill="currentColor" />
               </svg>
             </span>
-          <div style={{
-            fontSize:      '11px',
-            fontWeight:    700,
-            color:         theme.accent,
-            letterSpacing: '0.1em',
-            fontFamily:    "'Syne', sans-serif",
-            whiteSpace:    'nowrap',
-          }}>
-            {customName || theme.tag}
-          </div>
+          {/* Phase 6 in-place rename, 2026-09-25 — Pax only (device nodes
+              aren't renamable: their header already shows the device). */}
+          {isPax ? (
+            <EditableTitle display={customName || theme.tag} value={customName} placeholder={theme.tag}
+              onCommit={commitModelName (id)}
+              textStyle={{ fontSize: '11px', fontWeight: 700, color: theme.accent,
+                           letterSpacing: '0.1em', fontFamily: "'Syne', sans-serif", whiteSpace: 'nowrap' }} />
+          ) : (
+            <div style={{
+              fontSize:      '11px',
+              fontWeight:    700,
+              color:         theme.accent,
+              letterSpacing: '0.1em',
+              fontFamily:    "'Syne', sans-serif",
+              whiteSpace:    'nowrap',
+            }}>
+              {theme.tag}
+            </div>
+          )}
         </div>
 
-        {/* Pax name input */}
-        {isPax && (
-          <input type="text" value={customName}
-            placeholder={theme.tag}
-            onChange={e => onNameChange(e.target.value)}
-            className="nodrag"
-            onMouseDown={e => e.stopPropagation()}
-            onPointerDown={e => e.stopPropagation()}
-            style={{ background:'transparent', border:'none', borderBottom:'1px solid var(--border)',
-                     color:'var(--text-muted)', fontSize:10, borderRadius:0, outline:'none',
-                     padding:'1px 4px', fontFamily:"'JetBrains Mono', monospace",
-                     width:100, minWidth:0 }} />
-        )}
 
         {/* Disable/Enable — unconditional, unlike the settings buttons
             below which are node-type-specific */}
@@ -576,8 +571,9 @@ function GenericNode({ id, data, selected }: NodeProps) {
           <Power size={11} />
         </NodeHeaderButton>
 
-        {/* Pax settings cog — only for a Pax with more than one parameter;
-            see the layout-rule comment above onNameChange for why. */}
+        {/* Pax settings cog — only for a Pax with more than one parameter
+            (unfolds its parameter list). Renaming happens in the header
+            itself (pencil on hover), so no Name panel is needed. */}
         {isMultiParamPax && (
           <NodeHeaderButton
             onClick={toggleSettings}
@@ -953,6 +949,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
           AmpPax, etc.) renders here exactly as it always has; a multi-param
           Pax only renders here while unfolded (showSettings true) — folded,
           its compact header above covers it instead. */}
+
       {isPax && paxParams.length > 0 && !isSingleReadOnlyPax && (!isMultiParamPax || showSettings) && (
         <div className="nodrag" style={{ padding: '8px 10px 6px',
                                          borderTop: '1px solid var(--border)' }}>

@@ -289,6 +289,13 @@ bool PatchyEditor::keyPressed (const juce::KeyPress& key, juce::Component*)
 
     if (! cmd) return false;
 
+    // Phase 6 rename fix, 2026-09-25 — while a UI text field has focus,
+    // Cmd+Z / Cmd+Shift+Z must not undo/redo the graph (it removed a
+    // just-dropped node while its name was being typed). Consumed and
+    // ignored here; graph undo works again as soon as the field loses focus.
+    if (key.getKeyCode() == 'Z' && bridge.isTextEditing())
+        return true;
+
     if      (key.getKeyCode() == 'N')              { bridge.handleFileNew();    return true; }
     else if (key.getKeyCode() == 'O')              { bridge.handleFileOpen();   return true; }
     else if (key.getKeyCode() == 'S' && ! shift)   { bridge.handleFileSave();   return true; }

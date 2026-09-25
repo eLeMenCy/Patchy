@@ -95,18 +95,6 @@ function SettingsPanel ({ s, onChange, onDiscreteChange, onClose, onReset }: {
         userSelect:'none',
       }}>
       <SettingsPanelHeader title="Keyboard" onReset={onReset} onClose={onClose} />
-      {row('Name', (
-        <input
-          type="text"
-          value={s.customName}
-          placeholder="MIDI Keyboard"
-          onChange={e => onChange({ customName: e.target.value })}
-          style={{ flex: 1, background: 'var(--surface)', border: '1px solid var(--border)',
-                   color: 'var(--text)', fontSize: 10, borderRadius: 3,
-                   padding: '2px 6px', fontFamily: "'JetBrains Mono', monospace",
-                   outline: 'none', width: '100%' }}
-        />
-      ))}
       {row('Start note', (
         <NodeSelect value={String(s.startNote)} showEmpty={false} accent="var(--midi)"
           onChange={v => onDiscreteChange({ startNote: Number(v) })}
@@ -152,7 +140,7 @@ function Keyboard ({ nodeId, settings, activeNotes, onNoteOn, onNoteOff }: {
   onNoteOff:  (note: number) => void;
 }) {
   const { octaves, startNote, showNames } = settings;
-  const totalWhites = octaves * 7 + 1; // +1 for final C
+  const totalWhites = octaves * 7;   // C to B per octave — the extra final C was dropped 2026-09-25 (user's request)
   const W = totalWhites * WHITE_W;
   const H = WHITE_H;
   const pressedRef = useRef<number | null>(null);
@@ -167,8 +155,6 @@ function Keyboard ({ nodeId, settings, activeNotes, onNoteOn, onNoteOff }: {
       wx += WHITE_W;
     }
   }
-  // Final C
-  keys.push({ note: startNote + octaves * 12, white: true, x: wx, w: WHITE_W, h: WHITE_H });
 
   // Black keys
   for (let oct = 0; oct < octaves; oct++) {
@@ -452,13 +438,13 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
 
 
 
-  const totalWhites = settings.octaves * 7 + 1;
+  const totalWhites = settings.octaves * 7;   // C to B (no final C), 2026-09-25
   const kbdW = totalWhites * WHITE_W;
   const W    = kbdW + 50; // + sliders
 
   return (
     <div style={{
-      width: W,
+      minWidth: W,   // was width — grows with a long title (in-place rename, 2026-09-25)
       background: 'var(--surface)',
       border: `1px solid ${selected ? 'var(--midi)' : 'var(--border)'}`,
       borderTop: '3px solid var(--midi)',
@@ -474,7 +460,8 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
       <NodeHandle nodeId={id} label="MIDI Out" direction="out" colour="var(--midi)" index={0} total={1} offset={-10} portBodyRef={portBodyRef} />
 
       {/* Header */}
-      <NodeHeader title={settings.customName || "MIDI KEYBOARD"} accent="var(--midi)"
+      <NodeHeader title={settings.customName || "MIDI KEYBOARD"}
+        rename={{ value: settings.customName ?? '', placeholder: 'MIDI Keyboard', onCommit: v => commitPatch({ customName: v }) }} accent="var(--midi)"
         showSettings={showSettings} onToggleSettings={toggleSettings}
         onDelete={handleDelete} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
 
@@ -511,8 +498,8 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
         <span>·</span>
         <span>{NOTE_NAMES[settings.startNote % 12]}{Math.floor(settings.startNote/12)-1}
           {' '}→{' '}
-          {NOTE_NAMES[(settings.startNote + settings.octaves * 12) % 12]}
-          {Math.floor((settings.startNote + settings.octaves * 12) / 12) - 1}
+          {NOTE_NAMES[(settings.startNote + settings.octaves * 12 - 1) % 12]}
+          {Math.floor((settings.startNote + settings.octaves * 12 - 1) / 12) - 1}
         </span>
         <span>·</span>
         <span>{settings.octaves} oct</span>

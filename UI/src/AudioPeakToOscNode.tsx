@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge } from './Bridge';
-import { NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, _paxInfoMap, detectPaxTheme, resolveCssColor, SliderRow, Stepper, FreqBandDual } from './NodeUtils';
+import { NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, _paxInfoMap, detectPaxTheme, resolveCssColor, SliderRow, Stepper, FreqBandDual, EditableTitle, commitModelName } from './NodeUtils';
 import { HintContext } from './HintPanel';
 import { Settings, X, Power } from 'lucide-react';
 
@@ -346,10 +346,13 @@ export default function AudioPeakToOscNode({ id, data, selected }: NodeProps) {
           <NodeCollapseArrow collapsed={collapsed} accent={ACCENT} />
         </NodeHeaderButton>
 
-        <div style={{ flex: 1, fontSize: '11px', fontWeight: 700, color: ACCENT,
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Phase 6 in-place rename, 2026-09-25 — pencil on hover */}
+          <EditableTitle display={(data as any)?.customName || label} value={(data as any)?.customName ?? ''} placeholder={label}
+            onCommit={commitModelName (id)}
+            textStyle={{ fontSize: '11px', fontWeight: 700, color: ACCENT,
           letterSpacing: '0.1em', fontFamily: "'Syne', sans-serif",
-          textTransform: 'uppercase', userSelect: 'none' }}>
-          {label}
+          textTransform: 'uppercase', userSelect: 'none' }} />
         </div>
 
         {/* Three compact badges — Mode / Measurement / Send Mode — per the

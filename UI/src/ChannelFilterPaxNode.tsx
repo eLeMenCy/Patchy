@@ -13,7 +13,7 @@
 import { useState, useEffect, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge } from './Bridge';
-import { NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCollapseArrow, settingsPanelStyle } from './NodeUtils';
+import { NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCollapseArrow, settingsPanelStyle, EditableTitle, commitModelName } from './NodeUtils';
 import { HintContext } from './HintPanel';
 import { Settings, X, Power } from 'lucide-react';
 
@@ -64,11 +64,9 @@ export default function ChannelFilterPaxNode ({ id, data, selected }: NodeProps)
     Bridge.commitNodeSettings (id);
   }, [id]);
 
-  const [customName, setCustomName] = useState ('');
-  const onNameChange = useCallback ((name: string) => {
-    setCustomName (name);
-    Bridge.setNodeLabel (id, name);
-  }, [id]);
+  // Phase 6 persistent rename, 2026-09-25 — was a standalone useState('')
+  // (lost on every reload); now read from the graph model's own customName.
+  const customName: string = (data as any)?.customName ?? '';
 
   const resetParams = useCallback (() => {
     setParamValues ([1, 0]);
@@ -103,26 +101,15 @@ export default function ChannelFilterPaxNode ({ id, data, selected }: NodeProps)
 
         <NodeCollapseArrow collapsed={collapsed} accent={ACCENT} />
 
-        <div style={{
-          flex: 1, fontSize: '11px', fontWeight: 700, color: ACCENT,
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Phase 6 in-place rename, 2026-09-25 — pencil on hover */}
+          <EditableTitle display={customName || 'Channel Filter'} value={customName} placeholder={'Channel Filter'}
+            onCommit={commitModelName (id)}
+            textStyle={{ fontSize: '11px', fontWeight: 700, color: ACCENT,
           letterSpacing: '0.1em', fontFamily: "'Syne', sans-serif",
-          whiteSpace: 'nowrap', textTransform: 'uppercase', userSelect: 'none',
-        }}>
-          {customName || 'Channel Filter'}
+          whiteSpace: 'nowrap', textTransform: 'uppercase', userSelect: 'none' }} />
         </div>
 
-        <input type="text" value={customName}
-          placeholder="Channel Filter"
-          onChange={e => onNameChange (e.target.value)}
-          className="nodrag"
-          onMouseDown={e => e.stopPropagation()}
-          onPointerDown={e => e.stopPropagation()}
-          style={{
-            background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)',
-            color: 'var(--text-muted)', fontSize: 10, borderRadius: 0, outline: 'none',
-            padding: '1px 4px', fontFamily: "'JetBrains Mono', monospace",
-            width: 100, minWidth: 0,
-          }} />
 
         <div onDoubleClick={e => e.stopPropagation()}>
           <NodeHeaderButton onClick={toggleDisabled} active={! disabled} activeAccent={ACCENT}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useContext } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useContext } from 'react';
 import { HintContext, NODE_HINTS, BUTTON_HINTS } from './HintPanel';
 import { DawContext } from './DawContext';
 import { X, Settings, Power } from 'lucide-react';
@@ -55,6 +55,23 @@ const THEME: Record<number, { accent: string; dim: string; glow: string; tag: st
 const PAX_THEME = { accent: 'var(--av)', dim: 'var(--av-dim)', glow: 'var(--av-glow)', tag: 'PAX' };
 
 // ── Main node ─────────────────────────────────────────────────────────────────
+// Per-Pax vertical port offset overrides, per side (see inPortOffset /
+// outPortOffset in GenericNode). A side left out keeps the Pax default (6).
+// alignToRail: measure the Pax's first slider rail in the DOM and centre each
+// side's ports on it (a single port on the rail, two ports 7 px above/below)
+// — exact whatever the fonts or zoom; falls back to in/out/6 until measured
+// (or while the node is folded and the slider isn't rendered).
+const PAX_PORT_OFFSET_OVERRIDES: Record<string, { in?: number; out?: number; alignToRail?: boolean }> = {
+  // out: -4 = the value found by eye on 2026-09-15. in: -4 + 7 — its single
+  // MIDI input centred between its 2 outputs (ports are 14 px apart), i.e.
+  // on the body/label area rather than level with the first output
+  // (user's request, 2026-09-25).
+  'MIDI to DMX': { in: 3, out: -4 },
+  // Same 1-in/2-out shape, and a single Balance slider: all its ports are
+  // aligned with the slider rail (user's request, 2026-09-25). in: 13 (= 6 + 7,
+  // centred between the outputs) is only the fallback before measurement.
+  'Splitter':    { in: 13, alignToRail: true },
+};
 function GenericNode({ id, data, selected }: NodeProps) {
   const nodeData = data as NodeData;
   // nodeType>=100 means Pax
@@ -92,6 +109,35 @@ function GenericNode({ id, data, selected }: NodeProps) {
   const isDmxDevice    = nodeData.nodeType === 14 || nodeData.nodeType === 15;
   const { setHint } = useContext(HintContext);
   const portBodyRef = useRef<HTMLDivElement>(null);
+  // Vertical port offset (NodeHandle: top = headerHeight + 12 + 14*index + offset).
+  // Shared default for every Pax (6) and every other node (8), plus explicit
+  // per-Pax, per-side overrides — Phase 6, 2026-09-25 (see
+  // PAX_PORT_OFFSET_OVERRIDES above). Keyed by the Pax registry name
+  // (nodeData.paxName).
+  const paxPortOverride = isPax ? PAX_PORT_OFFSET_OVERRIDES[nodeData.paxName as string] : undefined;
+  // Rail alignment (alignToRail): railRef is attached to the first continuous
+  // slider <input>; its vertical centre, relative to the port body's top (the
+  // origin NodeHandle measures from), is converted to an offset per side.
+  // getBoundingClientRect includes ReactFlow's zoom, so it's divided by the
+  // body's own on-screen/layout width ratio. Re-measured after every render,
+  // only stored when it actually changes.
+  const railRef = useRef<HTMLInputElement>(null);   // attached to the first continuous slider in the JSX below
+  const [railY, setRailY] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    if (!paxPortOverride?.alignToRail) return;
+    const body = portBodyRef.current, rail = railRef.current;
+    let y: number | null = null;
+    if (body && rail && body.offsetWidth > 0) {
+      const b = body.getBoundingClientRect(), r = rail.getBoundingClientRect();
+      const scale = b.width / body.offsetWidth || 1;
+      y = Math.round((r.top + r.height / 2 - b.top) / scale);
+    }
+    if (y !== railY) setRailY(y);
+  });
+  const railOffset = (count: number) =>
+    railY === null ? null : railY - 12 - (count - 1) * 7;   // NodeHandle: top = body + 12 + 14*i + offset
+  const inPortOffset  = isPax ? ((paxPortOverride?.alignToRail ? railOffset(inputs.length)  : null) ?? paxPortOverride?.in  ?? 6) : 8;
+  const outPortOffset = isPax ? ((paxPortOverride?.alignToRail ? railOffset(outputs.length) : null) ?? paxPortOverride?.out ?? 6) : 8;
 
   // ── Audio device channel state ──────────────────────────────────────────────
   const { showSettings, toggleSettings, closeSettings } = useNodeSettings(id);
@@ -1025,6 +1071,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
               ) : (
               <div style={{ position: 'relative' }}>
                 <input type="range"
+                  ref={i === paxParams.findIndex(q => !q.readOnly && !(q.step >= 1 && q.min === 0 && q.max === 1) && q.name !== 'DMX Channel') ? railRef : undefined}
                   min={p.min} max={p.max}
                   step={(p.max - p.min) / 1000}
                   value={paramValues[i] !== undefined ? paramValues[i] : p.defaultValue}
@@ -1091,7 +1138,7 @@ Double-click to reset to default (${p.defaultValue}).` })}
           nodeId={id} label={p.label} direction="in"
           colour={isUdpDevice ? 'var(--udp)' : isOscDevice ? 'var(--osc)' : isMqttSubscribeDevice ? 'var(--mqtt)' : isMqttPublishDevice ? 'var(--mqtt)' : isArtNetDevice ? 'var(--artnet)' : isDmxDevice ? 'var(--dmx)' : portColour(p.type)}
           index={i} total={inputs.length}
-          offset={isPax ? 6 : 8}
+          offset={inPortOffset}
           portBodyRef={portBodyRef}
           portId={p.id}
         />
@@ -1103,7 +1150,7 @@ Double-click to reset to default (${p.defaultValue}).` })}
           nodeId={id} label={p.label} direction="out"
           colour={isUdpDevice ? 'var(--udp)' : isOscDevice ? 'var(--osc)' : isMqttSubscribeDevice ? 'var(--mqtt)' : isMqttPublishDevice ? 'var(--mqtt)' : isArtNetDevice ? 'var(--artnet)' : isDmxDevice ? 'var(--dmx)' : portColour(p.type)}
           index={i} total={outputs.length}
-          offset={isPax ? 6 : 8}
+          offset={outPortOffset}
           portBodyRef={portBodyRef}
           portId={p.id}
         />

@@ -215,7 +215,10 @@ export function NodeHandle ({ nodeId, label, direction, colour, index = 0, total
     const observer = new ResizeObserver(measure);
     observer.observe(portBodyRef.current!);
     return () => observer.disconnect();
-  }, [portBodyRef, portBodyRef?.current, total, index]);
+    // `offset` added 2026-09-25: a measured offset (Pax ports aligned to a
+    // slider rail, see GenericNode) arrives after the first render and must
+    // re-place the handle; before, only a body resize did.
+  }, [portBodyRef, portBodyRef?.current, total, index, offset]);
 
   return (
     <Handle

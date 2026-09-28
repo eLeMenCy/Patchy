@@ -3,6 +3,7 @@
 #include "NodeProcessor.h"
 #include "GraphModel.h"
 #include "StartupFadeRegistry.h"
+#include "SleepGuard.h"
 #include "DiagLog.h"   // TEMPORARY diagnostic (2026-09-25)
 #include <atomic>
 #include <vector>
@@ -29,9 +30,19 @@ public:
 
     ~AudioOutDeviceNode() override { closeDevice(); }  // closeDevice() is idempotent
 
+    // v0.0.915 (Side finding 1, 2026-09-27) — the device now opens at the
+    // graph's TARGET config (host rate/block, passed in by Patchy's own
+    // AudioDeviceManager) instead of this node's currentSampleRate/
+    // currentBlockSize, which are still NodeProcessor's 44100/512 defaults
+    // at open time (openDevice() runs before the new graph's prepare()).
     void openDevice (const juce::String& deviceName,
-                     juce::AudioDeviceManager& deviceManager);
+                     juce::AudioDeviceManager& deviceManager,
+                     double targetSampleRate, int targetBlockSize);
     void closeDevice();
+    // v0.0.915 (Side finding 1) — for a TRANSFERRED device (never reopened):
+    // reconfigure it to the target config if that differs from what was last
+    // requested for it. See the definition for the full reasoning.
+    void syncDeviceConfig (double targetSampleRate, int targetBlockSize);
 
     juce::String getSelectedDeviceName() const { return registeredDeviceName; }
     void markTransferred() { transferred = true; }
@@ -81,6 +92,12 @@ public:
         dst.registeredDeviceName = registeredDeviceName;
         dst.currentSampleRate    = currentSampleRate;
         dst.currentBlockSize     = currentBlockSize;
+        // v0.0.915 — the device's last requested config and the idle-sleep
+        // hold follow the device to its new node (the device stays open).
+        dst.requestedSampleRate  = requestedSampleRate;
+        dst.requestedBlockSize   = requestedBlockSize;
+        dst.holdsSleepGuard      = holdsSleepGuard;
+        holdsSleepGuard          = false;
         // Shared-fifo fix, 2026-09-24 — the new node takes over THIS
         // node's own fifo (shared, not copied) before its callback is
         // registered. From here until processBlock()'s swap, the device
@@ -305,6 +322,15 @@ private:
     juce::String              registeredDeviceName;
     bool                      transferred = false;
     bool                      isDawDevice = false;
+    // v0.0.915 (Side finding 1, 2026-09-27) — the rate/block last REQUESTED
+    // for this device (not what it reports back: a device that can't honour
+    // a block size exactly must not be re-requested, i.e. restarted, on
+    // every rebuild). 0 = nothing requested yet.
+    double                    requestedSampleRate = 0.0;
+    int                       requestedBlockSize  = 0;
+    // v0.0.915 — true while this node owns one SleepGuard hold (acquired on
+    // a successful open, released in closeDevice(), moved on transfer).
+    bool                      holdsSleepGuard     = false;
 
     // selectedChannels is written from the message thread and read from the
     // device callback thread — protect with a SpinLock.
@@ -345,9 +371,19 @@ public:
 
     ~AudioInDeviceNode() override { closeDevice(); }   // closeDevice() is idempotent
 
+    // v0.0.915 (Side finding 1, 2026-09-27) — the device now opens at the
+    // graph's TARGET config (host rate/block, passed in by Patchy's own
+    // AudioDeviceManager) instead of this node's currentSampleRate/
+    // currentBlockSize, which are still NodeProcessor's 44100/512 defaults
+    // at open time (openDevice() runs before the new graph's prepare()).
     void openDevice (const juce::String& deviceName,
-                     juce::AudioDeviceManager& deviceManager);
+                     juce::AudioDeviceManager& deviceManager,
+                     double targetSampleRate, int targetBlockSize);
     void closeDevice();
+    // v0.0.915 (Side finding 1) — for a TRANSFERRED device (never reopened):
+    // reconfigure it to the target config if that differs from what was last
+    // requested for it. See the definition for the full reasoning.
+    void syncDeviceConfig (double targetSampleRate, int targetBlockSize);
 
     juce::String getSelectedDeviceName() const { return registeredDeviceName; }
     void markTransferred() { transferred = true; }
@@ -397,6 +433,12 @@ public:
         dst.registeredDeviceName = registeredDeviceName;
         dst.currentSampleRate    = currentSampleRate;
         dst.currentBlockSize     = currentBlockSize;
+        // v0.0.915 — the device's last requested config and the idle-sleep
+        // hold follow the device to its new node (the device stays open).
+        dst.requestedSampleRate  = requestedSampleRate;
+        dst.requestedBlockSize   = requestedBlockSize;
+        dst.holdsSleepGuard      = holdsSleepGuard;
+        holdsSleepGuard          = false;
         // Fix, 2026-09-24 — a fade-in armed by openDevice() but not yet
         // started (no real audio read yet) must follow the device to its
         // new node, or a rebuild landing in that window would skip it.
@@ -630,6 +672,15 @@ private:
     juce::String              registeredDeviceName;
     bool                      transferred = false;
     bool                      isDawDevice = false;
+    // v0.0.915 (Side finding 1, 2026-09-27) — the rate/block last REQUESTED
+    // for this device (not what it reports back: a device that can't honour
+    // a block size exactly must not be re-requested, i.e. restarted, on
+    // every rebuild). 0 = nothing requested yet.
+    double                    requestedSampleRate = 0.0;
+    int                       requestedBlockSize  = 0;
+    // v0.0.915 — true while this node owns one SleepGuard hold (acquired on
+    // a successful open, released in closeDevice(), moved on transfer).
+    bool                      holdsSleepGuard     = false;
 
     // Fix, 2026-09-24 — open-time click. Some interfaces (confirmed: the
     // Behringer FCA1616) emit a sharp pop in their own input stream when it
@@ -660,6 +711,9 @@ private:
     std::atomic<int>          fadeInMuteMs { 0 };
     std::atomic<bool>         fadeInArmed { false };
     int                       fadeInPos   = -1;
+    // Arms (listed device) or clears (unlisted) the fade for deviceName.
+    // Message thread. Used by openDevice() and, v0.0.915, syncDeviceConfig().
+    void armStartupFade (const juce::String& deviceName);
 
     // selectedChannels is written from the message thread and read from the
     // device callback thread — protect with a SpinLock.
@@ -710,6 +764,16 @@ public:
     bool applyToGraph (const juce::String& nodeId,
                        const juce::String& deviceName,
                        ProcessingGraph& graph);
+
+    /** v0.0.915 (Side finding 1, 2026-09-27) — the host's current rate/block,
+     *  set by PatchyProcessor::rebuildProcessingGraph() before device
+     *  selections are applied. Fresh opens use it, and transferred devices
+     *  are reconfigured to it when it changes (host buffer/rate change). */
+    void setTargetAudioConfig (double sampleRate, int blockSize)
+    {
+        targetSampleRate = sampleRate;
+        targetBlockSize  = blockSize;
+    }
 
     void applyDeviceSelections (ProcessingGraph& graph);
 
@@ -810,4 +874,6 @@ private:
     std::unordered_map<juce::String, std::unique_ptr<juce::AudioDeviceManager>> inputManagers;
     std::unordered_map<juce::String, juce::String>       selections;
     std::unordered_map<juce::String, std::vector<int>>   channelSelections;
+    double targetSampleRate = 44100.0;   // v0.0.915 — see setTargetAudioConfig()
+    int    targetBlockSize  = 512;
 };

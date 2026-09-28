@@ -20,12 +20,17 @@ bool AudioDeviceManager::applyToGraph (const juce::String& nodeId,
                                         const juce::String& deviceName,
                                         ProcessingGraph& graph)
 {
+    // v0.0.915 (Side finding 1, 2026-09-27) — fresh opens get the host's
+    // target config; transferred devices (previously skipped entirely, so
+    // they never followed a host buffer/rate change) are synced to it.
     if (auto* n = graph.findAudioOutNode (nodeId))
     {
         if (deviceName.isEmpty())
             n->closeDevice();           // always close, even if transferred
         else if (! n->wasTransferred())
-            n->openDevice (deviceName, getOrCreateOutputManager (nodeId));
+            n->openDevice (deviceName, getOrCreateOutputManager (nodeId), targetSampleRate, targetBlockSize);
+        else
+            n->syncDeviceConfig (targetSampleRate, targetBlockSize);
         return true;
     }
     if (auto* n = graph.findAudioInNode (nodeId))
@@ -33,7 +38,9 @@ bool AudioDeviceManager::applyToGraph (const juce::String& nodeId,
         if (deviceName.isEmpty())
             n->closeDevice();           // always close, even if transferred
         else if (! n->wasTransferred())
-            n->openDevice (deviceName, getOrCreateInputManager (nodeId));
+            n->openDevice (deviceName, getOrCreateInputManager (nodeId), targetSampleRate, targetBlockSize);
+        else
+            n->syncDeviceConfig (targetSampleRate, targetBlockSize);
         return true;
     }
     return false;
@@ -153,11 +160,64 @@ juce::var AudioDeviceManager::getAvailableDevicesVar (bool isStandalone)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  v0.0.915 (Side finding 1, 2026-09-27) — shared device-config helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Falls back to the old NodeProcessor-style defaults only if no valid
+ *  target was passed (should not happen once the processor is set up). */
+static double validRate  (double sr) { return sr > 0.0 ? sr : 44100.0; }
+static int    validBlock (int bs)    { return bs > 0   ? bs : 512; }
+
+/** Reconfigures an already-open device to sampleRate/blockSize, keeping its
+ *  channel setup. Skips the restart when the device already runs at that
+ *  config — e.g. the same physical device as the standalone host's own,
+ *  which already follows the host (seen on the MacBook, 2026-09-23).
+ *  Returns true only if the device was actually restarted. */
+static bool reconfigureDevice (juce::AudioDeviceManager& manager,
+                               double sampleRate, int blockSize,
+                               const juce::String& who)
+{
+    auto* dev = manager.getCurrentAudioDevice();
+    if (dev == nullptr)
+        return false;
+    if (std::abs (dev->getCurrentSampleRate() - sampleRate) < 0.01
+        && dev->getCurrentBufferSizeSamples() == blockSize)
+        return false;
+
+    juce::AudioDeviceManager::AudioDeviceSetup setup;
+    manager.getAudioDeviceSetup (setup);
+    setup.sampleRate = sampleRate;
+    setup.bufferSize = blockSize;
+    auto err = manager.setAudioDeviceSetup (setup, true);
+    if (err.isNotEmpty())
+    {
+        juce::Logger::writeToLog (who + ": reconfigure failed: " + err);
+        return false;
+    }
+    if (auto* d = manager.getCurrentAudioDevice())
+        juce::Logger::writeToLog (who + ": reconfigured " + d->getName() + " to "
+                                  + juce::String ((int) d->getCurrentSampleRate()) + " Hz / "
+                                  + juce::String (d->getCurrentBufferSizeSamples())
+                                  + " (requested " + juce::String ((int) sampleRate) + " / "
+                                  + juce::String (blockSize) + ")");
+    return true;
+}
+
+static juce::String describeDeviceConfig (juce::AudioDeviceManager& manager)
+{
+    if (auto* d = manager.getCurrentAudioDevice())
+        return " at " + juce::String ((int) d->getCurrentSampleRate()) + " Hz / "
+               + juce::String (d->getCurrentBufferSizeSamples());
+    return {};
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  AudioOutDeviceNode
 // ─────────────────────────────────────────────────────────────────────────────
 
 void AudioOutDeviceNode::openDevice (const juce::String& deviceName,
-                                      juce::AudioDeviceManager& manager)
+                                      juce::AudioDeviceManager& manager,
+                                      double targetSampleRate, int targetBlockSize)
 {
 
     closeDevice();
@@ -177,8 +237,10 @@ void AudioOutDeviceNode::openDevice (const juce::String& deviceName,
             juce::AudioDeviceManager::AudioDeviceSetup setup;
             setup.outputDeviceName  = deviceName;
             setup.inputDeviceName   = {};
-            setup.sampleRate        = currentSampleRate > 0 ? currentSampleRate : 44100.0;
-            setup.bufferSize        = currentBlockSize  > 0 ? currentBlockSize  : 512;
+            // v0.0.915 (Side finding 1) — host target, not this node's
+            // not-yet-prepared defaults. See openDevice()'s declaration.
+            setup.sampleRate        = validRate  (targetSampleRate);
+            setup.bufferSize        = validBlock (targetBlockSize);
             setup.useDefaultInputChannels  = false;
             setup.useDefaultOutputChannels = false;
             // Activate all possible channels upfront — real count read back after open
@@ -191,9 +253,13 @@ void AudioOutDeviceNode::openDevice (const juce::String& deviceName,
             {
                 if (auto* dev = manager.getCurrentAudioDevice())
                     deviceChannelCount = dev->getOutputChannelNames().size();
+                requestedSampleRate = setup.sampleRate;   // v0.0.915
+                requestedBlockSize  = setup.bufferSize;
+                if (! holdsSleepGuard) { SleepGuard::acquire(); holdsSleepGuard = true; }   // v0.0.915
                 manager.addAudioCallback (this);
                 juce::Logger::writeToLog ("AudioOutDeviceNode: opened " + deviceName
-                                          + " (" + juce::String (deviceChannelCount) + " ch)");
+                                          + " (" + juce::String (deviceChannelCount) + " ch)"
+                                          + describeDeviceConfig (manager));
             }
             return;
         }
@@ -208,8 +274,29 @@ void AudioOutDeviceNode::closeDevice()
         devManager->removeAudioCallback (this);
         devManager = nullptr;
     }
+    if (holdsSleepGuard) { SleepGuard::release(); holdsSleepGuard = false; }   // v0.0.915
+    requestedSampleRate = 0.0;   // v0.0.915 — next open starts clean
+    requestedBlockSize  = 0;
     registeredDeviceName.clear();
     transferred = false;  // allow openDevice() to work after close
+}
+
+void AudioOutDeviceNode::syncDeviceConfig (double targetSampleRate, int targetBlockSize)
+{
+    // v0.0.915 (Side finding 1, 2026-09-27) — a transferred device was never
+    // reconfigured, so after a host buffer/rate change it kept its old
+    // config (studio: SYSTEM-8 stayed at 44100/512 with the graph at 32).
+    // Only acts when the target differs from what was last REQUESTED, so an
+    // ordinary graph edit (same config) never touches the device, and a
+    // device that can't honour a block size exactly isn't restarted on
+    // every rebuild.
+    if (devManager == nullptr || isDawDevice) return;
+    const double sr = validRate  (targetSampleRate);
+    const int    bs = validBlock (targetBlockSize);
+    if (std::abs (sr - requestedSampleRate) < 0.01 && bs == requestedBlockSize) return;
+    requestedSampleRate = sr;
+    requestedBlockSize  = bs;
+    reconfigureDevice (*devManager, sr, bs, "AudioOutDeviceNode");
 }
 
 void AudioOutDeviceNode::prepare (double sampleRate, int maxBlockSize)
@@ -290,7 +377,8 @@ void AudioOutDeviceNode::audioDeviceIOCallbackWithContext (
 // ─────────────────────────────────────────────────────────────────────────────
 
 void AudioInDeviceNode::openDevice (const juce::String& deviceName,
-                                     juce::AudioDeviceManager& manager)
+                                     juce::AudioDeviceManager& manager,
+                                     double targetSampleRate, int targetBlockSize)
 {
     closeDevice();
     selectedDeviceName = deviceName;
@@ -308,8 +396,10 @@ void AudioInDeviceNode::openDevice (const juce::String& deviceName,
             juce::AudioDeviceManager::AudioDeviceSetup setup;
             setup.inputDeviceName   = deviceName;
             setup.outputDeviceName  = {};
-            setup.sampleRate        = currentSampleRate > 0 ? currentSampleRate : 44100.0;
-            setup.bufferSize        = currentBlockSize  > 0 ? currentBlockSize  : 512;
+            // v0.0.915 (Side finding 1) — host target, not this node's
+            // not-yet-prepared defaults. See openDevice()'s declaration.
+            setup.sampleRate        = validRate  (targetSampleRate);
+            setup.bufferSize        = validBlock (targetBlockSize);
             setup.useDefaultInputChannels  = false;
             setup.useDefaultOutputChannels = false;
             // Activate all possible channels upfront — real count read back after open
@@ -325,23 +415,14 @@ void AudioInDeviceNode::openDevice (const juce::String& deviceName,
                 // Fix, 2026-09-24 — see fadeInArmed's own comment; armed BEFORE
                 // the callback starts writing. Targeted: only for devices listed
                 // in StartupFadeRegistry, with that device's own mute duration.
-                {
-                    const int muteMs = StartupFadeRegistry::getMuteMs (deviceName);
-                    if (muteMs >= 0)
-                    {
-                        fadeInMuteMs.store (muteMs, std::memory_order_relaxed);
-                        fadeInArmed.store (true, std::memory_order_relaxed);
-                    }
-                    else
-                    {
-                        // Not listed: clear any arm left over from a previous,
-                        // listed device on this node that never got to start.
-                        fadeInArmed.store (false, std::memory_order_relaxed);
-                    }
-                }
+                armStartupFade (deviceName);
+                requestedSampleRate = setup.sampleRate;   // v0.0.915
+                requestedBlockSize  = setup.bufferSize;
+                if (! holdsSleepGuard) { SleepGuard::acquire(); holdsSleepGuard = true; }   // v0.0.915
                 manager.addAudioCallback (this);
                 juce::Logger::writeToLog ("AudioInDeviceNode: opened " + deviceName
-                                          + " (" + juce::String (deviceChannelCount) + " ch)");
+                                          + " (" + juce::String (deviceChannelCount) + " ch)"
+                                          + describeDeviceConfig (manager));
             }
             return;
         }
@@ -356,8 +437,47 @@ void AudioInDeviceNode::closeDevice()
         devManager->removeAudioCallback (this);
         devManager = nullptr;
     }
+    if (holdsSleepGuard) { SleepGuard::release(); holdsSleepGuard = false; }   // v0.0.915
+    requestedSampleRate = 0.0;   // v0.0.915 — next open starts clean
+    requestedBlockSize  = 0;
     registeredDeviceName.clear();
     transferred = false;  // allow openDevice() to work after close
+}
+
+void AudioInDeviceNode::armStartupFade (const juce::String& deviceName)
+{
+    // Moved here unchanged from openDevice() (v0.0.915) so a reconfigure
+    // restart can arm it too — see syncDeviceConfig().
+    const int muteMs = StartupFadeRegistry::getMuteMs (deviceName);
+    if (muteMs >= 0)
+    {
+        fadeInMuteMs.store (muteMs, std::memory_order_relaxed);
+        fadeInArmed.store (true, std::memory_order_relaxed);
+    }
+    else
+    {
+        // Not listed: clear any arm left over from a previous,
+        // listed device on this node that never got to start.
+        fadeInArmed.store (false, std::memory_order_relaxed);
+    }
+}
+
+void AudioInDeviceNode::syncDeviceConfig (double targetSampleRate, int targetBlockSize)
+{
+    // v0.0.915 (Side finding 1, 2026-09-27) — same as AudioOutDeviceNode's
+    // own syncDeviceConfig(); see its comment. Plus: reconfiguring restarts
+    // the device's stream, and a listed device (FCA1616) pops on every
+    // stream start, so the startup fade is re-armed when a restart actually
+    // happened. Armed after the restart; the pop lands ~1 s after the first
+    // audio, and the fade only starts counting at the first real read.
+    if (devManager == nullptr || isDawDevice) return;
+    const double sr = validRate  (targetSampleRate);
+    const int    bs = validBlock (targetBlockSize);
+    if (std::abs (sr - requestedSampleRate) < 0.01 && bs == requestedBlockSize) return;
+    requestedSampleRate = sr;
+    requestedBlockSize  = bs;
+    if (reconfigureDevice (*devManager, sr, bs, "AudioInDeviceNode"))
+        armStartupFade (registeredDeviceName);
 }
 
 void AudioInDeviceNode::prepare (double sampleRate, int maxBlockSize)

@@ -256,13 +256,31 @@ void PatchyProcessor::rebuildProcessingGraph()
     // Clear any previously trashed graph now (message thread — safe for destructors)
     if (graphTrashPending.load()) { graphTrashPending.store(false); graphTrash.reset(); }
 
-    // Only close a pendingGraph that was never swapped in — its audio nodes
-    // have open callbacks that need to be released before we replace it.
+    // Fix, v0.0.915 (2026-09-28) — claim a not-yet-swapped pendingGraph
+    // before touching it: once graphPending is cleared, processBlock() won't
+    // swap it in (it only swaps after its own exchange() returns true), so
+    // this rebuild can safely read it (device transfer below, and the
+    // existing MIDI/ArtNet/DMX/console reads) and then replace it. The flag
+    // is set again at the end, with the new graph. The audio thread keeps
+    // playing the current live graph meanwhile — the claimed pending graph
+    // is being superseded anyway. (Only an already-running swap, a window of
+    // a few microseconds, remains unprotected — as before.)
+    graphPending.store (false);
+
+    // A pendingGraph that was never swapped in: close its UDP/OSC sockets
+    // before newGraph binds the same ports.
+    //
+    // Fix, v0.0.915 (2026-09-28) — its AUDIO devices are no longer closed
+    // here. Two rebuilds before the audio thread swaps (seen on a host
+    // sample-rate change, where the host is stopped for ~0.5 s) used to
+    // close the pending graph's devices here, then transfer from
+    // processingGraph, whose devices had already been handed to that pending
+    // graph — nothing left to transfer, so every hardware device was
+    // reopened FRESH (new fifo, ~0.5 s gap, FCA1616 startup pop). The
+    // transfer below now takes them from pendingGraph instead, and
+    // transferAudioDevicesFrom() still closes whatever it didn't transfer.
     if (pendingGraph != nullptr)
-    {
-        pendingGraph->closeAllAudioDevices();
         pendingGraph->closeUdpBasedProtocolDeviceSockets();
-    }
 
     // Close the CURRENT graph's UDP-based protocol device sockets (UDP/OSC)
     // before newGraph binds its own — prevents a bind race where the new
@@ -302,7 +320,10 @@ void PatchyProcessor::rebuildProcessingGraph()
     // Transfer existing open audio device connections to the new graph nodes
     // rather than closing and reopening — this avoids the ~1 second audio gap.
     // Only nodes that exist in both graphs get their callback transferred.
-    newGraph->transferAudioDevicesFrom (processingGraph);
+    // Fix, v0.0.915 (2026-09-28) — from the not-yet-swapped pendingGraph when
+    // there is one (it holds the devices by now; see the comment above), the
+    // same pattern MIDI/ArtNet/DMX already use below.
+    newGraph->transferAudioDevicesFrom (pendingGraph != nullptr ? *pendingGraph : processingGraph);
 
     // Sync device manager selections from current graphModel state.
     // This ensures undo/redo restores correctly — the model has already been
@@ -509,6 +530,11 @@ void PatchyProcessor::rebuildProcessingGraph()
 
     // Apply selections to new graph (opens/closes devices as needed)
     midiDeviceManager.applyDeviceSelections  (*newGraph, pendingGraph ? pendingGraph.get() : &processingGraph);
+    // v0.0.915 (Side finding 1, 2026-09-27) — hardware audio devices open
+    // at, and transferred ones follow, the host's current rate/block. Must
+    // come before applyDeviceSelections(), which runs before newGraph->
+    // prepare() below (so the nodes' own config is still the defaults).
+    audioDeviceManager.setTargetAudioConfig (lastSampleRate, lastBlockSize);
     audioDeviceManager.applyDeviceSelections (*newGraph);
     audioDeviceManager.pruneDeletedNodeManagers  (*newGraph);
     audioDeviceManager.applyAllChannelSelections (*newGraph);

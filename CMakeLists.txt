@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Patchy VERSION 0.0.914)
+project(Patchy VERSION 0.0.915)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -90,7 +90,7 @@ endif()
 
 # ── Plugin target ─────────────────────────────────────────────────────────────
 juce_add_plugin(Patchy
-    VERSION                  "0.0.914"
+    VERSION                  "0.0.915"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGrp"
@@ -134,6 +134,7 @@ target_sources(Patchy PRIVATE
     Source/StandaloneApp.cpp
     Source/MidiDeviceNodes.cpp
     Source/AudioDeviceNodes.cpp
+    Source/SleepGuard.cpp
     Source/UdpDeviceNodes.cpp
     Source/OscDeviceNodes.cpp
     Source/OscMonitorNode.cpp
@@ -195,6 +196,12 @@ target_link_libraries(Patchy
         juce::juce_recommended_warning_flags
 )
 target_include_directories(Patchy PRIVATE ${MOSQUITTO_INCLUDE_DIR})
+
+# v0.0.915 (2026-09-27) — SleepGuard.cpp uses IOPMAssertionCreateWithName.
+# JUCE links IOKit on macOS already; explicit here so it never depends on that.
+if (APPLE)
+    target_link_libraries(Patchy PRIVATE "-framework IOKit")
+endif()
 
 target_compile_definitions(Patchy PRIVATE
         JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1

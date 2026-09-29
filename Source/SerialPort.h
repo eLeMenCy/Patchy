@@ -71,10 +71,17 @@ public:
                int                stopBits = 2)
     {
         close();
+        lastOpenBusy_ = false;
 
 #if defined(SERIALPORT_POSIX)
         fd_ = ::open (device.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
-        if (fd_ < 0) return false;
+        if (fd_ < 0)
+        {
+            // v0.0.916 — EBUSY: another process holds it with TIOCEXCL
+            // (e.g. another Patchy instance, see below).
+            lastOpenBusy_ = (errno == EBUSY);
+            return false;
+        }
 
         // Switch to blocking mode
         int flags = fcntl (fd_, F_GETFL, 0);
@@ -114,6 +121,14 @@ public:
         if (tcsetattr (fd_, TCSANOW, &tty) != 0) { ::close (fd_); fd_ = -1; return false; }
 
         tcflush (fd_, TCIOFLUSH);
+
+        // v0.0.916 (2026-09-28) — exclusive access: any later open() of this
+        // device, by ANY process (root excepted), fails with EBUSY until we
+        // close it. Patchy opens each interface only once (DmxSharedPort),
+        // so this only ever blocks other applications / Patchy instances,
+        // which would otherwise write interleaved frames to the same
+        // interface. Best effort: a failure here isn't fatal.
+        ioctl (fd_, TIOCEXCL);
         return true;
 
 #elif defined(SERIALPORT_WINDOWS)
@@ -189,6 +204,10 @@ public:
         other.handle_ = INVALID_HANDLE_VALUE;
 #endif
     }
+
+    /** v0.0.916 — true if the last open() failed because the device is
+     *  held exclusively by another process (POSIX EBUSY). */
+    bool lastOpenWasBusy() const { return lastOpenBusy_; }
 
     bool isOpen() const
     {
@@ -286,6 +305,7 @@ public:
     }
 
 private:
+    bool lastOpenBusy_ = false;   // v0.0.916
 #if defined(SERIALPORT_POSIX)
     int fd_ = -1;
 

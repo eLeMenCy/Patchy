@@ -2,6 +2,10 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_core/juce_core.h>
 #include "NodeProcessor.h"
+#include "PortBindState.h"
+#include <map>
+#include <memory>
+#include <mutex>
 #include "SerialPort.h"
 #include "../Pax/PaxAPI.h"
 #include <algorithm>
@@ -45,7 +49,7 @@ namespace EnttecProCodec
     /** Serialise 512 DMX bytes into an Enttec Pro output packet.
      *  universe: 0 = label 6 (Pro / Mk2 port 1), 1 = label 202 (Mk2 port 2 only)
      *  buf must be >= kPktMax bytes. Returns total packet length. */
-    static int buildOutputPacket (const uint8_t* dmx, int dmxLen, uint8_t* buf, int bufCap,
+    inline int buildOutputPacket (const uint8_t* dmx, int dmxLen, uint8_t* buf, int bufCap,
                                   int universe = 0)
     {
         // Data = start code (0x00) + dmx channels
@@ -73,7 +77,7 @@ namespace EnttecProCodec
     // — see openPort()'s own comment for the full story of why removing
     // it turned out to be wrong, once the complete spec was checked
     // rather than an earlier, incomplete search snippet.
-    static int buildEnableReceivePacket (uint8_t* buf, int bufCap)
+    inline int buildEnableReceivePacket (uint8_t* buf, int bufCap)
     {
         if (bufCap < 6) return 0;
         // Label 8, data = 1 byte: 0x00 = Send always (not just on change)
@@ -87,7 +91,7 @@ namespace EnttecProCodec
     }
 
     // ── Build "get widget params" packet ──────────────────────────────────────
-    static int buildGetParamsPacket (uint8_t* buf, int bufCap)
+    inline int buildGetParamsPacket (uint8_t* buf, int bufCap)
     {
         if (bufCap < 5) return 0;
         buf[0] = kSom;
@@ -107,7 +111,7 @@ namespace EnttecProCodec
      *    Byte 1:     DMX start code (normally 0x00) — skip
      *    Bytes 2..N: DMX channel data (channels 1..N-1)
      */
-    static int parseRxPacket (const uint8_t* buf, int len, uint8_t* dmxOut)
+    inline int parseRxPacket (const uint8_t* buf, int len, uint8_t* dmxOut)
     {
         for (int i = 0; i < len - kHdrSize; ++i)
         {
@@ -160,7 +164,7 @@ namespace EnttecProCodec
     // function read but didn't use, rather than it being silently lost —
     // DmxOutDeviceNode's own call site, with no such buffer to seed,
     // simply omits it and is entirely unaffected.
-    static bool detectIsMk2 (SerialPort& serial, std::vector<uint8_t>* leftoverOut = nullptr)
+    inline bool detectIsMk2 (SerialPort& serial, std::vector<uint8_t>* leftoverOut = nullptr)
     {
         uint8_t req[5];
         if (buildGetParamsPacket (req, sizeof (req)) == 0) return false;
@@ -230,6 +234,94 @@ namespace EnttecProCodec
 
 } // namespace EnttecProCodec
 
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * DmxSharedPort — v0.0.916 (2026-09-28)
+ *
+ * ONE open connection per Enttec interface (device path), shared by every
+ * DMX In / DMX Out node using it — the same idea as ArtNetReceiver.
+ *
+ * Why:
+ *  - Exclusivity: the port is opened with TIOCEXCL (SerialPort::open), so a
+ *    second Patchy instance or another app gets a clear "in use" instead of
+ *    both writing interleaved frames to the same interface. That only works
+ *    if Patchy itself opens each interface exactly once — hence this class.
+ *  - Two DMX Outs on one Pro Mk2 (port 1 + port 2) used to open the device
+ *    twice and write independently, so their packets could interleave on
+ *    the wire; writePacket() now sends each packet whole, under a lock.
+ *  - Graph rebuilds: a new node just acquires the port its predecessor
+ *    still holds, so the old stop-thread / transfer-fd dance is gone.
+ *
+ * Reading: one reader thread per interface, running while at least one
+ * DMX In is attached; it parses every received frame and hands it to all
+ * attached In nodes (each does its own change detection, so a node created
+ * by a rebuild gets the current frame straight away). The first In also
+ * sends the "enable receive" command (see DmxInDeviceNode history).
+ *
+ * Classic DMX USB Pro is HALF-DUPLEX (one DMX port whose direction flips
+ * with the last command — Enttec API spec, quoted in the history below),
+ * so In + Out on the same classic Pro can't work; hasHalfDuplexConflict()
+ * lets both nodes show it. Pro Mk2: different ports, allowed.
+ *
+ * Lifetime: shared_ptr held by the nodes; the registry only keeps
+ * weak_ptrs. Closed (reader stopped, port released) when the last node
+ * lets go. Message thread for acquire/attach/detach.
+ */
+class DmxSharedPort : private juce::Thread
+{
+public:
+    class InListener
+    {
+    public:
+        virtual ~InListener() = default;
+        /** Reader thread: every parsed 512-channel frame. */
+        virtual void dmxFrameReceived (const uint8_t* dmx512) = 0;
+        /** Reader thread: raw bytes read (byte-rate display). */
+        virtual void dmxBytesReceived (int numBytes) = 0;
+    };
+
+    enum class OpenResult { ok, inUse, failed };
+
+    /** Returns the shared port for devicePath, opening it if nobody holds
+     *  it yet. nullptr on failure (result says whether it's held by another
+     *  process). */
+    static std::shared_ptr<DmxSharedPort> acquire (const juce::String& devicePath, OpenResult& result);
+
+    ~DmxSharedPort() override;
+
+    bool isMk2() const { return mk2; }
+
+    /** Any thread. Writes one whole packet under a lock. */
+    int writePacket (const uint8_t* data, int len);
+
+    void addIn    (InListener* listener);   // first one sends enable-receive + starts the reader
+    void removeIn (InListener* listener);   // after return, listener is never called again
+    void addOut()    { outCount.fetch_add (1); }
+    void removeOut() { outCount.fetch_sub (1); }
+
+    bool hasHalfDuplexConflict() const
+    {
+        return ! mk2 && inCount.load() > 0 && outCount.load() > 0;
+    }
+
+private:
+    explicit DmxSharedPort (const juce::String& path);
+    void run() override;   // reader thread
+
+    juce::String             devicePath;
+    SerialPort               serial;
+    bool                     mk2 = false;
+    std::vector<uint8_t>     leftover;          // bytes detectIsMk2() read but didn't consume
+    std::mutex               writeLock;
+    std::mutex               inLock;            // guards ins; held while dispatching
+    std::vector<InListener*> ins;
+    std::atomic<int>         inCount  { 0 };
+    std::atomic<int>         outCount { 0 };
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DmxSharedPort)
+};
+
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 /**
@@ -245,12 +337,11 @@ namespace EnttecProCodec
  * channels; see Architecture.md for the discovery and the fix.
  */
 class DmxInDeviceNode : public NodeProcessor,
-                        private juce::Thread
+                        private DmxSharedPort::InListener
 {
 public:
     explicit DmxInDeviceNode (const juce::String& nodeId)
-        : NodeProcessor (nodeId, Type::Midi),
-          juce::Thread ("DmxIn_" + nodeId)
+        : NodeProcessor (nodeId, Type::Midi)
     {}
 
     ~DmxInDeviceNode() override { closePort(); }
@@ -262,172 +353,65 @@ public:
         openPort();
     }
 
-    // Real fix, 2026-09-01 (2nd pass) — the earlier attempt at this same
-    // bug (a `portPath == devicePath` guard directly inside configure()
-    // itself) was structurally unable to work at all: ProcessingGraph::
-    // rebuild() destroys and recreates every node instance on every
-    // single graph edit, anywhere in the whole graph, not just ones
-    // involving this specific device. A freshly-constructed instance's
-    // own devicePath is always at its own default (empty), never
-    // carrying over from whatever instance came before it — so that
-    // guard could never actually find a match, and every graph edit kept
-    // paying the full serial-reopen cost regardless, exactly matching
-    // the user's own follow-up report that the fix made no real
-    // difference. The genuine fix has to transfer the actual, already-
-    // open connection itself across the rebuild — mirroring the same
-    // "transfer state across rebuild" mechanism this project already
-    // uses successfully for DmxConsoleNode's own fader state (see
-    // PatchyProcessor.cpp's own existing call site for the equivalent
-    // pattern, extended to also cover this node type).
-    //
-    // Returns true if a genuine transfer happened (no reopen needed —
-    // caller should NOT also call configure()), false if the caller
-    // should fall through to a normal configure() (path genuinely
-    // changed, or the old instance didn't have a working connection to
-    // transfer in the first place).
+    // v0.0.916 (2026-09-28) — shared port. The old transfer (stop the old
+    // node's reader thread, move its fd; history: 2026-09-01 "graph edits
+    // reopened the port", 2026-09-02 reader-thread crash fix) is replaced
+    // by DmxSharedPort: the new node acquires the port its predecessor
+    // still holds, so a rebuild never reopens the interface. Returns true
+    // when an old node existed (kept for the manager's call site).
     bool transferOrConfigure (const juce::String& portPath, DmxInDeviceNode* oldNode)
     {
-        if (oldNode != nullptr && oldNode->devicePath == portPath && oldNode->serial.isOpen())
-        {
-            // Real crash found and fixed 2026-09-02 — same reasoning as
-            // ArtNetInDeviceNode's own equivalent fix (see that file's own
-            // comment for the full story): the old node's own receive
-            // thread could still genuinely be running at the exact moment
-            // this method transfers its connection out from under it.
-            // Less immediately dangerous here than ArtNet's own case,
-            // since a plain int file descriptor can't be null-dereferenced
-            // the way a moved-from unique_ptr can — but two threads
-            // simultaneously reading the same open connection is still
-            // genuinely undefined, risky behaviour worth eliminating
-            // outright rather than relying on it merely not crashing.
-            // Deliberately does NOT call serial.close() to unblock a
-            // pending read here (unlike closePort()'s own pattern) — that
-            // would destroy the very connection this method exists to
-            // transfer. Not needed anyway: this thread's own read already
-            // uses a short 5ms timeout, so it naturally, promptly
-            // rechecks threadShouldExit() on its own.
-            //
-            // Timeout reduced from 1000ms to 200ms, 2026-09-02 — found no
-            // locking at all, anywhere in this project's own graph code,
-            // between the message thread and the audio thread's own
-            // concurrent, independent processing of the same live graph.
-            // A full second of possible blocking here, on a thread this
-            // one should exit from within single-digit milliseconds given
-            // its own short polling interval, was needlessly generous —
-            // 200ms is comfortably longer than any of these threads' own
-            // longest wait cycle (ArtNet's own, at 100ms) while cutting
-            // the worst case by 5x. Investigated as one contributor to a
-            // user report of subtle audio-stream glitches during graph
-            // edits — though the user's own follow-up clarified this
-            // predates this session's own work, redirecting the primary
-            // suspicion toward the pre-existing closeAllProtocolDeviceSockets()
-            // mechanism instead (see ProcessingGraph.h's own comment).
-            // Tightening this regardless, since it's a genuine, low-risk
-            // improvement on its own merits either way.
-            if (oldNode->isThreadRunning())
-            {
-                oldNode->signalThreadShouldExit();
-                oldNode->stopThread (200);
-            }
-
-            serial.transferFrom (oldNode->serial);
-            devicePath = portPath;
-            isMk2.store (oldNode->isMk2.load(), std::memory_order_relaxed);
-            // The receive thread itself belongs to this specific C++
-            // object instance and can't be transferred — but the
-            // connection it reads from now can be, so this simply starts
-            // a fresh thread on the already-open, already-negotiated
-            // connection rather than repeating the whole open/detect/
-            // enable-receive/settle sequence from scratch.
-            startThread (juce::Thread::Priority::normal);
-            return true;
-        }
-
         configure (portPath);
-        return false;
+        return oldNode != nullptr;
     }
 
+    // v0.0.916 — attach to the shared port. The enable-receive command,
+    // its settling delay and the Mk2 detection moved into DmxSharedPort
+    // (history of the enable-receive command: 2026-08-31, 3rd pass — the
+    // classic Pro is half-duplex and needs it to switch its port to input).
     void openPort()
     {
-        if (devicePath.isEmpty()) return;
+        if (devicePath.isEmpty()) { openState.clear(); return; }
 
-        if (! serial.open (devicePath.toStdString(), 57600, 8, 'N', 2))
+        DmxSharedPort::OpenResult result;
+        port = DmxSharedPort::acquire (devicePath, result);
+        if (port == nullptr)
         {
-            juce::Logger::writeToLog ("DmxInDeviceNode: failed to open " + devicePath);
+            if (openState.failed (result == DmxSharedPort::OpenResult::inUse ? 1 : 2))
+                juce::Logger::writeToLog ("DmxInDeviceNode: failed to open " + devicePath
+                                          + (result == DmxSharedPort::OpenResult::inUse
+                                                 ? " (in use by another application) — retrying quietly"
+                                                 : " — retrying quietly"));
             return;
         }
-
-        // Detect device type before starting receive thread
-        isMk2.store (EnttecProCodec::detectIsMk2 (serial, &pendingLeftoverBytes), std::memory_order_relaxed);
-        juce::Logger::writeToLog ("DmxInDeviceNode: device is "
-                                  + juce::String (isMk2.load() ? "Pro Mk2" : "Pro"));
-
-        // "Enable receive on change" command — restored 2026-08-31 (3rd
-        // pass), after removing it entirely (2nd pass) was ALSO confirmed
-        // by real hardware testing not to fix this — the exact same
-        // silence persisted even with it gone, which was itself the clue
-        // that led to fetching Enttec's own COMPLETE API Spec v1.44 PDF
-        // (not just the earlier, incomplete search snippet) for the full
-        // picture. That revealed something the 2nd pass's own reasoning
-        // had missed entirely: this classic (non-Mk2) widget doesn't have
-        // independently-active input and output at all — it has a
-        // single, half-duplex "DMX port direction" that only certain
-        // commands switch. Per the spec's own wording for the "Output
-        // Only Send DMX" command: "the periodic DMX packet output will
-        // stop and the Widget DMX port direction will change to input
-        // when the Widget receives any request message OTHER THAN the
-        // Output Only Send DMX Packet request, OR THE GET WIDGET
-        // PARAMETERS REQUEST" — meaning Get Widget Parameters (what
-        // detectIsMk2() sends) is explicitly EXCLUDED from switching the
-        // port to input. This "enable receive" command was the ONLY
-        // other request this node ever sent — the one thing capable of
-        // forcing the widget's own port direction back to input, if it
-        // had ever been left in output mode by an earlier session (e.g.
-        // a previous, differently-wired test, or QLC+). Removing it
-        // entirely (2nd pass) likely removed the only mechanism able to
-        // correct that, explaining why doing so made no difference at
-        // all. The 1st pass's own original concern about this same
-        // message's documented "reinitializes the DMX receive
-        // processing" side effect is still worth respecting, though —
-        // addressed here with a short settling delay before this node
-        // starts actively listening, rather than by removing the command
-        // this widget genuinely appears to need.
-        uint8_t buf[16];
-        int len = EnttecProCodec::buildEnableReceivePacket (buf, sizeof (buf));
-        if (len > 0)
-        {
-            int written = serial.write (buf, len);
-            if (written != len)
-                juce::Logger::writeToLog ("DmxInDeviceNode: enable-receive write failed or incomplete ("
-                                          + juce::String (written) + " of " + juce::String (len) + " bytes) on "
-                                          + devicePath);
-            else
-                juce::Logger::writeToLog ("DmxInDeviceNode: enable-receive command sent (" + juce::String (written) + " bytes)");
-        }
-        else
-        {
-            juce::Logger::writeToLog ("DmxInDeviceNode: failed to build enable-receive packet");
-        }
-
-        // Settling delay — genuinely new in this pass, not present in
-        // either earlier attempt. Gives the widget time to complete its
-        // own documented reinitialization before this node's own receive
-        // thread starts polling for a response, rather than racing it.
-        juce::Thread::sleep (100);
-
-        startThread (juce::Thread::Priority::normal);
+        openState.clear();
+        isMk2.store (port->isMk2(), std::memory_order_relaxed);
+        port->addIn (this);
         juce::Logger::writeToLog ("DmxInDeviceNode: listening on " + devicePath);
+    }
+
+    // v0.0.916 — message thread (WebBridge activity timer). See PortBindState.h.
+    void retryOpenIfNeeded()
+    {
+        if (port == nullptr && openState.shouldRetry())
+            openPort();
+    }
+
+    /** v0.0.916 — 0 fine, 1 interface in use by another app, 2 can't open,
+     *  3 half-duplex conflict (In + Out on the same classic Pro). */
+    int statusForUi() const
+    {
+        if (port != nullptr) return port->hasHalfDuplexConflict() ? 3 : 0;
+        return openState.portInUseForUi();   // 1 / 2 after 1 s of failing
     }
 
     void closePort()
     {
-        if (isThreadRunning())
+        if (port != nullptr)
         {
-            signalThreadShouldExit();
-            if (serial.isOpen()) serial.close();
-            stopThread (1000);
+            port->removeIn (this);   // no callback after this returns
+            port.reset();
         }
-        serial.close();
     }
 
     void process (int /*numSamples*/) override
@@ -485,65 +469,28 @@ public:
 private:
     std::array<uint8_t, 512> lastReceived {};
     bool                     hasReceived = false;
-    std::vector<uint8_t>     pendingLeftoverBytes;   // set by openPort(), consumed once by run() at its own startup
-    void run() override
+    // v0.0.916 — called by the shared port's reader thread (was this
+    // node's own run()). Change detection stays per node, so a node created
+    // by a rebuild emits the current frame straight away.
+    void dmxBytesReceived (int n) override
     {
-        static constexpr int kBufSize = 600;
-        std::array<uint8_t, kBufSize> rxBuf {};
-        std::array<uint8_t, 512>      lastDmx {};
-        std::array<uint8_t, 512>      dmxOut  {};
-        int rxLen = 0;
-
-        // Seed with anything detectIsMk2() read but didn't consume, rather
-        // than starting this thread's own buffer empty and losing it —
-        // see detectIsMk2()'s own comment for the full story.
-        if (! pendingLeftoverBytes.empty())
-        {
-            int seedLen = std::min ((int) pendingLeftoverBytes.size(), kBufSize);
-            std::memcpy (rxBuf.data(), pendingLeftoverBytes.data(), (size_t) seedLen);
-            rxLen = seedLen;
-        }
-
-        while (! threadShouldExit())
-        {
-            if (! serial.isOpen()) break;
-
-            uint8_t tmp[64];
-            int n = serial.read (tmp, sizeof (tmp), 5);  // 5ms timeout — DMX frame = 22ms
-            if (n <= 0) continue;
-
-            bytesSinceLastPoll.fetch_add (n, std::memory_order_relaxed);
-
-            // Append to receive buffer
-            int copyLen = std::min (n, kBufSize - rxLen);
-            if (copyLen > 0)
-            {
-                std::memcpy (rxBuf.data() + rxLen, tmp, (size_t) copyLen);
-                rxLen += copyLen;
-            }
-
-            // Try to parse a complete packet
-            int channels = EnttecProCodec::parseRxPacket (rxBuf.data(), rxLen, dmxOut.data());
-            if (channels > 0)
-            {
-                // Change detection — only emit on actual value changes
-                if (std::memcmp (dmxOut.data(), lastDmx.data(), 512) != 0)
-                {
-                    std::memcpy (lastDmx.data(), dmxOut.data(), 512);
-                    // Don't call recordMidiActivity here — process() handles it
-                    // at a regular audio-block rate to avoid bursty flash jitter
-                    ReceivedUniverse u;
-                    std::memcpy (u.dmx, dmxOut.data(), 512);
-                    fifo.push (u);
-                }
-                rxLen = 0;   // consumed — reset buffer
-            }
-            else if (rxLen >= kBufSize)
-            {
-                rxLen = 0;   // overflow — discard and resync
-            }
-        }
+        bytesSinceLastPoll.fetch_add (n, std::memory_order_relaxed);
     }
+
+    void dmxFrameReceived (const uint8_t* dmx512) override
+    {
+        if (haveLastDmx && std::memcmp (dmx512, lastDmx.data(), 512) == 0) return;
+        haveLastDmx = true;   // the very first frame always counts as a change
+        std::memcpy (lastDmx.data(), dmx512, 512);
+        // Don't call recordMidiActivity here — process() handles it at a
+        // regular audio-block rate to avoid bursty flash jitter.
+        ReceivedUniverse u;
+        std::memcpy (u.dmx, dmx512, 512);
+        fifo.push (u);
+    }
+
+    std::array<uint8_t, 512> lastDmx {};           // reader thread only
+    bool                     haveLastDmx = false;  // reader thread only
 
     struct ReceivedUniverse { uint8_t dmx[512] {}; };
 
@@ -570,7 +517,8 @@ private:
         std::array<ReceivedUniverse, kFifoSize>    items;
     } fifo;
 
-    SerialPort serial;
+    std::shared_ptr<DmxSharedPort> port;        // v0.0.916 — message thread
+    PortBindState                  openState;   // v0.0.916 — 1 = in use, 2 = can't open
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DmxInDeviceNode)
 };
@@ -606,59 +554,50 @@ public:
         openPort();
     }
 
-    // Real fix, 2026-09-01 (2nd pass) — same reasoning and same fix as
-    // DmxInDeviceNode's own (see that file's own comment for the full
-    // story). Also compares universe, since that can genuinely change
-    // independently of the device path itself.
+    // v0.0.916 (2026-09-28) — shared port; see DmxInDeviceNode's own
+    // transferOrConfigure(). The new node's writer thread starts on the
+    // port its predecessor still holds (no reopen); during the overlap both
+    // may send, each packet whole under DmxSharedPort's write lock.
     bool transferOrConfigure (const juce::String& portPath, int universeToUse, DmxOutDeviceNode* oldNode)
     {
-        if (oldNode != nullptr && oldNode->devicePath == portPath
-            && oldNode->universe == universeToUse && oldNode->serial.isOpen())
-        {
-            // Real crash fix, 2026-09-02 — same reasoning as
-            // DmxInDeviceNode's own (see that file's own comment for the
-            // full story), using this thread's own correct wake-up
-            // mechanism: it blocks on sendQueue, not a direct serial read,
-            // matching this class's own closePort(). Timeout reduced from
-            // 1000ms to 200ms, 2026-09-02 — see DmxInDeviceNode's own
-            // equivalent comment for the full reasoning.
-            if (oldNode->isThreadRunning())
-            {
-                oldNode->signalThreadShouldExit();
-                oldNode->sendQueue.signalDataAvailable();
-                oldNode->stopThread (200);
-            }
-
-            serial.transferFrom (oldNode->serial);
-            devicePath = portPath;
-            universe   = universeToUse;
-            isMk2.store (oldNode->isMk2.load(), std::memory_order_relaxed);
-            startThread (juce::Thread::Priority::normal);
-            return true;
-        }
-
         configure (portPath, universeToUse);
-        return false;
+        return oldNode != nullptr;
     }
 
     void openPort()
     {
-        if (devicePath.isEmpty()) return;
+        if (devicePath.isEmpty()) { openState.clear(); return; }
 
-        if (! serial.open (devicePath.toStdString(), 57600, 8, 'N', 2))
+        DmxSharedPort::OpenResult result;
+        port = DmxSharedPort::acquire (devicePath, result);
+        if (port == nullptr)
         {
-            juce::Logger::writeToLog ("DmxOutDeviceNode: failed to open " + devicePath);
+            if (openState.failed (result == DmxSharedPort::OpenResult::inUse ? 1 : 2))
+                juce::Logger::writeToLog ("DmxOutDeviceNode: failed to open " + devicePath
+                                          + (result == DmxSharedPort::OpenResult::inUse
+                                                 ? " (in use by another application) — retrying quietly"
+                                                 : " — retrying quietly"));
             return;
         }
-
-        // Detect device type
-        isMk2.store (EnttecProCodec::detectIsMk2 (serial), std::memory_order_relaxed);
-        juce::Logger::writeToLog ("DmxOutDeviceNode: device is "
-                                  + juce::String (isMk2.load() ? "Pro Mk2" : "Pro")
-                                  + " on " + devicePath
+        openState.clear();
+        isMk2.store (port->isMk2(), std::memory_order_relaxed);
+        port->addOut();
+        juce::Logger::writeToLog ("DmxOutDeviceNode: sending on " + devicePath
                                   + " universe " + juce::String (universe));
-
         startThread (juce::Thread::Priority::normal);
+    }
+
+    // v0.0.916 — see DmxInDeviceNode's own retryOpenIfNeeded()/statusForUi().
+    void retryOpenIfNeeded()
+    {
+        if (port == nullptr && openState.shouldRetry())
+            openPort();
+    }
+
+    int statusForUi() const
+    {
+        if (port != nullptr) return port->hasHalfDuplexConflict() ? 3 : 0;
+        return openState.portInUseForUi();
     }
 
     void closePort()
@@ -669,7 +608,11 @@ public:
             sendQueue.signalDataAvailable();
             stopThread (1000);
         }
-        serial.close();
+        if (port != nullptr)   // v0.0.916 — after the writer thread stopped
+        {
+            port->removeOut();
+            port.reset();
+        }
     }
 
     void process (int /*numSamples*/) override
@@ -752,6 +695,7 @@ private:
     {
         std::array<uint8_t, EnttecProCodec::kPktMax> pkt;
         std::array<uint8_t, 512> lastDmx {};
+        bool haveLastDmx = false;   // v0.0.917 — see below
 
         while (! threadShouldExit())
         {
@@ -761,15 +705,20 @@ private:
                 sendQueue.waitForData (50);
                 continue;
             }
-            if (! serial.isOpen()) continue;
+            if (port == nullptr) continue;
 
-            // Change detection — only send when values differ
-            if (std::memcmp (dmx.data(), lastDmx.data(), 512) == 0) continue;
+            // Change detection — only send when values differ.
+            // Fix, v0.0.917 (2026-09-29) — the FIRST frame is always sent:
+            // lastDmx starts all-zero, so a node created by a rebuild (every
+            // undo/redo) silently skipped an all-zero frame — e.g. undoing a
+            // fader back to 0 left the fixture at its old value.
+            if (haveLastDmx && std::memcmp (dmx.data(), lastDmx.data(), 512) == 0) continue;
+            haveLastDmx = true;
             std::memcpy (lastDmx.data(), dmx.data(), 512);
 
             int len = EnttecProCodec::buildOutputPacket (dmx.data(), 512, pkt.data(), (int) pkt.size(), universe);
             if (len > 0)
-                serial.write (pkt.data(), len);
+                port->writePacket (pkt.data(), len);   // v0.0.916 — whole packet under the port's lock
         }
     }
 
@@ -800,7 +749,8 @@ private:
         juce::WaitableEvent                            event { false };  // auto-reset: resets after each wait()
     } sendQueue;
 
-    SerialPort serial;
+    std::shared_ptr<DmxSharedPort> port;        // v0.0.916 — set/reset on the message thread while the writer thread is stopped
+    PortBindState                  openState;   // v0.0.916 — 1 = in use, 2 = can't open
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DmxOutDeviceNode)
 };

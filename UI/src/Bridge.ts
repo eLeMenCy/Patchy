@@ -55,6 +55,7 @@ export interface PortActivityEntry {
   notes:   string;    // "status,note status,note ..." for keyboard nodes
   bytes:   number;    // bytes received since last push (UDP In only, 0 otherwise)
   portInUse?: number; // v0.0.916 — UDP/OSC/ArtNet In: port that can't be bound, 0 = fine
+  dmxStatus?: number; // v0.0.916 — DMX In/Out: 0 fine, 1 in use, 2 can't open, 3 half-duplex conflict
   isMk2:   boolean;  // true if Enttec Pro Mk2 detected (DMX nodes only)
   dmxValue: number;  // current DMX channel level ×1000, for gradual intensity rendering (0 if not a DMX node)
   paxReadOnly: { index: number; value: number }[];  // live values for this node's read-only parameters (see PaxAPI.h's PAX_isParameterReadOnly), empty for every node except a Pax that has at least one

@@ -179,7 +179,8 @@ export function DmxDeviceSelector ({ nodeId, devicePath, universe, serialPorts }
 }
 
 // ── DMX settings panel (gear) — universe selection ───────────────────────────
-export function DmxSettingsPanel ({ nodeId, nodeType, devicePath, universe, isMk2, onClose }: {
+export function DmxSettingsPanel ({ nodeId, nodeType, devicePath, universe, isMk2, status = 0, onClose }: {
+  status?:    number;   // v0.0.916 — see dmxStatusText()
   nodeId:     string;
   nodeType:   14 | 15;
   devicePath: string;
@@ -255,6 +256,12 @@ export function DmxSettingsPanel ({ nodeId, nodeType, devicePath, universe, isMk
           : 'Uni 1 requires Pro Mk2'}
       </div>
 
+      {!!status && (
+        <div style={{ fontSize: 9, color: '#ef5350', marginTop: 6 }}>
+          {dmxStatusText(status, true)}
+        </div>
+      )}
+
       <div
         onClick={() => Bridge.listSerialPorts()}
         className="nodrag"
@@ -278,3 +285,26 @@ export function DmxByteRateLabel ({ byteRate }: { byteRate: string }) {
   );
 }
 
+// ── DMX interface status — v0.0.916 (2026-09-28) ─────────────────────────────
+// From the backend's shared-port state (DmxSharedPort): 1 = held by another
+// application (opened exclusively), 2 = can't be opened, 3 = In + Out on the
+// same classic DMX USB Pro, which is half-duplex. 1/2 are only reported after
+// 1 s of failing; the backend retries quietly and clears it on its own.
+export function dmxStatusText (status: number, long = false): string {
+  switch (status) {
+    case 1: return long ? 'Interface in use by another application — retrying…' : 'Interface in use';
+    case 2: return long ? "Interface can't be opened — retrying…" : "Can't open interface";
+    case 3: return long ? 'Classic DMX USB Pro is half-duplex: a DMX In and a DMX Out cannot share it. Use a second interface (or a Pro Mk2).'
+                        : 'Half-duplex: In + Out on one Pro';
+    default: return '';
+  }
+}
+
+export function DmxStatusLine ({ status }: { status: number }) {
+  if (!status) return null;
+  return (
+    <div style={{ fontSize: 9, color: '#ef5350', textAlign: 'center', marginTop: 3, letterSpacing: '0.05em' }}>
+      {dmxStatusText(status)}
+    </div>
+  );
+}

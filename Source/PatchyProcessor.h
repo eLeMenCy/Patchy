@@ -457,7 +457,12 @@ public:
         {
             auto parsed = juce::JSON::parse (settingsJson);
             juce::String b64 = parsed["dmxChannels"].toString();
-            if (b64.isEmpty()) return;
+            // Fix, v0.0.917 (2026-09-29) — a MISSING key means "default", not
+            // "leave as is": undo/redo back to a state saved before the
+            // faders or Blackout were ever touched has no dmxChannels /
+            // blackout keys, and returning early here left the console (and
+            // everything downstream) at the undone values. Empty b64 now
+            // decodes to all zeros below; missing blackout = off.
 
             static const int8_t kDec[256] = {
                 -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
@@ -489,10 +494,9 @@ public:
                 if (d >= 0 && out < 512) channels[static_cast<size_t>(out++)] = (uint8_t)((c << 6) | d);
             }
             console->restoreChannels (channels);
-            // Also restore blackout
+            // Also restore blackout (missing = off — see above)
             auto blackoutVar = parsed["blackout"];
-            if (! blackoutVar.isVoid() && ! blackoutVar.isUndefined())
-                console->restoreBlackout ((bool) blackoutVar);
+            console->restoreBlackout (! blackoutVar.isVoid() && ! blackoutVar.isUndefined() && (bool) blackoutVar);
         }
         catch (...) {}
     }
@@ -1101,9 +1105,15 @@ public:
             {
                 a.udpBytes   = dmxIn->drainByteActivity();
                 a.dmxIsMk2   = dmxIn->isMk2.load (std::memory_order_relaxed);
+                dmxIn->retryOpenIfNeeded();                     // v0.0.916 — see PortBindState.h
+                a.dmxStatus  = dmxIn->statusForUi();
             }
             if (auto* dmxOut = dynamic_cast<DmxOutDeviceNode*> (node.get()))
-                a.dmxIsMk2 = dmxOut->isMk2.load (std::memory_order_relaxed);
+            {
+                a.dmxIsMk2  = dmxOut->isMk2.load (std::memory_order_relaxed);
+                dmxOut->retryOpenIfNeeded();                    // v0.0.916
+                a.dmxStatus = dmxOut->statusForUi();
+            }
 
             // Audio RMS from AudioMonitorBuffer (for AudioMonitorNode)
             auto it = audioMonitorBuffers.find (node->id);
@@ -1197,7 +1207,7 @@ public:
             // use, plus ONE more entry (portInUse 0) when it clears, so the
             // node's red state goes away again.
             bool portInUseChanged = false;
-            if (a.portInUse != 0)
+            if (a.portInUse != 0 || a.dmxStatus != 0)   // v0.0.916 — DMX status rides the same push
             {
                 portInUseReported.insert (node->id);
                 portInUseChanged = true;   // keep pushing while in use (30 Hz, like other live state)

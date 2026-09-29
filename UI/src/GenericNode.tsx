@@ -12,7 +12,7 @@ import { UdpPortSummary, UdpDeviceSettingsPanel } from './UdpDeviceUI';
 import { OscDeviceSettingsPanel, OscPortSummary } from './OscDeviceUI';
 import { MqttSubscribeSettingsPanel, MqttSubscribeSummary, MqttPublishSettingsPanel, MqttPublishSummary } from './MqttDeviceUI';
 import { ArtNetDeviceSettingsPanel, ArtNetPortSummary } from './ArtNetDeviceUI';
-import { DmxDeviceSelector, DmxSettingsPanel, DmxByteRateLabel } from './DmxDeviceUI';
+import { DmxDeviceSelector, DmxSettingsPanel, DmxByteRateLabel, DmxStatusLine } from './DmxDeviceUI';
 
 export interface NodeData {
   label: string;
@@ -365,6 +365,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
   // Byte-rate label for DMX In nodes
   const [dmxByteRate, setDmxByteRate] = useState<string>('');
   const [dmxIsMk2,    setDmxIsMk2]    = useState(false);
+  const [dmxStatus,   setDmxStatus]   = useState<number>(0);   // v0.0.916
   useEffect(() => {
     if (!isDmxDevice) return;
     const unsub = Bridge.onPortActivity((entries) => {
@@ -372,6 +373,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
       if (!entry) return;
       // isMk2 reported by both In and Out nodes
       if (entry.isMk2 !== undefined) setDmxIsMk2(entry.isMk2);
+      setDmxStatus(entry.dmxStatus ?? 0);   // v0.0.916 — In and Out
       if (nodeData.nodeType !== 14) return;  // byte-rate for In only
       const bps = (entry.bytes ?? 0) * 30;
       if (bps === 0) { setDmxByteRate(''); return; }
@@ -792,6 +794,13 @@ function GenericNode({ id, data, selected }: NodeProps) {
                 <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
               </svg>
             </NodeHeaderButton>
+            {dmxStatus > 0 && !showSettings && (
+              <div style={{
+                position: 'absolute', top: -3, right: -3,
+                width: 7, height: 7, borderRadius: '50%',
+                background: '#ef5350', pointerEvents: 'none',
+              }} />
+            )}
           </div>
         )}
 
@@ -927,6 +936,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
             universe={dmxUniverse}
             serialPorts={serialPorts}
           />
+          <DmxStatusLine status={dmxStatus} />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 3 }}>
             <span style={{ fontSize: 9, color: 'var(--text-muted)', opacity: 0.6 }}>
               uni {dmxUniverse}
@@ -948,6 +958,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
               devicePath={dmxDevicePath}
               universe={dmxUniverse}
               isMk2={dmxIsMk2}
+              status={dmxStatus}
               onClose={closeSettings}
             />
           )}

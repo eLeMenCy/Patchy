@@ -78,11 +78,12 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
   useEffect(() => {
     try {
       const raw = nodeData.settingsJson as string | undefined;
-      const parsed = raw ? JSON.parse(raw) : null;
-      if (!parsed) return;
-      if (typeof parsed.blackout === 'boolean') {
-        setBlackoutState(parsed.blackout);
-      }
+      // Fix, v0.0.917 (2026-09-29) — a missing key (or no settings at all)
+      // means "default", not "keep": undo back to a state saved before the
+      // faders / Blackout were ever touched has no dmxChannels / blackout,
+      // and the Blackout used to stay on in the UI after undoing it.
+      const parsed = raw ? JSON.parse(raw) : {};
+      setBlackoutState(parsed.blackout === true);
       const b64: string | undefined = parsed?.dmxChannels;
       if (!b64) {
         channelsRef.current = new Array<number>(512).fill(0);

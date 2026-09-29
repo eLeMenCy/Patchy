@@ -7,6 +7,7 @@ import {
   DmxMonitorNodeData, DmxNodeSettings, DEFAULT_SETTINGS,
   ACCENT, ACCENT_C, CHANNELS, COL_W, FADER_H,
   formatVal, navBtnStyle, DmxSettingsPanel,
+  isSnapshotStale, drawNoSignalTag, STALE_ALPHA,
 } from './DmxShared';
 
 export type { DmxMonitorNodeData };
@@ -46,10 +47,13 @@ function DmxCanvasBargraph ({ nodeId, settingsRef, collapsed }: {
 
       const { startChannel, visibleCount, valueFormat } = settingsRef.current;
       const snap: Uint8Array | undefined = (window as any).__dmxSnapshots?.[nodeId];
+      // v0.0.916 — held frame, but no live input for a while: dim + tag.
+      const stale = !!snap && isSnapshotStale((window as any).__dmxSnapshotTimes, nodeId);
 
       const w = canvas.width;
       const h = canvas.height;
       ctx.clearRect(0, 0, w, h);
+      ctx.globalAlpha = stale ? STALE_ALPHA : 1;
 
       const colW   = w / visibleCount;
       const barW   = Math.max(4, colW * 0.4);
@@ -93,6 +97,9 @@ function DmxCanvasBargraph ({ nodeId, settingsRef, collapsed }: {
         ctx.textAlign = 'center';
         ctx.fillText(formatVal(val, valueFormat), x + colW / 2, labelH + trackH + valH - 1);
       }
+
+      ctx.globalAlpha = 1;
+      if (stale) drawNoSignalTag(ctx, w, h);
 
       rafRef.current = requestAnimationFrame(render);
     };

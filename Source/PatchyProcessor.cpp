@@ -521,6 +521,18 @@ void PatchyProcessor::rebuildProcessingGraph()
             if (n.settingsJson.isNotEmpty())
                 channelRestores.push_back ({ n.id, n.settingsJson, 27 });
         }
+        else if (n.nodeType == 18)
+        {
+            // Fix, v0.0.916 (2026-09-28) — ArtNet Monitor's universe filter
+            // lives in the backend node (universeFilter, default -1 = all),
+            // but the UI only sends it when the user CHANGES it. Every
+            // rebuild (any graph edit, file load, undo/redo) creates a fresh
+            // node at -1, so the monitor silently went back to showing all
+            // universes while its panel still showed the filter as active.
+            // Restored from the UI's own settingsJson keys instead.
+            if (n.settingsJson.isNotEmpty())
+                channelRestores.push_back ({ n.id, n.settingsJson, 18 });
+        }
     }
 
     // If selections changed (e.g. after undo), close all transferred devices
@@ -639,6 +651,21 @@ void PatchyProcessor::rebuildProcessingGraph()
             restoreAudioPlayerSettings (r.nodeId, r.settingsJson, newGraph.get());
         else if (r.nodeType == 27)
             restoreMidiChMatrixState (r.nodeId, r.settingsJson, newGraph.get());
+        else if (r.nodeType == 18)
+        {
+            // Fix, v0.0.916 — see the nodeType 18 branch above. Same keys and
+            // -1 sentinel as ArtNetMonitorNode.tsx's commitPatch().
+            if (auto* mon = newGraph->findArtNetMonitorNode (r.nodeId))
+            {
+                try
+                {
+                    auto parsed = juce::JSON::parse (r.settingsJson);
+                    const bool on = (bool) parsed["filterUniverse"];
+                    mon->setUniverseFilter (on ? (int) parsed["filterUniverseValue"] : -1);
+                }
+                catch (...) {}
+            }
+        }
         else if (r.nodeType == 2)
             restoreMidiOutDeviceChannelFilter (r.nodeId, r.settingsJson, newGraph.get());
     }

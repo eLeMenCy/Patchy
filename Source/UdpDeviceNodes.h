@@ -2,6 +2,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_core/juce_core.h>
 #include "NodeProcessor.h"
+#include "PortBindState.h"
 #include "../Pax/PaxAPI.h"
 
 // Forward declare to avoid circular include
@@ -97,16 +98,27 @@ public:
 
     void openSocket()
     {
-        if (port <= 0) return;
+        if (port <= 0) { bindState.clear(); return; }
 
         socket = std::make_unique<juce::DatagramSocket> (/*canBroadcast*/ mode == UdpMode::Broadcast);
 
+        // v0.0.916 (2026-09-28) — port reuse OFF (except multicast, where
+        // several listeners on one group is legitimate). JUCE enables reuse
+        // by default, so a second node or Patchy instance on the same port
+        // could "bind" fine while only one of them received anything; now
+        // that bind fails, and the node shows "port N in use".
+        if (mode != UdpMode::Multicast)
+            socket->setEnablePortReuse (false);
+
         if (! socket->bindToPort (port))
         {
-            juce::Logger::writeToLog ("UdpInDeviceNode: failed to bind port " + juce::String (port));
+            if (bindState.failed (port))
+                juce::Logger::writeToLog ("UdpInDeviceNode: failed to bind port " + juce::String (port)
+                                          + " (in use?) — retrying quietly");
             socket.reset();
             return;
         }
+        bindState.clear();
 
         if (mode == UdpMode::Multicast && multicastAddr.isNotEmpty())
         {
@@ -118,6 +130,14 @@ public:
                                   + (mode == UdpMode::Multicast ? " (multicast " + multicastAddr + ")" : ""));
         startThread (juce::Thread::Priority::normal);
     }
+
+    // v0.0.916 — message thread (WebBridge activity timer). See PortBindState.h.
+    void retryBindIfNeeded()
+    {
+        if (socket == nullptr && bindState.shouldRetry())
+            openSocket();
+    }
+    PortBindState bindState;   // v0.0.916
 
     void closeSocket()
     {

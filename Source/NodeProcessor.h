@@ -161,6 +161,15 @@ public:
     int  inputArtNetUniverse    = 0;
     int  outputArtNetUniverse   = 0;
 
+    // v0.0.916 (2026-09-28) — PERSISTENT (not reset per block): set by a
+    // source that deliberately has NOTHING to hold, so downstream nodes
+    // drop its cached frame (see artNetSourceFrames below) instead of
+    // holding it — i.e. the same as disconnecting the edge. Currently only
+    // ArtNetInDeviceNode, from a universe change until the new universe's
+    // first packet. Sources that emit only on change (consoles) never set
+    // it: their cached frame IS their current state and must keep holding.
+    bool outputArtNetWithdrawn  = false;
+
     // Per-source ArtNet frame cache — same reasoning as dmxSourceFrames
     // (persists between a discrete source's emission events, pruned each
     // block against currently-connected sources by ProcessingGraph.cpp),

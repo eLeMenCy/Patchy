@@ -11,7 +11,7 @@ import { Bridge } from './Bridge';
 import { SettingsPanelHeader, isLikelyCompleteHost } from './NodeUtils';
 
 // ── UDP port summary label ────────────────────────────────────────────────────
-export function UdpPortSummary ({ port, mode, targetHost, multicastAddr, byteRate, onClick }: { port: number; mode: 0 | 1 | 2; targetHost: string; multicastAddr: string; byteRate: string; onClick: () => void }) {
+export function UdpPortSummary ({ port, mode, targetHost, multicastAddr, byteRate, portInUse = 0, onClick }: { port: number; mode: 0 | 1 | 2; targetHost: string; multicastAddr: string; byteRate: string; portInUse?: number; onClick: () => void }) {
   const baseStyle: React.CSSProperties = {
     fontSize: 9, marginBottom: 3, letterSpacing: '0.05em',
     cursor: 'pointer', borderRadius: 3, padding: '2px 4px',
@@ -28,6 +28,21 @@ export function UdpPortSummary ({ port, mode, targetHost, multicastAddr, byteRat
         onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
       >
         No port set
+      </div>
+    );
+  }
+  // v0.0.916 (2026-09-28) — listening port can't be bound (another node or
+  // application holds it); the backend keeps retrying quietly.
+  if (portInUse) {
+    return (
+      <div
+        className="nodrag"
+        onClick={onClick}
+        style={{ ...baseStyle, color: '#ef5350', justifyContent: 'center' }}
+        onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(239,83,80,.12)'; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+      >
+        Port {portInUse} in use
       </div>
     );
   }
@@ -49,7 +64,8 @@ export function UdpPortSummary ({ port, mode, targetHost, multicastAddr, byteRat
 }
 
 // ── UDP IN/OUT settings panel ────────────────────────────────────────────────
-export function UdpDeviceSettingsPanel ({ nodeId, nodeType, port, mode, targetHost, multicastAddr, onClose }: {
+export function UdpDeviceSettingsPanel ({ nodeId, nodeType, port, mode, targetHost, multicastAddr, portInUse = 0, onClose }: {
+  portInUse?:     number;   // v0.0.916
   nodeId:         string;
   nodeType:       8 | 9;
   port:           number;
@@ -231,6 +247,11 @@ export function UdpDeviceSettingsPanel ({ nodeId, nodeType, port, mode, targetHo
       {!localPort && (
         <div style={{ fontSize: 9, color: '#ef5350', marginTop: 6 }}>
           Set a port to activate
+        </div>
+      )}
+      {!!portInUse && (
+        <div style={{ fontSize: 9, color: '#ef5350', marginTop: 6 }}>
+          Port {portInUse} is in use by another node or application — retrying…
         </div>
       )}
     </div>

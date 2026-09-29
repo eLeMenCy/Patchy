@@ -293,3 +293,39 @@ export function DmxSettingsPanel ({ settings, isConsole, onChange, onCommit, onC
 
 // suppress unused import warning — memo is used by consumers
 export { memo };
+
+// ── "No signal" indication for DMX / ArtNet Monitors — v0.0.916 (2026-09-28) ──
+// Monitors deliberately HOLD the last frame when their input stops (decided
+// 2026-08-30: avoids an unwanted blackout look, consistent with consoles and
+// hardware Out nodes). Option 2 agreed 2026-09-28: keep holding, but show
+// that it's stale. Snapshots arrive at ~30 Hz for as long as the upstream
+// emits (the backend buffer is marked dirty every block), so no snapshot
+// for STALE_MS means no live input: the held bars are dimmed and a small
+// NO SIGNAL tag is drawn. Resumes normally on the next snapshot. UI only —
+// nothing downstream changes. Arrival times are recorded by Bridge.ts next
+// to its snapshot caches (__dmxSnapshotTimes / __artNetSnapshotTimes).
+export const STALE_MS = 1000;
+export const STALE_ALPHA = 0.35;
+
+export function isSnapshotStale (times: Record<string, number> | undefined, nodeId: string): boolean {
+  const t = times?.[nodeId];
+  return t === undefined || performance.now() - t > STALE_MS;
+}
+
+export function drawNoSignalTag (ctx: CanvasRenderingContext2D, w: number, h: number) {
+  const label = 'NO SIGNAL';
+  ctx.font = 'bold 8px monospace';
+  const tw = ctx.measureText(label).width;
+  const bw = tw + 10, bh = 13;
+  const bx = (w - bw) / 2, by = (h - bh) / 2;
+  ctx.fillStyle = 'rgba(17,24,39,0.85)';
+  ctx.fillRect(bx, by, bw, bh);
+  ctx.strokeStyle = '#6b7280';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+  ctx.fillStyle = '#9ca3af';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, w / 2, by + bh / 2 + 0.5);
+  ctx.textBaseline = 'alphabetic';
+}

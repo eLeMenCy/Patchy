@@ -54,6 +54,7 @@ export interface PortActivityEntry {
   portRms: number[];  // per-output-port RMS ×1000 for multi-port nodes
   notes:   string;    // "status,note status,note ..." for keyboard nodes
   bytes:   number;    // bytes received since last push (UDP In only, 0 otherwise)
+  portInUse?: number; // v0.0.916 — UDP/OSC/ArtNet In: port that can't be bound, 0 = fine
   isMk2:   boolean;  // true if Enttec Pro Mk2 detected (DMX nodes only)
   dmxValue: number;  // current DMX channel level ×1000, for gradual intensity rendering (0 if not a DMX node)
   paxReadOnly: { index: number; value: number }[];  // live values for this node's read-only parameters (see PaxAPI.h's PAX_isParameterReadOnly), empty for every node except a Pax that has at least one
@@ -471,7 +472,10 @@ function _dispatchClaimed() {
     try {
       const raw = JSON.parse(json) as { id: string; b64?: string; ch?: number[] }[];
       (window as any).__dmxSnapshots = (window as any).__dmxSnapshots ?? {};
+      (window as any).__dmxSnapshotTimes = (window as any).__dmxSnapshotTimes ?? {};   // v0.0.916 — see DmxShared's isSnapshotStale
+      const nowDmx = performance.now();
       for (const s of raw) {
+        (window as any).__dmxSnapshotTimes[s.id] = nowDmx;
         if (s.b64) {
           const bin = atob(s.b64);
           const ch  = new Uint8Array(512);
@@ -497,8 +501,11 @@ function _dispatchClaimed() {
     try {
       const raw = JSON.parse(json) as { id: string; b64?: string; universe: number }[];
       (window as any).__artNetSnapshots = (window as any).__artNetSnapshots ?? {};
+      (window as any).__artNetSnapshotTimes = (window as any).__artNetSnapshotTimes ?? {};   // v0.0.916
+      const nowArt = performance.now();
       for (const s of raw) {
         if (s.b64) {
+          (window as any).__artNetSnapshotTimes[s.id] = nowArt;
           const bin = atob(s.b64);
           const ch  = new Uint8Array(512);
           for (let i = 0; i < 512; i++) ch[i] = bin.charCodeAt(i);

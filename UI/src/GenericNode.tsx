@@ -217,11 +217,13 @@ function GenericNode({ id, data, selected }: NodeProps) {
 
   // Byte-rate label for UDP In nodes — subscribe to 30Hz port activity, compute B/s
   const [udpByteRate, setUdpByteRate] = useState<string>('');
+  const [udpPortInUse, setUdpPortInUse] = useState<number>(0);   // v0.0.916
   useEffect(() => {
     if (nodeData.nodeType !== 8) return;  // UDP In only
     const unsub = Bridge.onPortActivity((entries) => {
       const entry = entries.find(e => e.id === id);
       if (!entry) return;
+      setUdpPortInUse(entry.portInUse ?? 0);   // v0.0.916
       const bps = (entry.bytes ?? 0) * 30;  // 30Hz poll → bytes/sec
       if (bps === 0) { setUdpByteRate(''); return; }
       setUdpByteRate(bps >= 1024
@@ -248,11 +250,13 @@ function GenericNode({ id, data, selected }: NodeProps) {
 
   // Byte-rate label for OSC In nodes
   const [oscByteRate, setOscByteRate] = useState<string>('');
+  const [oscPortInUse, setOscPortInUse] = useState<number>(0);   // v0.0.916
   useEffect(() => {
     if (nodeData.nodeType !== 10) return;  // OSC In only
     const unsub = Bridge.onPortActivity((entries) => {
       const entry = entries.find(e => e.id === id);
       if (!entry) return;
+      setOscPortInUse(entry.portInUse ?? 0);   // v0.0.916
       const bps = (entry.bytes ?? 0) * 30;
       if (bps === 0) { setOscByteRate(''); return; }
       setOscByteRate(bps >= 1024
@@ -321,11 +325,13 @@ function GenericNode({ id, data, selected }: NodeProps) {
 
   // Byte-rate label for ArtNet In nodes
   const [artNetByteRate, setArtNetByteRate] = useState<string>('');
+  const [artNetPortInUse, setArtNetPortInUse] = useState<number>(0);   // v0.0.916
   useEffect(() => {
     if (nodeData.nodeType !== 12) return;  // ArtNet In only
     const unsub = Bridge.onPortActivity((entries) => {
       const entry = entries.find(e => e.id === id);
       if (!entry) return;
+      setArtNetPortInUse(entry.portInUse ?? 0);   // v0.0.916
       const bps = (entry.bytes ?? 0) * 30;
       if (bps === 0) { setArtNetByteRate(''); return; }
       setArtNetByteRate(bps >= 1024
@@ -678,7 +684,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
                 <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
               </svg>
             </NodeHeaderButton>
-            {!udpPort && !showSettings && (
+            {(!udpPort || udpPortInUse > 0) && !showSettings && (
               <div style={{
                 position: 'absolute', top: -3, right: -3,
                 width: 7, height: 7, borderRadius: '50%',
@@ -700,7 +706,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
                 <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
               </svg>
             </NodeHeaderButton>
-            {!oscPort && !showSettings && (
+            {(!oscPort || oscPortInUse > 0) && !showSettings && (
               <div style={{
                 position: 'absolute', top: -3, right: -3,
                 width: 7, height: 7, borderRadius: '50%',
@@ -764,7 +770,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
                 <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
               </svg>
             </NodeHeaderButton>
-            {!artNetTargetHost && nodeData.nodeType === 13 && !showSettings && (
+            {((!artNetTargetHost && nodeData.nodeType === 13) || artNetPortInUse > 0) && !showSettings && (
               <div style={{
                 position: 'absolute', top: -3, right: -3,
                 width: 7, height: 7, borderRadius: '50%',
@@ -841,7 +847,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
           )}
         </>)}
         {isUdpDevice && (<>
-          <UdpPortSummary port={udpPort} mode={udpMode} targetHost={udpTargetHost} multicastAddr={udpMulticastAddr} byteRate={udpByteRate} onClick={toggleSettings} />
+          <UdpPortSummary port={udpPort} mode={udpMode} targetHost={udpTargetHost} multicastAddr={udpMulticastAddr} byteRate={udpByteRate} portInUse={udpPortInUse} onClick={toggleSettings} />
           {showSettings && (
             <UdpDeviceSettingsPanel
               nodeId={id}
@@ -850,12 +856,13 @@ function GenericNode({ id, data, selected }: NodeProps) {
               mode={udpMode}
               targetHost={udpTargetHost}
               multicastAddr={udpMulticastAddr}
+              portInUse={udpPortInUse}
               onClose={closeSettings}
             />
           )}
         </>)}
         {isOscDevice && (<>
-          <OscPortSummary port={oscPort} targetHost={oscTargetHost} oscAddress={oscAddress} byteRate={oscByteRate} onClick={toggleSettings} />
+          <OscPortSummary port={oscPort} targetHost={oscTargetHost} oscAddress={oscAddress} byteRate={oscByteRate} portInUse={oscPortInUse} onClick={toggleSettings} />
           {showSettings && (
             <OscDeviceSettingsPanel
               nodeId={id}
@@ -863,6 +870,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
               port={oscPort}
               targetHost={oscTargetHost}
               oscAddress={oscAddress}
+              portInUse={oscPortInUse}
               onClose={closeSettings}
             />
           )}
@@ -899,13 +907,14 @@ function GenericNode({ id, data, selected }: NodeProps) {
           )}
         </>)}
         {isArtNetDevice && (<>
-          <ArtNetPortSummary universe={artNetUniverse} targetHost={artNetTargetHost} byteRate={artNetByteRate} onClick={toggleSettings} />
+          <ArtNetPortSummary universe={artNetUniverse} targetHost={artNetTargetHost} byteRate={artNetByteRate} portInUse={artNetPortInUse} onClick={toggleSettings} />
           {showSettings && (
             <ArtNetDeviceSettingsPanel
               nodeId={id}
               nodeType={nodeData.nodeType as 12 | 13}
               universe={artNetUniverse}
               targetHost={artNetTargetHost}
+              portInUse={artNetPortInUse}
               onClose={closeSettings}
             />
           )}

@@ -8,6 +8,7 @@ import {
   DmxMonitorNodeData, DmxNodeSettings, DEFAULT_SETTINGS,
   CHANNELS, COL_W, FADER_H,
   formatVal, navBtnStyle,
+  isSnapshotStale, drawNoSignalTag, STALE_ALPHA,
 } from './DmxShared';
 
 // ArtNet uses its own colour
@@ -62,10 +63,13 @@ function ArtNetCanvasBargraph ({ nodeId, settingsRef, collapsed, noDataRef }: {
               filterUniverse, filterUniverseValue } = settingsRef.current;
       const snap: Uint8Array | undefined = (window as any).__artNetSnapshots?.[nodeId];
       const noData = noDataRef.current;
+      // v0.0.916 — held frame, but no live input for a while: dim + tag.
+      const stale = !!snap && !noData && isSnapshotStale((window as any).__artNetSnapshotTimes, nodeId);
 
       const w = canvas.width;
       const h = canvas.height;
       ctx.clearRect(0, 0, w, h);
+      ctx.globalAlpha = stale ? STALE_ALPHA : 1;
 
       const colW   = w / visibleCount;
       const barW   = Math.max(4, colW * 0.4);
@@ -103,6 +107,9 @@ function ArtNetCanvasBargraph ({ nodeId, settingsRef, collapsed, noDataRef }: {
         ctx.textAlign = 'center';
         ctx.fillText(displayVal, x + colW / 2, labelH + trackH + valH - 1);
       }
+
+      ctx.globalAlpha = 1;
+      if (stale) drawNoSignalTag(ctx, w, h);
 
       rafRef.current = requestAnimationFrame(render);
     };

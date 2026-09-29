@@ -11,7 +11,8 @@ import { Bridge } from './Bridge';
 import { SettingsPanelHeader, isLikelyCompleteHost } from './NodeUtils';
 
 // ── OSC IN/OUT settings panel ────────────────────────────────────────────────
-export function OscDeviceSettingsPanel ({ nodeId, nodeType, port, targetHost, oscAddress, onClose }: {
+export function OscDeviceSettingsPanel ({ nodeId, nodeType, port, targetHost, oscAddress, portInUse = 0, onClose }: {
+  portInUse?:  number;   // v0.0.916
   nodeId:      string;
   nodeType:    10 | 11;
   port:        number;
@@ -160,12 +161,18 @@ export function OscDeviceSettingsPanel ({ nodeId, nodeType, port, targetHost, os
           Set a port to activate
         </div>
       )}
+      {!!portInUse && (
+        <div style={{ fontSize: 9, color: '#ef5350', marginTop: 6 }}>
+          Port {portInUse} is in use by another node or application — retrying…
+        </div>
+      )}
     </div>
   );
 }
 
 // ── OSC port summary label ────────────────────────────────────────────────────
-export function OscPortSummary ({ port, targetHost, oscAddress, byteRate, onClick }: {
+export function OscPortSummary ({ port, targetHost, oscAddress, byteRate, portInUse = 0, onClick }: {
+  portInUse?: number;   // v0.0.916
   port:       number;
   targetHost: string;
   oscAddress: string;
@@ -188,6 +195,21 @@ export function OscPortSummary ({ port, targetHost, oscAddress, byteRate, onClic
         onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
       >
         No port set
+      </div>
+    );
+  }
+  // v0.0.916 (2026-09-28) — listening port can't be bound (another node or
+  // application holds it); the backend keeps retrying quietly.
+  if (portInUse) {
+    return (
+      <div
+        className="nodrag"
+        onClick={onClick}
+        style={{ ...baseStyle, color: '#ef5350', justifyContent: 'center' }}
+        onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(239,83,80,.12)'; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+      >
+        Port {portInUse} in use
       </div>
     );
   }

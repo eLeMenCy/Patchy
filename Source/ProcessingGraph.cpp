@@ -453,6 +453,12 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
                 // for why merging later must respect that number.
                 if (src->outputArtNetFrameValid)
                     n->artNetSourceFrames[src->id] = { src->outputArtNetUniverse, src->outputArtNetFrame };
+                else if (src->outputArtNetWithdrawn)
+                    // v0.0.916 (2026-09-28) — the source explicitly has
+                    // nothing to hold (ArtNet In after a universe change):
+                    // drop its cached frame, same as a disconnected edge.
+                    // See NodeProcessor.h's outputArtNetWithdrawn.
+                    n->artNetSourceFrames.erase (src->id);
 
                 // Disable/Enable feature, 2026-09-14 — deliberately NOT
                 // gated on `disabled` (revised from an earlier "pause

@@ -11,7 +11,8 @@ import { Bridge } from './Bridge';
 import { SettingsPanelHeader, isLikelyCompleteHost } from './NodeUtils';
 
 // ── ArtNet settings panel ─────────────────────────────────────────────────────
-export function ArtNetDeviceSettingsPanel ({ nodeId, nodeType, universe, targetHost, onClose }: {
+export function ArtNetDeviceSettingsPanel ({ nodeId, nodeType, universe, targetHost, portInUse = 0, onClose }: {
+  portInUse?: number;   // v0.0.916
   nodeId:     string;
   nodeType:   12 | 13;
   universe:   number;
@@ -148,12 +149,18 @@ export function ArtNetDeviceSettingsPanel ({ nodeId, nodeType, universe, targetH
           Set a target host to activate
         </div>
       )}
+      {!!portInUse && (
+        <div style={{ fontSize: 9, color: '#ef5350', marginTop: 6 }}>
+          Port {portInUse} is in use by another node or application — retrying…
+        </div>
+      )}
     </div>
   );
 }
 
 // ── ArtNet port summary label ─────────────────────────────────────────────────
-export function ArtNetPortSummary ({ universe, targetHost, byteRate, onClick }: {
+export function ArtNetPortSummary ({ universe, targetHost, byteRate, portInUse = 0, onClick }: {
+  portInUse?: number;   // v0.0.916
   universe:   number;
   targetHost: string;
   byteRate:   string;
@@ -177,6 +184,21 @@ export function ArtNetPortSummary ({ universe, targetHost, byteRate, onClick }: 
         onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
       >
         Not configured
+      </div>
+    );
+  }
+  // v0.0.916 (2026-09-28) — listening port can't be bound (another node or
+  // application holds it); the backend keeps retrying quietly.
+  if (portInUse) {
+    return (
+      <div
+        className="nodrag"
+        onClick={onClick}
+        style={{ ...baseStyle, color: '#ef5350', justifyContent: 'center' }}
+        onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(239,83,80,.12)'; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+      >
+        Port {portInUse} in use
       </div>
     );
   }

@@ -2,6 +2,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_core/juce_core.h>
 #include "NodeProcessor.h"
+#include "PortBindState.h"
 #include "../Pax/PaxAPI.h"
 
 // Forward declare to avoid circular include
@@ -342,22 +343,35 @@ public:
 
     void openSocket()
     {
-        if (port <= 0) return;
+        if (port <= 0) { bindState.clear(); return; }
 
         socket = std::make_unique<juce::DatagramSocket> (false);
 
+        // v0.0.916 (2026-09-28) — port reuse OFF, see UdpInDeviceNode::openSocket().
+        socket->setEnablePortReuse (false);
+
         if (! socket->bindToPort (port))
         {
-            juce::Logger::writeToLog ("OscInDeviceNode: failed to bind port "
-                                      + juce::String (port));
+            if (bindState.failed (port))
+                juce::Logger::writeToLog ("OscInDeviceNode: failed to bind port "
+                                          + juce::String (port) + " (in use?) — retrying quietly");
             socket.reset();
             return;
         }
+        bindState.clear();
 
         juce::Logger::writeToLog ("OscInDeviceNode: listening on port "
                                   + juce::String (port));
         startThread (juce::Thread::Priority::normal);
     }
+
+    // v0.0.916 — message thread (WebBridge activity timer). See PortBindState.h.
+    void retryBindIfNeeded()
+    {
+        if (socket == nullptr && bindState.shouldRetry())
+            openSocket();
+    }
+    PortBindState bindState;   // v0.0.916
 
     void closeSocket()
     {

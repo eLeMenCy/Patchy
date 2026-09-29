@@ -67,6 +67,7 @@ struct PortActivity
     // For keyboard nodes: active notes in inputMidi this frame
     std::vector<std::pair<uint8_t,uint8_t>> incomingNotes; // {status, note}
     int               udpBytes      = 0;   // bytes received since last push (UDP In nodes only)
+    int               portInUse     = 0;   // v0.0.916 — UDP/OSC/ArtNet In: port that can't be bound, 0 = fine
     bool              dmxIsMk2      = false; // true if Enttec Pro Mk2 detected
     // Current DMX channel level (0.0-1.0), read straight from the node's own
     // lightweight PAX_Value mirror (outputValues[0].value when its type is

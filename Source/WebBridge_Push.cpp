@@ -581,6 +581,7 @@ void WebBridge::pushPortActivity()
              << Q << "paxReadOnly" << Q << ":" << paxReadOnlyStr            << ","
              << Q << "notes"    << Q << ":" << Q << notesStr        << Q   << ","
              << Q << "bytes"    << Q << ":" << a.udpBytes                  << ","
+             << Q << "portInUse" << Q << ":" << a.portInUse                << ","
              << Q << "isMk2"    << Q << ":" << (a.dmxIsMk2 ? "true" : "false") << ","
              << Q << "dmxValue" << Q << ":" << dv                          << ","
              << Q << "genericValuePortValues" << Q << ":" << genericValueStr << ","

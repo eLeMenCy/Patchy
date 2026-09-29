@@ -2,6 +2,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_core/juce_core.h>
 #include "NodeProcessor.h"
+#include "ArtNetReceiver.h"
 #include "../Pax/PaxAPI.h"
 #include <algorithm>
 
@@ -145,114 +146,86 @@ namespace ArtNetCodec
  * 512 channels, the exact same bug DMX had before its own fix.
  */
 class ArtNetInDeviceNode : public NodeProcessor,
-                           private juce::Thread
+                           private ArtNetReceiver::Listener
 {
 public:
     explicit ArtNetInDeviceNode (const juce::String& nodeId)
-        : NodeProcessor (nodeId, Type::Midi),
-          juce::Thread ("ArtNetIn_" + nodeId)
+        : NodeProcessor (nodeId, Type::Midi)
     {}
 
     ~ArtNetInDeviceNode() override { closeSocket(); }
 
+    // v0.0.916 (2026-09-28) — shared receiver. This node no longer owns a
+    // socket or a thread: every ArtNet In subscribes to the one process-wide
+    // ArtNetReceiver (see ArtNetReceiver.h for why — two nodes, or two
+    // Patchy instances, used to fight over port 6454 and whoever bound last
+    // won). A universe change is now just a filter change, no rebind.
+    // Method names are kept so existing callers stay unchanged.
     void configure (int universeToUse)
     {
-        closeSocket();
-        universe = universeToUse;
+        universe.store (universeToUse, std::memory_order_relaxed);
         openSocket();
     }
 
-    // Real fix, 2026-09-01 (2nd pass) — the earlier guard directly inside
-    // configure() (comparing universe/socket state on THIS instance) was
-    // structurally unable to work, for the identical reason DmxInDeviceNode's
-    // own equivalent attempt failed (see that file's own comment for the
-    // full story): ProcessingGraph::rebuild() destroys and recreates every
-    // node instance on every graph edit, so a freshly-constructed
-    // instance's own members are always at their own defaults, never
-    // carrying over from whatever came before. The genuine fix transfers
-    // the actual, already-open socket itself — simpler here than DMX's own
-    // case, since a socket is already held via a natively-movable
-    // std::unique_ptr, with no custom transfer method needed at all.
+    // Kept for its callers (ArtNetDeviceManager). The old socket-transfer
+    // dance (stop the old node's thread, move its socket — see SessionLog,
+    // 2026-09-01/02, including the EXC_BAD_ACCESS it once caused) is gone:
+    // the new node simply subscribes, and the shared socket stays bound as
+    // long as at least one node (old or new) is subscribed, so a graph
+    // rebuild never reopens it. Returns true when an old node existed.
     bool transferOrConfigure (int universeToUse, ArtNetInDeviceNode* oldNode)
     {
-        if (oldNode != nullptr && oldNode->universe == universeToUse && oldNode->socket != nullptr)
-        {
-            // Real crash found and fixed 2026-09-02 — a genuine, serious
-            // bug in the first version of this method, confirmed by a real
-            // EXC_BAD_ACCESS/SIGSEGV crash report on the old node's own
-            // receive thread. That thread could still be genuinely, actively
-            // running — blocked in its own socket read — at the exact
-            // moment this method ran on the message thread and moved
-            // oldNode->socket out from under it, setting it to nullptr
-            // immediately. If the old thread's own run() loop then
-            // dereferenced it a moment later (a classic check-then-use
-            // race, not something a single null check here could prevent),
-            // that's an unconditional segfault — unlike DMX's own
-            // SerialPort::transferFrom(), which swaps a plain, trivially-
-            // copyable int file descriptor that simply can't be null-
-            // dereferenced the same way. Fixed by synchronously stopping
-            // the old thread first, matching closeSocket()'s own already-
-            // established pattern (signal + shutdown to unblock a pending
-            // read promptly + wait for genuine exit) — but deliberately
-            // without that method's own final socket.reset(), since the
-            // whole point here is to keep the socket alive long enough to
-            // move it, not destroy it. Timeout reduced from 1000ms to
-            // 200ms, 2026-09-02 — see DmxInDeviceNode's own equivalent
-            // comment for the full reasoning.
-            if (oldNode->isThreadRunning())
-            {
-                oldNode->signalThreadShouldExit();
-                oldNode->socket->shutdown();
-                oldNode->stopThread (200);
-            }
-
-            socket   = std::move (oldNode->socket);
-            universe = universeToUse;
-            startThread (juce::Thread::Priority::normal);
-            return true;
-        }
-
         configure (universeToUse);
-        return false;
+        return oldNode != nullptr;
     }
 
     void openSocket()
     {
-        socket = std::make_unique<juce::DatagramSocket> (false);
-        if (! socket->bindToPort (ArtNetCodec::kPort))
-        {
-            juce::Logger::writeToLog ("ArtNetInDeviceNode: failed to bind port "
-                                      + juce::String (ArtNetCodec::kPort));
-            socket.reset();
-            return;
-        }
-        startThread (juce::Thread::Priority::normal);
-        juce::Logger::writeToLog ("ArtNetInDeviceNode: listening on :"
-                                  + juce::String (ArtNetCodec::kPort)
-                                  + " universe " + juce::String (universe));
+        if (subscribed) return;
+        ArtNetReceiver::subscribe (this);
+        subscribed = true;
+        juce::Logger::writeToLog ("ArtNetInDeviceNode: subscribed to shared receiver, universe "
+                                  + juce::String (universe.load (std::memory_order_relaxed)));
     }
 
+    // v0.0.916 — "port 6454 in use" on this node: subscribed, but the
+    // shared receiver can't bind (another application holds the port).
+    int portInUseForUi() const
+    {
+        return subscribed && ArtNetReceiver::isPortInUse() ? 6454 : 0;
+    }
+
+    // Blocks until this node's callback can no longer run (see
+    // ArtNetReceiver::unsubscribe()). Idempotent.
     void closeSocket()
     {
-        if (isThreadRunning())
-        {
-            signalThreadShouldExit();
-            if (socket != nullptr) socket->shutdown();
-            stopThread (1000);
-        }
-        socket.reset();
+        if (! subscribed) return;
+        ArtNetReceiver::unsubscribe (this);
+        subscribed = false;
     }
 
     void process (int /*numSamples*/) override
     {
         // Real bug found 2026-09-15 (same root cause/fix as
         // MidiInDeviceNode's own — see that class's own process() comment
-        // for the full story): run() below keeps pushing into fifo
+        // for the full story): the receiver callback below (was run()) keeps pushing into fifo
         // regardless of `disabled`, on its own thread, entirely
         // independent of whether process() runs. Always drained now
         // (never backlogging), but only actually forwarded to
         // outputValues/outputArtNetFrame when enabled — drained and
         // discarded while disabled, keeping this node correctly "cut".
+        // Fix, v0.0.916 (2026-09-28) — a universe change must drop the last
+        // known frame: it belonged to the OLD universe, and with a silent new
+        // universe it was re-emitted below forever (downstream kept showing
+        // old data; user saw the port "frozen" in its previous state).
+        const int filterUniverse = universe.load (std::memory_order_relaxed);
+        if (filterUniverse != emittedForUniverse)
+        {
+            emittedForUniverse = filterUniverse;
+            hasReceived = false;
+            lastReceived.fill (0);
+        }
+
         ParsedPacket pkt;
         int count = 0;
         bool gotNew = false;
@@ -261,7 +234,7 @@ public:
             if (disabled) continue;
 
             // Filter by universe if set (universe == -1 means accept all)
-            if (universe >= 0 && (int) pkt.value.key != universe)
+            if (filterUniverse >= 0 && (int) pkt.value.key != filterUniverse)
                 continue;
 
             outputValues[static_cast<size_t>(count)] = pkt.value;
@@ -282,6 +255,11 @@ public:
         // Always emit the last known frame at audio-block rate — same
         // convention DmxInDeviceNode already uses, gives downstream
         // Monitor/Out nodes a steady supply instead of bursty UDP packets.
+        // v0.0.916 — nothing to hold yet (after a universe change, until the
+        // new universe's first packet): tell downstream to drop our cached
+        // frame. See NodeProcessor.h's outputArtNetWithdrawn.
+        outputArtNetWithdrawn = ! (hasReceived || gotNew);
+
         if (! disabled && (hasReceived || gotNew))
         {
             hasReceived = true;
@@ -293,49 +271,48 @@ public:
 
     bool passesThroughWhenDisabled() const override { return true; }
 
-    int universe = 0;
+    // v0.0.916 — atomic: written on the message thread (configure()), read
+    // on the receiver thread (packet filter) and the audio thread (process()).
+    std::atomic<int> universe { 0 };
 
     std::atomic<int> bytesSinceLastPoll { 0 };
     int drainByteActivity() { return bytesSinceLastPoll.exchange (0, std::memory_order_relaxed); }
 
 private:
-    void run() override
+    // v0.0.916 — was this node's own run() loop; now called by the shared
+    // ArtNetReceiver's thread for every packet (receiver thread only, so
+    // lastDmx and the fifo's producer side stay single-threaded as before).
+    void artNetPacketReceived (const uint8_t* data, int bytesRead) override
     {
-        static constexpr int kMaxPacket = 530;   // 18 hdr + 512 DMX
-        std::array<uint8_t, kMaxPacket> buf;
-        std::array<uint8_t, 512> lastDmx {};   // last seen universe data for change detection
-
-        while (! threadShouldExit())
+        PAX_Value v {};
+        std::array<uint8_t, 512> fullFrame {};
+        if (ArtNetCodec::parse (data, bytesRead, v, fullFrame))
         {
-            if (socket == nullptr) break;
-            int ready = socket->waitUntilReady (true, 100);
-            if (ready <= 0) continue;
-
-            juce::String senderHost;
-            int          senderPort = 0;
-            int bytesRead = socket->read (buf.data(), kMaxPacket, false,
-                                          senderHost, senderPort);
-            if (bytesRead <= 0) continue;
+            // Fix, v0.0.916 (2026-09-28) — filter by universe HERE, so the
+            // activity flash, the byte rate and the change detection only
+            // react to this node's own universe (with the shared receiver
+            // every node sees every universe; process() still filters too).
+            const int u = universe.load (std::memory_order_relaxed);
+            if (u >= 0 && (int) v.key != u)
+                return;
 
             bytesSinceLastPoll.fetch_add (bytesRead, std::memory_order_relaxed);
 
-            PAX_Value v {};
-            std::array<uint8_t, 512> fullFrame {};
-            if (ArtNetCodec::parse (buf.data(), bytesRead, v, fullFrame))
+            // Only flash on actual DMX value changes, not on every refresh packet
+            if (std::memcmp (fullFrame.data(), lastDmx.data(), 512) != 0)
             {
-                // Only flash on actual DMX value changes, not on every refresh packet
-                if (std::memcmp (fullFrame.data(), lastDmx.data(), 512) != 0)
-                {
-                    lastDmx = fullFrame;
-                    recordMidiActivity (1);
-                }
-                ParsedPacket pkt;
-                pkt.value    = v;
-                pkt.fullData = fullFrame;
-                fifo.push (pkt);
+                lastDmx = fullFrame;
+                recordMidiActivity (1);
             }
+            ParsedPacket pkt;
+            pkt.value    = v;
+            pkt.fullData = fullFrame;
+            fifo.push (pkt);
         }
     }
+
+    bool                     subscribed = false;   // message thread only
+    std::array<uint8_t, 512> lastDmx {};           // receiver thread only — change detection
 
     struct ParsedPacket { PAX_Value value {}; std::array<uint8_t, 512> fullData {}; };
 
@@ -362,13 +339,12 @@ private:
         std::array<ParsedPacket, kFifoSize>          packets;
     } fifo;
 
-    std::unique_ptr<juce::DatagramSocket> socket;
-
     // Last-known-frame state — see process()'s comment for why this
     // persists between UDP packets rather than only existing per-block.
     std::array<uint8_t, 512> lastReceived {};
     int                      lastUniverse = 0;
     bool                     hasReceived  = false;
+    int                      emittedForUniverse = 0;   // v0.0.916 — audio thread; see process()
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ArtNetInDeviceNode)
 };

@@ -1,4 +1,5 @@
 #pragma once
+#include <set>
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <chrono>
 #include "GraphModel.h"
@@ -1074,15 +1075,26 @@ public:
 
             // Byte-rate for UDP In nodes
             if (auto* udpIn = dynamic_cast<UdpInDeviceNode*> (node.get()))
+            {
                 a.udpBytes = udpIn->drainByteActivity();
+                udpIn->retryBindIfNeeded();                    // v0.0.916 — see PortBindState.h
+                a.portInUse = udpIn->bindState.portInUseForUi();
+            }
 
             // Byte-rate for OSC In nodes (reuses udpBytes field — same UI display)
             if (auto* oscIn = dynamic_cast<OscInDeviceNode*> (node.get()))
+            {
                 a.udpBytes = oscIn->drainByteActivity();
+                oscIn->retryBindIfNeeded();                    // v0.0.916
+                a.portInUse = oscIn->bindState.portInUseForUi();
+            }
 
             // Byte-rate for ArtNet In nodes (reuses udpBytes field — same UI display)
             if (auto* artIn = dynamic_cast<ArtNetInDeviceNode*> (node.get()))
-                a.udpBytes = artIn->drainByteActivity();
+            {
+                a.udpBytes  = artIn->drainByteActivity();
+                a.portInUse = artIn->portInUseForUi();         // v0.0.916 (receiver retries itself)
+            }
 
             // Byte-rate for DMX In nodes (reuses udpBytes field — same UI display)
             if (auto* dmxIn = dynamic_cast<DmxInDeviceNode*> (node.get()))
@@ -1179,14 +1191,32 @@ public:
             // the Pax's live state directly — which is exactly why the
             // rebuild-restoration fix worked while this live-display
             // channel stayed silent the whole time.
+            // Fix, v0.0.916 (2026-09-28) — a node whose port can't be bound
+            // receives nothing, so it never met the activity condition below
+            // and its "port in use" never reached the UI. Pushed while in
+            // use, plus ONE more entry (portInUse 0) when it clears, so the
+            // node's red state goes away again.
+            bool portInUseChanged = false;
+            if (a.portInUse != 0)
+            {
+                portInUseReported.insert (node->id);
+                portInUseChanged = true;   // keep pushing while in use (30 Hz, like other live state)
+            }
+            else
+                portInUseChanged = portInUseReported.erase (node->id) > 0;
+
             if (a.midiOutEvents > 0 || a.audioRmsL > 0.f || a.audioRmsR > 0.f
                 || ! a.incomingNotes.empty() || ! a.paxReadOnlyValues.empty()
-                || ! a.genericValuePortValues.empty())
+                || ! a.genericValuePortValues.empty() || portInUseChanged)
                 result.push_back (a);
         }
 
         return result;
     }
+
+    // v0.0.916 — ids of nodes last reported as "port in use" (message thread
+    // only, getPortActivity()); lets the clearing entry be sent exactly once.
+    std::set<juce::String> portInUseReported;
 
     /** Collects playhead position + playing status for every live
      *  AudioPlayerNode — the frontend has no other way to track a

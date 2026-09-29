@@ -230,7 +230,7 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
           onMouseDown={e => e.stopPropagation()}
           onPointerDown={e => e.stopPropagation()}
           style={{ padding: '6px 8px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4, gap: 4 }}>
+          <div data-port-anchor="nav" style={{ display: 'flex', alignItems: 'center', marginBottom: 4, gap: 4 }}>
             <button className="nodrag"
               onClick={() => commitPatch({ startChannel: Math.max(0, startChannel - visibleCount) })}
               disabled={startChannel === 0}
@@ -266,12 +266,12 @@ export const DmxConsoleNode = memo(function DmxConsoleNode ({ id, data, selected
       )}
       {inputs.map((p, i) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="in"
-          colour={ACCENT} index={i} total={inputs.length} offset={8}
+          colour={ACCENT} index={i} total={inputs.length} anchor="nav"
           portBodyRef={portBodyRef} portId={p.id} />
       ))}
       {outputs.map((p, i) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="out"
-          colour={ACCENT} index={i} total={outputs.length} offset={8}
+          colour={ACCENT} index={i} total={outputs.length} anchor="nav"
           portBodyRef={portBodyRef} portId={p.id} />
       ))}
     </div>

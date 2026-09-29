@@ -457,10 +457,10 @@ function MidiMonitorNode({ id, data, selected }: NodeProps) {
       }}>
 
       {/* MIDI In handle */}
-      <NodeHandle nodeId={id} label="MIDI In"  direction="in"  colour="var(--midi)" index={0} total={1} offset={-3} portBodyRef={portBodyRef} />
+      <NodeHandle nodeId={id} label="MIDI In"  direction="in"  colour="var(--midi)" index={0} total={1} anchor="header" portBodyRef={portBodyRef} />
 
       {/* MIDI Out handle */}
-      <NodeHandle nodeId={id} label="MIDI Out" direction="out" colour="var(--midi)" index={0} total={1} offset={-3} portBodyRef={portBodyRef} />
+      <NodeHandle nodeId={id} label="MIDI Out" direction="out" colour="var(--midi)" index={0} total={1} anchor="header" portBodyRef={portBodyRef} />
 
       {/* Header */}
       <NodeHeader title={settings.customName || "MIDI MONITOR"}
@@ -483,7 +483,7 @@ function MidiMonitorNode({ id, data, selected }: NodeProps) {
       {/* Column headers + table — nodrag so these areas don't initiate node drag */}
       <div ref={portBodyRef} className="nodrag" onMouseDown={e => e.stopPropagation()}
            onPointerDown={e => e.stopPropagation()}>
-      <div style={{ display: 'flex', background: 'var(--surface2)',
+      <div data-port-anchor="header" style={{ display: 'flex', background: 'var(--surface2)',
                     borderBottom: '1px solid var(--border)' }}>
         {cols.map(c => (
           <div key={c.key} style={{ ...cellStyle(c.w), fontSize: 9,

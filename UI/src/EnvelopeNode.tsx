@@ -331,23 +331,27 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
       }}
     >
       {/* IN ports — all anchored to canvas via portBodyRef so they stay together */}
-      {inAudio.map((p: any) => (
+      {inAudio.map((p: any, i: number) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="in"
-          colour="var(--audio)" portBodyRef={portBodyRef} offset={CANVAS_H / 2 - 18} />
+          colour="var(--audio)" index={i} total={inAudio.length + inMidi.length}
+          anchor="display" portBodyRef={portBodyRef} />
       ))}
-      {inMidi.map((p: any) => (
+      {inMidi.map((p: any, i: number) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="in"
-          colour="var(--midi)" portBodyRef={portBodyRef} offset={CANVAS_H / 2 - 4} />
+          colour="var(--midi)" index={inAudio.length + i} total={inAudio.length + inMidi.length}
+          anchor="display" portBodyRef={portBodyRef} />
       ))}
 
       {/* OUT ports — all anchored to canvas via portBodyRef so they stay together */}
-      {outAudio.map((p: any) => (
+      {outAudio.map((p: any, i: number) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="out"
-          colour="var(--audio)" portBodyRef={portBodyRef} offset={CANVAS_H / 2 - 18} />
+          colour="var(--audio)" index={i} total={outAudio.length + outMidi.length}
+          anchor="display" portBodyRef={portBodyRef} />
       ))}
-      {outMidi.map((p: any) => (
+      {outMidi.map((p: any, i: number) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="out"
-          colour="var(--midi)" portBodyRef={portBodyRef} offset={CANVAS_H / 2 - 4} />
+          colour="var(--midi)" index={outAudio.length + i} total={outAudio.length + outMidi.length}
+          anchor="display" portBodyRef={portBodyRef} />
       ))}
 
       {/* Header */}
@@ -421,7 +425,7 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
 
       {/* Body */}
       {!collapsed && (
-        <div ref={portBodyRef} style={{ padding:'6px 8px 4px' }}>
+        <div ref={portBodyRef} data-port-anchor-first="display" style={{ padding:'6px 8px 4px' }}>
           <EnvelopeDisplay ccValue={ccValue} attack={attack} release={release} />
         </div>
       )}

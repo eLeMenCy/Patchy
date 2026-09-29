@@ -266,8 +266,8 @@ export const OscMonitorNode = memo(function OscMonitorNode({ id, data, selected 
         userSelect: 'none',
       }}>
 
-      <NodeHandle nodeId={id} label="OSC In"  direction="in"  colour="var(--osc)" index={0} total={1} offset={-3} portBodyRef={portBodyRef} />
-      <NodeHandle nodeId={id} label="OSC Out" direction="out" colour="var(--osc)" index={0} total={1} offset={-3} portBodyRef={portBodyRef} />
+      <NodeHandle nodeId={id} label="OSC In"  direction="in"  colour="var(--osc)" index={0} total={1} anchor="header" portBodyRef={portBodyRef} />
+      <NodeHandle nodeId={id} label="OSC Out" direction="out" colour="var(--osc)" index={0} total={1} anchor="header" portBodyRef={portBodyRef} />
 
       <NodeHeader title={settings.customName || "OSC MONITOR"}
         rename={{ value: settings.customName ?? '', placeholder: 'OSC Monitor', onCommit: v => commitPatch({ customName: v }) }} accent="var(--osc)"
@@ -287,7 +287,7 @@ export const OscMonitorNode = memo(function OscMonitorNode({ id, data, selected 
       {!collapsed && <>
       <div ref={portBodyRef} className="nodrag" onMouseDown={e => e.stopPropagation()}
            onPointerDown={e => e.stopPropagation()}>
-      <div style={{ display: 'flex', background: 'var(--surface2)',
+      <div data-port-anchor="header" style={{ display: 'flex', background: 'var(--surface2)',
                     borderBottom: '1px solid var(--border)' }}>
         {cols.map(c => (
           <div key={c.key} style={{ ...cellStyle(c.w), fontSize: 9,

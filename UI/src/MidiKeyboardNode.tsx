@@ -257,7 +257,8 @@ function Keyboard ({ nodeId, settings, activeNotes, onNoteOn, onNoteOff }: {
 }
 
 // ── Wheel slider ──────────────────────────────────────────────────────────────
-function WheelSlider ({ label, value, min, max, onChange, onRelease, color = 'var(--midi)', wheelHint, wheelHintClear }: {
+function WheelSlider ({ label, value, min, max, onChange, onRelease, color = 'var(--midi)', wheelHint, wheelHintClear, portAnchor }: {
+  portAnchor?: string;   // v0.0.918 — marks the label as a port anchor (see NodeUtils' "Port anchors")
   label:       string;
   value:       number;
   min:         number;
@@ -275,7 +276,7 @@ function WheelSlider ({ label, value, min, max, onChange, onRelease, color = 'va
   return (
     <div style={{ display:'flex', flexDirection:'column', alignItems:'center',
                   gap:2, width:18 }}>
-      <div style={{ fontSize:7, color:'var(--text-muted)', letterSpacing:'0.05em',
+      <div data-port-anchor={portAnchor} style={{ fontSize:7, color:'var(--text-muted)', letterSpacing:'0.05em',
                     textTransform:'uppercase', writingMode:'vertical-lr',
                     transform:'rotate(180deg)', marginBottom:2 }}>
         {label}
@@ -455,9 +456,9 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
       position: 'relative',
     }}>
       {/* MIDI In handle */}
-      <NodeHandle nodeId={id} label="MIDI In"  direction="in"  colour="var(--midi)" index={0} total={1} offset={-10} portBodyRef={portBodyRef} />
+      <NodeHandle nodeId={id} label="MIDI In"  direction="in"  colour="var(--midi)" index={0} total={1} anchor="wheel-label" portBodyRef={portBodyRef} />
       {/* MIDI Out handle */}
-      <NodeHandle nodeId={id} label="MIDI Out" direction="out" colour="var(--midi)" index={0} total={1} offset={-10} portBodyRef={portBodyRef} />
+      <NodeHandle nodeId={id} label="MIDI Out" direction="out" colour="var(--midi)" index={0} total={1} anchor="wheel-label" portBodyRef={portBodyRef} />
 
       {/* Header */}
       <NodeHeader title={settings.customName || "MIDI KEYBOARD"}
@@ -472,7 +473,10 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
            style={{ display:'flex', alignItems:'flex-start', gap:4, padding:'6px 6px 6px' }}>
 
         {/* Pitch wheel */}
-        <WheelSlider label="P" value={pitchWheel} min={0} max={16383}
+        {/* v0.0.918 — the MIDI ports line up with this "P" label: just above the
+            wheel track, so never on the pitch head, which rests at its centre
+            (user's choice, 2026-09-29). */}
+        <WheelSlider label="P" portAnchor="wheel-label" value={pitchWheel} min={0} max={16383}
           wheelHint={wheelHint} wheelHintClear={wheelHintClear}
           onChange={onPitchChange} onRelease={onPitchRelease} />
 

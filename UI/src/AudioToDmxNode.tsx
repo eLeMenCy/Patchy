@@ -407,17 +407,20 @@ export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
           48px, centre ~26px down; symmetric 14px-apart positions around
           that land at 19 and 33, i.e. offset 7 and 21 once the +12px
           header gap is subtracted). */}
-      {inAudio.map((p: any) => (
+      {inAudio.map((p: any, i: number) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="in"
-          colour="var(--audio)" portBodyRef={portBodyRef} offset={7} />
+          colour="var(--audio)" index={i} total={inAudio.length}
+          anchor="display" portBodyRef={portBodyRef} />
       ))}
-      {outAudio.map((p: any) => (
+      {outAudio.map((p: any, i: number) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="out"
-          colour="var(--audio)" portBodyRef={portBodyRef} offset={7} />
+          colour="var(--audio)" index={i} total={outAudio.length + outDmx.length}
+          anchor="display" portBodyRef={portBodyRef} />
       ))}
-      {outDmx.map((p: any) => (
+      {outDmx.map((p: any, i: number) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="out"
-          colour="var(--dmx)" portBodyRef={portBodyRef} offset={21} />
+          colour="var(--dmx)" index={outAudio.length + i} total={outAudio.length + outDmx.length}
+          anchor="display" portBodyRef={portBodyRef} />
       ))}
 
       {/* Header */}
@@ -495,7 +498,7 @@ export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
           settings panel is folded (the old 6px spacer wasn't tall enough
           to contain where NodeHandle positions the ports below). */}
       {!collapsed && (
-        <div ref={portBodyRef} style={{ paddingBottom: 6 }}>
+        <div ref={portBodyRef} data-port-anchor-first="display" style={{ paddingBottom: 6 }}>
           <BandDisplay mode={mode} bandLow={bandLow} bandHigh={bandHigh}
             zoomMin={zoomMin} zoomMax={zoomMax} sensitivityDb={sensitivityDb}
             level={level} color={ACCENT} />

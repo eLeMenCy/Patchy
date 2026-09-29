@@ -320,17 +320,20 @@ export default function AudioPeakToOscNode({ id, data, selected }: NodeProps) {
                reasonably close together, proportionate to this shorter
                meter (a smaller gap than the old band-style graphic's own
                14px split between two ports on a much taller canvas). */}
-      {inAudio.map((p: any) => (
+      {inAudio.map((p: any, i: number) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="in"
-          colour="var(--audio)" portBodyRef={portBodyRef} offset={-5} />
+          colour="var(--audio)" index={i} total={inAudio.length}
+          anchor="display" portBodyRef={portBodyRef} />
       ))}
-      {outAudio.map((p: any) => (
+      {outAudio.map((p: any, i: number) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="out"
-          colour="var(--audio)" portBodyRef={portBodyRef} offset={-10} />
+          colour="var(--audio)" index={i} total={outAudio.length + outOsc.length}
+          anchor="display" portBodyRef={portBodyRef} />
       ))}
-      {outOsc.map((p: any) => (
+      {outOsc.map((p: any, i: number) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="out"
-          colour="var(--osc)" portBodyRef={portBodyRef} offset={0} />
+          colour="var(--osc)" index={outAudio.length + i} total={outAudio.length + outOsc.length}
+          anchor="display" portBodyRef={portBodyRef} />
       ))}
 
       {/* Header */}
@@ -429,7 +432,7 @@ export default function AudioPeakToOscNode({ id, data, selected }: NodeProps) {
           constant height so ports never dangle outside it when the
           settings panel is folded. */}
       {!collapsed && (
-        <div ref={portBodyRef} style={{ paddingBottom: 6 }}>
+        <div ref={portBodyRef} data-port-anchor-first="display" style={{ paddingBottom: 6 }}>
           <SimpleLevelMeter level={level} sensitivityDb={sensitivityDb} color={ACCENT} />
         </div>
       )}

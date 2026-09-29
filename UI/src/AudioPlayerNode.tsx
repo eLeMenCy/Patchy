@@ -403,7 +403,7 @@ function AudioPlayerNode ({ id, data, selected }: NodeProps) {
     }}>
 
       {/* Audio Out only — this is a source, it has no audio input at all */}
-      <NodeHandle nodeId={id} label="Audio Out" direction="out" colour="rgb(20,80,20)" index={0} total={1} offset={46} portBodyRef={portBodyRef} />
+      <NodeHandle nodeId={id} label="Audio Out" direction="out" colour="rgb(20,80,20)" index={0} total={1} anchor="wave" portBodyRef={portBodyRef} />
 
       {/* Header */}
       <NodeHeader title={settings.customName || "AUDIO PLAYER"}
@@ -419,6 +419,7 @@ function AudioPlayerNode ({ id, data, selected }: NodeProps) {
            style={{ display:'flex', gap:4, padding:'6px 6px 4px' }}>
 
         <canvas
+          data-port-anchor="wave"
           ref={canvasRef}
           width={W - 44}
           height={canvasH}

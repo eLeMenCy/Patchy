@@ -359,17 +359,20 @@ export default function AudioPeakToOscNode_BandStyle({ id, data, selected }: Nod
       {/* IN/OUT ports — anchored to portBodyRef so they stay together,
           same offsets as AudioToDmxNode.tsx's own for the same reason
           (centres the pair on the level graphic's single-canvas content). */}
-      {inAudio.map((p: any) => (
+      {inAudio.map((p: any, i: number) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="in"
-          colour="var(--audio)" portBodyRef={portBodyRef} offset={7} />
+          colour="var(--audio)" index={i} total={inAudio.length}
+          anchor="display" portBodyRef={portBodyRef} />
       ))}
-      {outAudio.map((p: any) => (
+      {outAudio.map((p: any, i: number) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="out"
-          colour="var(--audio)" portBodyRef={portBodyRef} offset={7} />
+          colour="var(--audio)" index={i} total={outAudio.length + outOsc.length}
+          anchor="display" portBodyRef={portBodyRef} />
       ))}
-      {outOsc.map((p: any) => (
+      {outOsc.map((p: any, i: number) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="out"
-          colour="var(--osc)" portBodyRef={portBodyRef} offset={21} />
+          colour="var(--osc)" index={outAudio.length + i} total={outAudio.length + outOsc.length}
+          anchor="display" portBodyRef={portBodyRef} />
       ))}
 
       {/* Header */}
@@ -457,7 +460,7 @@ export default function AudioPeakToOscNode_BandStyle({ id, data, selected }: Nod
           constant height so ports never dangle outside it when the
           settings panel is folded. */}
       {!collapsed && (
-        <div ref={portBodyRef} style={{ paddingBottom: 6 }}>
+        <div ref={portBodyRef} data-port-anchor-first="display" style={{ paddingBottom: 6 }}>
           <LevelDisplay mode={mode} bandLow={bandLow} bandHigh={bandHigh}
             zoomMin={zoomMin} zoomMax={zoomMax} sensitivityDb={sensitivityDb}
             level={level} color={ACCENT} />

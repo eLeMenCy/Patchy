@@ -88,8 +88,8 @@ export default function ChannelFilterPaxNode ({ id, data, selected }: NodeProps)
       transition: 'filter .15s',
       position: 'relative',
     }}>
-      <NodeHandle nodeId={id} label="MIDI In"  direction="in"  colour={ACCENT} index={0} total={1} offset={0} />
-      <NodeHandle nodeId={id} label="MIDI Out" direction="out" colour={ACCENT} index={0} total={1} offset={0} />
+      <NodeHandle nodeId={id} label="MIDI In"  direction="in"  colour={ACCENT} index={0} total={1} anchor="label" />
+      <NodeHandle nodeId={id} label="MIDI Out" direction="out" colour={ACCENT} index={0} total={1} anchor="label" />
 
       {/* Header — same structure as SpectrumyserNode.tsx's own */}
       <div style={{
@@ -137,7 +137,8 @@ export default function ChannelFilterPaxNode ({ id, data, selected }: NodeProps)
 
       {! collapsed && (
         <div style={{ padding: '10px 12px', display: 'flex', justifyContent: 'center' }}>
-          <div style={{ fontSize: 9, color: 'var(--text-muted)' }}>
+          {/* v0.0.918 — port anchor: both ports centred on this label (user, 2026-09-29) */}
+          <div data-port-anchor="label" style={{ fontSize: 9, color: 'var(--text-muted)' }}>
             Ch. {channel} — {mode === 0 ? 'Filter' : 'Force'}
           </div>
         </div>

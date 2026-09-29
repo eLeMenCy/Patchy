@@ -240,8 +240,8 @@ export const MqttMonitorNode = memo(function MqttMonitorNode({ id, data, selecte
         userSelect: 'none',
       }}>
 
-      <NodeHandle nodeId={id} label="MQTT In"  direction="in"  colour="var(--mqtt)" index={0} total={1} offset={-3} portBodyRef={portBodyRef} />
-      <NodeHandle nodeId={id} label="MQTT Out" direction="out" colour="var(--mqtt)" index={0} total={1} offset={-3} portBodyRef={portBodyRef} />
+      <NodeHandle nodeId={id} label="MQTT In"  direction="in"  colour="var(--mqtt)" index={0} total={1} anchor="header" portBodyRef={portBodyRef} />
+      <NodeHandle nodeId={id} label="MQTT Out" direction="out" colour="var(--mqtt)" index={0} total={1} anchor="header" portBodyRef={portBodyRef} />
 
       <NodeHeader title={settings.customName || "MQTT MONITOR"}
         rename={{ value: settings.customName ?? '', placeholder: 'MQTT Monitor', onCommit: v => commitPatch({ customName: v }) }} accent="var(--mqtt)"
@@ -261,7 +261,7 @@ export const MqttMonitorNode = memo(function MqttMonitorNode({ id, data, selecte
       {!collapsed && <>
       <div ref={portBodyRef} className="nodrag" onMouseDown={e => e.stopPropagation()}
            onPointerDown={e => e.stopPropagation()}>
-      <div style={{ display: 'flex', background: 'var(--surface2)',
+      <div data-port-anchor="header" style={{ display: 'flex', background: 'var(--surface2)',
                     borderBottom: '1px solid var(--border)' }}>
         {cols.map(c => (
           <div key={c.key} style={{ ...cellStyle(c.w), fontSize: 9,

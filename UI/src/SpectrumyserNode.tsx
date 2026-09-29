@@ -217,14 +217,15 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
       {/* IN port — centred on canvas via portBodyRef */}
       {inPorts.map((p: any) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="in"
-          colour={ACCENT} portBodyRef={portBodyRef} offset={CANVAS_H / 2 - 12} />
+          colour={ACCENT} anchor="display" portBodyRef={portBodyRef} />
       ))}
 
-      {/* OUT ports — use portBodyRef so they merge to centre when collapsed */}
+      {/* OUT ports — centred on the spectrum display, 14 px apart (v0.0.918,
+          user's request 2026-09-29); merge to the header centre when collapsed. */}
       {outPorts.map((p: any, i: number) => (
         <NodeHandle key={p.id} nodeId={id} label={p.label} direction="out"
           colour={BAND_COLORS[i] ?? ACCENT} index={i} total={outPorts.length}
-          portBodyRef={portBodyRef} offset={4} />
+          anchor="display" portBodyRef={portBodyRef} />
       ))}
 
       {/* Header — stopPropagation on buttons prevents double-click fold */}
@@ -283,7 +284,7 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
       </div>
 
       {!collapsed && (
-        <div ref={portBodyRef} style={{ padding: '6px 8px 8px' }}>
+        <div ref={portBodyRef} data-port-anchor-first="display" style={{ padding: '6px 8px 8px' }}>
           <SpectrumDisplay mags={mags} bands={bands} />
         </div>
       )}

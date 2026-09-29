@@ -187,7 +187,102 @@ export function detectPaxTagPrefix (
  * Standard port handle with consistent sizing and styling.
  * colour: e.g. 'var(--midi)' or 'var(--audio)'
  */
-export function NodeHandle ({ nodeId, label, direction, colour, index = 0, total = 1, portBodyRef, portId, offset = 0 }: {
+// ── Port anchors — v0.0.918 (2026-09-29) ─────────────────────────────────────
+// Phase 6 "Port alignment pass". A port can be anchored to any element inside
+// its node: mark the element with data-port-anchor="<name>" and pass
+// anchor="<name>" to NodeHandle; the port then sits on that element's vertical
+// centre, whatever the node's layout, zoom, collapsed sections or content.
+// Several ports on one anchor are spread 14 px apart around its centre
+// (index/total), the same spacing the offset path uses — or, with
+// anchorSpread="down", downwards from the anchor (first port on it), for
+// nodes whose anchor is their first row.
+// data-port-anchor-first="<name>" on an element anchors <name> to that
+// element's CURRENT first child (a body whose first row varies with state).
+//
+// Performance (agreed 2026-09-25): ONE ResizeObserver per node (not one per
+// port), observing the node element and its anchors; measurements batched in a
+// single requestAnimationFrame; re-measured only when an observed size
+// changes, never per render. Torn down when the node's last anchored port
+// unmounts. Positions are relative to the handles' offsetParent (what a
+// handle's `top` is resolved against), border excluded, zoom removed.
+type AnchorSubscriber = (positions: Map<string, number>) => void;
+interface NodeAnchorEntry {
+  observer:    ResizeObserver;
+  observed:    Set<Element>;
+  subscribers: Map<AnchorSubscriber, () => HTMLElement | null>;
+  positions:   Map<string, number>;
+  raf:         number;
+}
+const nodeAnchorRegistry = new Map<string, NodeAnchorEntry>();
+
+function measureNodeAnchors (nodeId: string) {
+  const entry = nodeAnchorRegistry.get(nodeId);
+  if (!entry) return;
+  entry.raf = 0;
+  let handleEl: HTMLElement | null = null;
+  for (const get of entry.subscribers.values()) { handleEl = get(); if (handleEl) break; }
+  const ref  = handleEl?.offsetParent as HTMLElement | null;
+  const node = handleEl?.closest('.react-flow__node') as HTMLElement | null;
+  if (!ref || !node) return;
+
+  // Pick up anchors that appeared since the last pass (expanded sections…).
+  if (!entry.observed.has(node)) { entry.observer.observe(node); entry.observed.add(node); }
+  const anchors: Array<[string, HTMLElement]> = [];
+  node.querySelectorAll<HTMLElement>('[data-port-anchor]').forEach(el => anchors.push([el.dataset.portAnchor!, el]));
+  node.querySelectorAll<HTMLElement>('[data-port-anchor-first]').forEach(el => {
+    const first = el.firstElementChild as HTMLElement | null;
+    if (first) anchors.push([el.dataset.portAnchorFirst!, first]);
+    if (!entry.observed.has(el)) { entry.observer.observe(el); entry.observed.add(el); }
+  });
+  anchors.forEach(([, el]) => { if (!entry.observed.has(el)) { entry.observer.observe(el); entry.observed.add(el); } });
+
+  const refRect = ref.getBoundingClientRect();
+  const scale   = ref.offsetHeight > 0 ? refRect.height / ref.offsetHeight : 1;   // canvas zoom
+  const next    = new Map<string, number>();
+  anchors.forEach(([name, el]) => {
+    const r = el.getBoundingClientRect();
+    if (r.height === 0 && r.width === 0) return;   // hidden
+    next.set(name, (r.top - refRect.top + r.height / 2) / scale - ref.clientTop);
+  });
+
+  let changed = next.size !== entry.positions.size;
+  if (!changed) for (const [k, v] of next) if (Math.abs((entry.positions.get(k) ?? NaN) - v) > 0.5) { changed = true; break; }
+  if (!changed) return;
+  entry.positions = next;
+  entry.subscribers.forEach((_, cb) => cb(next));
+}
+
+function subscribePortAnchors (nodeId: string, getHandle: () => HTMLElement | null, cb: AnchorSubscriber): () => void {
+  let entry = nodeAnchorRegistry.get(nodeId);
+  if (!entry) {
+    const created: NodeAnchorEntry = {
+      observer:    new ResizeObserver(() => {
+                     if (!created.raf) created.raf = requestAnimationFrame(() => measureNodeAnchors(nodeId));
+                   }),
+      observed:    new Set(),
+      subscribers: new Map(),
+      positions:   new Map(),
+      raf:         0,
+    };
+    nodeAnchorRegistry.set(nodeId, created);
+    entry = created;
+  }
+  entry.subscribers.set(cb, getHandle);
+  if (entry.positions.size) cb(entry.positions);
+  if (!entry.raf) entry.raf = requestAnimationFrame(() => measureNodeAnchors(nodeId));   // first pass
+  return () => {
+    const e = nodeAnchorRegistry.get(nodeId);
+    if (!e) return;
+    e.subscribers.delete(cb);
+    if (e.subscribers.size === 0) {
+      if (e.raf) cancelAnimationFrame(e.raf);
+      e.observer.disconnect();
+      nodeAnchorRegistry.delete(nodeId);
+    }
+  };
+}
+
+export function NodeHandle ({ nodeId, label, direction, colour, index = 0, total = 1, portBodyRef, portId, offset = 0, anchor, anchorSpread = 'centre' }: {
   nodeId:       string;
   label:        string;
   direction:    'in' | 'out';
@@ -197,11 +292,14 @@ export function NodeHandle ({ nodeId, label, direction, colour, index = 0, total
   portBodyRef?: React.RefObject<HTMLDivElement | null>;
   portId?:      string;
   offset?:      number;
+  anchor?:      string;   // v0.0.918 — see "Port anchors" above; takes precedence over portBodyRef/offset
+  anchorSpread?: 'centre' | 'down';   // v0.0.918 — several ports: around the anchor, or down from it
 }) {
   const isInput = direction === 'in';
   const [topVal, setTopVal] = useState<string>('50%');
 
   useEffect(() => {
+    if (anchor) return;   // v0.0.918 — anchored ports are placed by the effect below
     if (!portBodyRef?.current) { setTopVal('50%'); return; }
     const measure = () => {
       const el = portBodyRef.current;
@@ -218,10 +316,33 @@ export function NodeHandle ({ nodeId, label, direction, colour, index = 0, total
     // `offset` added 2026-09-25: a measured offset (Pax ports aligned to a
     // slider rail, see GenericNode) arrives after the first render and must
     // re-place the handle; before, only a body resize did.
-  }, [portBodyRef, portBodyRef?.current, total, index, offset]);
+  }, [portBodyRef, portBodyRef?.current, total, index, offset, anchor]);
+
+  // v0.0.918 — anchored placement. Falls back to the node's centre while the
+  // anchor isn't in the DOM (collapsed node), like the offset path does.
+  const handleRef = useRef<HTMLDivElement>(null);
+  const [anchorTop, setAnchorTop] = useState<number | null>(null);
+  const updateNodeInternals = useUpdateNodeInternals();
+  useEffect(() => {
+    if (!anchor) { setAnchorTop(null); return; }
+    return subscribePortAnchors(nodeId, () => handleRef.current, positions => {
+      const y = positions.get(anchor);
+      const spread = total <= 1 ? 0
+                   : anchorSpread === 'down' ? index * 14
+                   : (index - (total - 1) / 2) * 14;
+      setAnchorTop(y === undefined ? null : Math.round(y + spread + offset));
+    });
+  }, [nodeId, anchor, anchorSpread, index, total, offset]);
+  useEffect(() => {
+    if (anchor) updateNodeInternals(nodeId);   // edges follow the moved handle
+  }, [anchor, anchorTop, nodeId, updateNodeInternals]);
+
+  const top = anchor ? (anchorTop === null ? '50%' : `${anchorTop}px`)
+                     : (portBodyRef ? topVal : '50%');
 
   return (
     <Handle
+      ref={handleRef}
       type={isInput ? 'target' : 'source'}
       position={isInput ? Position.Left : Position.Right}
       id={portId ?? `${nodeId}_${label}_${direction}`}
@@ -230,7 +351,7 @@ export function NodeHandle ({ nodeId, label, direction, colour, index = 0, total
         width:       10,
         height:      10,
         border:      '2px solid var(--bg)',
-        top:         portBodyRef ? topVal : '50%',
+        top,
       }}
     />
   );

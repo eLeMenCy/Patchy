@@ -265,8 +265,8 @@ export const UdpMonitorNode = memo(function UdpMonitorNode({ id, data, selected 
         userSelect: 'none',
       }}>
 
-      <NodeHandle nodeId={id} label="UDP In"  direction="in"  colour="var(--udp)" index={0} total={1} offset={-3} portBodyRef={portBodyRef} />
-      <NodeHandle nodeId={id} label="UDP Out" direction="out" colour="var(--udp)" index={0} total={1} offset={-3} portBodyRef={portBodyRef} />
+      <NodeHandle nodeId={id} label="UDP In"  direction="in"  colour="var(--udp)" index={0} total={1} anchor="header" portBodyRef={portBodyRef} />
+      <NodeHandle nodeId={id} label="UDP Out" direction="out" colour="var(--udp)" index={0} total={1} anchor="header" portBodyRef={portBodyRef} />
 
       <NodeHeader title={settings.customName || "UDP MONITOR"}
         rename={{ value: settings.customName ?? '', placeholder: 'UDP Monitor', onCommit: v => commitPatch({ customName: v }) }} accent="var(--udp)"
@@ -286,7 +286,7 @@ export const UdpMonitorNode = memo(function UdpMonitorNode({ id, data, selected 
       {!collapsed && <>
       <div ref={portBodyRef} className="nodrag" onMouseDown={e => e.stopPropagation()}
            onPointerDown={e => e.stopPropagation()}>
-      <div style={{ display: 'flex', background: 'var(--surface2)',
+      <div data-port-anchor="header" style={{ display: 'flex', background: 'var(--surface2)',
                     borderBottom: '1px solid var(--border)' }}>
         {cols.map(c => (
           <div key={c.key} style={{ ...cellStyle(c.w), fontSize: 9,

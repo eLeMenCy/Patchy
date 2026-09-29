@@ -117,7 +117,7 @@ export const MqttConsoleNode = memo(function MqttConsoleNode({ id, data, selecte
         userSelect: 'none',
       }}>
 
-      <NodeHandle nodeId={id} label="MQTT Out" direction="out" colour="var(--mqtt)" index={0} total={1} offset={-3} portBodyRef={portBodyRef} />
+      <NodeHandle nodeId={id} label="MQTT Out" direction="out" colour="var(--mqtt)" index={0} total={1} anchor="topic" portBodyRef={portBodyRef} />
 
       <NodeHeader title={settings.customName || "MQTT CONSOLE"}
         rename={{ value: settings.customName ?? '', placeholder: 'MQTT Console', onCommit: v => commitName(v) }} accent="var(--mqtt)"
@@ -133,6 +133,7 @@ export const MqttConsoleNode = memo(function MqttConsoleNode({ id, data, selecte
             Topic
           </div>
           <input
+            data-port-anchor="topic"
             ref={topicInputRef}
             type="text" value={topic} placeholder="e.g. patchy/console"
             autoCapitalize="off" autoCorrect="off" spellCheck={false}

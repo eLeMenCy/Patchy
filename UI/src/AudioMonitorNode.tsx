@@ -421,10 +421,10 @@ function AudioMonitorNode ({ id, data, selected }: NodeProps) {
     }}>
 
       {/* Audio In handle */}
-      <NodeHandle nodeId={id} label="Audio In"  direction="in"  colour="rgb(20,80,20)" index={0} total={1} offset={46} portBodyRef={portBodyRef} />
+      <NodeHandle nodeId={id} label="Audio In"  direction="in"  colour="rgb(20,80,20)" index={0} total={1} anchor="wave" portBodyRef={portBodyRef} />
 
       {/* Audio Out handle */}
-      <NodeHandle nodeId={id} label="Audio Out" direction="out" colour="rgb(20,80,20)" index={0} total={1} offset={46} portBodyRef={portBodyRef} />
+      <NodeHandle nodeId={id} label="Audio Out" direction="out" colour="rgb(20,80,20)" index={0} total={1} anchor="wave" portBodyRef={portBodyRef} />
 
       {/* Header */}
       <NodeHeader title={settings.customName || "AUDIO MONITOR"}
@@ -446,6 +446,7 @@ function AudioMonitorNode ({ id, data, selected }: NodeProps) {
 
         {/* Waveform canvas */}
         <canvas
+          data-port-anchor="wave"
           ref={canvasRef}
           width={W - 44}
           height={canvasH}

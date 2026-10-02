@@ -671,6 +671,24 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
             }
         }
         // No connected DAW AudioOut → hostAudio untouched (pass through)
+
+        // v0.0.919 (2026-10-02) — MIDI Out nodes set to "DAW" hand their
+        // MIDI back to the host (before, plugin builds never returned any
+        // MIDI: hostMidi was cleared above and only refilled in the
+        // Standalone). Same channel filter as for a hardware port.
+        for (auto* n : sortedNodes)
+        {
+            auto* midiOut = dynamic_cast<MidiOutDeviceNode*> (n);
+            if (midiOut == nullptr || ! midiOut->isDawOutput() || n->disabled) continue;
+            const std::uint16_t mask = midiOut->getChannelFilter();
+            for (const auto meta : n->inputMidi)
+            {
+                const auto msg = meta.getMessage();
+                const int  ch  = msg.getChannel();
+                if (mask == 0 || ch == 0 || (mask & static_cast<std::uint16_t> (1u << (ch - 1))) != 0)
+                    hostMidi.addEvent (msg, meta.samplePosition);
+            }
+        }
     }
     else
     {

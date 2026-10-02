@@ -66,6 +66,12 @@ public:
     void setKeepRunningWhenHostPaused (bool on)    { keepRunningWhenHostPaused.store (on); }
     bool getKeepRunningWhenHostPaused() const      { return keepRunningWhenHostPaused.load(); }
 
+    /** v0.0.920 — the plugin window's last size, saved with the project so
+     *  Patchy reopens at the size the user left it (0 = never resized). */
+    void setEditorSize (int w, int h) { editorWidth.store (w); editorHeight.store (h); }
+    int  getEditorWidth()  const      { return editorWidth.load(); }
+    int  getEditorHeight() const      { return editorHeight.load(); }
+
     juce::AudioProcessorEditor* createEditor() override;
     bool                        hasEditor()    const override { return true; }
 
@@ -1290,6 +1296,8 @@ public:
     std::atomic<bool>               runningIndependently { false };
     std::atomic<bool>               editorOpen { false };                  // v0.0.919 — see setEditorOpen()
     std::atomic<bool>               keepRunningWhenHostPaused { false };   // v0.0.919 — per project (plugin state)
+    std::atomic<int>                editorWidth  { 0 };                    // v0.0.920 — see setEditorSize()
+    std::atomic<int>                editorHeight { 0 };
     juce::AudioBuffer<float>        idleBuffer;
     juce::MidiBuffer                idleMidi;
     double                          idleSampleRate = 44100.0;

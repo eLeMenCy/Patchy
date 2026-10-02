@@ -272,14 +272,31 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
     diagLog ("PatchyEditor: window opened");   // v0.0.919 — lifecycle visibility (hosts)
     p.setEditorOpen (true);                    // v0.0.919 — see PatchyProcessor::setEditorOpen()
     addAndMakeVisible (bridge);
-    // v0.0.919 (2026-09-30) — in plugin hosts Patchy draws its own resize
-    // grip (bottom-right): Logic Pro gives AU windows no resize handle of its
-    // own, so the window couldn't be resized at all. The Standalone keeps
-    // resizing through its own window. Plugins also open larger by default.
+    // v0.0.920 (2026-10-02) — resizing in plugin hosts. Logic gives AU
+    // windows no resize handle, and JUCE's own corner grip (tried in 919) is
+    // drawn UNDER the WebView, which covers the whole window — it could never
+    // be grabbed. The grip now lives in the web UI (bottom-right, plugin
+    // builds only) and sends "resizeEditor" → setSize() below; hosts follow
+    // the plugin's new size. The last size is saved with the project
+    // (PatchyProcessor::setEditorSize()). Default 900×600 for plugins
+    // (1100×720 was too big for a MacBook Air screen); the Standalone keeps
+    // resizing through its own window, as before.
     const bool isPlugin = p.wrapperType != juce::AudioProcessor::wrapperType_Standalone;
-    setResizable (true, isPlugin);
+    // Read the remembered size BEFORE setResizeLimits(): with no size yet, it
+    // snaps the window to the 480×320 minimum, whose resized() used to
+    // overwrite the remembered size before it was read (user: size not kept).
+    const int savedW = p.getEditorWidth(), savedH = p.getEditorHeight();
+    setResizable (true, false);
     setResizeLimits (480, 320, 8192, 8192);
-    setSize (isPlugin ? 1100 : 640, isPlugin ? 720 : 400);
+    if (isPlugin)
+        setSize (savedW > 0 ? savedW : 900, savedH > 0 ? savedH : 600);
+    else
+        setSize (640, 400);
+    sizeRestored = true;   // from now on, resized() remembers the size
+    bridge.resizeEditor = [this] (int w, int h)   // v0.0.920 — from the web UI's grip
+    {
+        setSize (juce::jlimit (480, 8192, w), juce::jlimit (320, 8192, h));
+    };
     bridge.loadUI();
 }
 
@@ -291,6 +308,10 @@ void PatchyEditor::paint (juce::Graphics& g)
 void PatchyEditor::resized()
 {
     bridge.setBounds (getLocalBounds());
+    // v0.0.920 — remember the plugin window size (saved with the project).
+    auto& p = static_cast<PatchyProcessor&> (processor);
+    if (sizeRestored && p.wrapperType != juce::AudioProcessor::wrapperType_Standalone)
+        p.setEditorSize (getWidth(), getHeight());
 }
 
 bool PatchyEditor::keyPressed (const juce::KeyPress& key, juce::Component*)

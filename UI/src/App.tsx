@@ -678,6 +678,34 @@ function FlowCanvas() {
   // (bottom-left of the canvas). See Bridge.onHostPaused.
   const [hostPaused, setHostPaused] = useState(false);
   useEffect(() => Bridge.onHostPaused(setHostPaused), []);
+
+  // v0.0.920 — plugin window resize grip (bottom-right; plugin builds only).
+  // Hosts like Logic give AU windows no resize handle, and JUCE's own grip
+  // sits under the WebView. Screen coordinates + pointer capture keep the
+  // drag smooth while the window grows under the pointer; one request per
+  // animation frame.
+  const resizeDrag = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const resizeRaf  = useRef(0);
+  const resizeNext = useRef<[number, number]>([0, 0]);
+  const onGripDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault(); e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    resizeDrag.current = { x: e.screenX, y: e.screenY, w: window.innerWidth, h: window.innerHeight };
+  };
+  const onGripMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = resizeDrag.current;
+    if (!d) return;
+    resizeNext.current = [d.w + e.screenX - d.x, d.h + e.screenY - d.y];
+    if (!resizeRaf.current)
+      resizeRaf.current = requestAnimationFrame(() => {
+        resizeRaf.current = 0;
+        Bridge.resizeEditor(resizeNext.current[0], resizeNext.current[1]);
+      });
+  };
+  const onGripUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    resizeDrag.current = null;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+  };
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { setHint } = useContext(HintContext);
   const { screenToFlowPosition, setViewport, updateNode, getNodes, deleteElements } = useReactFlow();
@@ -1332,6 +1360,25 @@ function FlowCanvas() {
       >
         <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="var(--border)" />
         <Controls style={{ bottom: 16, right: 16, left: 'auto' }} />
+
+        {/* v0.0.920 — plugin window resize grip (see onGripDown). */}
+        {!isStandalone && (
+          <div
+            onPointerDown={onGripDown}
+            onPointerMove={onGripMove}
+            onPointerUp={onGripUp}
+            onPointerCancel={onGripUp}
+            title="Drag to resize"
+            style={{
+              position: 'absolute', right: 0, bottom: 0, width: 16, height: 16, zIndex: 30,
+              cursor: 'nwse-resize', touchAction: 'none',
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" style={{ display: 'block' }}>
+              <path d="M15 5 L5 15 M15 9 L9 15 M15 13 L13 15" stroke="var(--text-muted)" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
+          </div>
+        )}
 
         {/* v0.0.919 — shown while the host (e.g. Logic) has stopped calling
             Patchy's audio engine and Patchy drives its graph itself. Fades

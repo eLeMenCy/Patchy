@@ -211,6 +211,7 @@ public:
     std::function<bool()>                                                                        isHostPaused;   // v0.0.919
     std::function<bool()>                                                                        getKeepRunning; // v0.0.919 — per-project option
     std::function<void (bool)>                                                                   setKeepRunning; // v0.0.919
+    std::function<void (int, int)>                                                               resizeEditor;   // v0.0.920 — UI resize grip
     std::function<void(const juce::String&, int, uint8_t)>                                       onSetDmxConsoleChannel;
     // MidiChMatrixNode's own controls — same "live update, no full rebuild"
     // reasoning as onSetDmxConsoleChannel above.

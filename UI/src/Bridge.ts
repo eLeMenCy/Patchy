@@ -813,6 +813,10 @@ export const Bridge = {
   setKeepRunningWhenHostPaused(enabled: boolean) {
     sendToJuce({ type: 'setKeepRunningWhenHostPaused', enabled });
   },
+  /** v0.0.920 — the plugin window's resize grip (see App.tsx FlowCanvas). */
+  resizeEditor(w: number, h: number) {
+    sendToJuce({ type: 'resizeEditor', w: Math.round(w), h: Math.round(h) });
+  },
   /** v0.0.919 — see _hostPausedSubscribers. Calls back at once with the current state. */
   onHostPaused(cb: HostPausedCallback) {
     _hostPausedSubscribers.push(cb);

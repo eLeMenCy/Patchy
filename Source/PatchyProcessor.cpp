@@ -899,6 +899,11 @@ void PatchyProcessor::getStateInformation (juce::MemoryBlock& destData)
     auto stateVar = graphModel.toVar();
     if (auto* o = stateVar.getDynamicObject())
         o->setProperty ("keepRunningWhenHostPaused", keepRunningWhenHostPaused.load());
+    if (auto* o = stateVar.getDynamicObject())   // v0.0.920 — plugin window size
+    {
+        o->setProperty ("editorWidth",  editorWidth.load());
+        o->setProperty ("editorHeight", editorHeight.load());
+    }
     auto json = juce::JSON::toString (stateVar, true);
     destData.replaceAll (json.toRawUTF8(), static_cast<size_t>(json.getNumBytesAsUTF8()));
 }
@@ -952,7 +957,11 @@ void PatchyProcessor::setStateInformation (const void* data, int sizeInBytes)
 
     auto* root = v.getDynamicObject();
     if (root != nullptr)   // v0.0.919 — see getStateInformation(); absent = off
+    {
         keepRunningWhenHostPaused.store ((bool) root->getProperty ("keepRunningWhenHostPaused"));
+        editorWidth.store  ((int) root->getProperty ("editorWidth"));    // v0.0.920 — absent = 0 = default size
+        editorHeight.store ((int) root->getProperty ("editorHeight"));
+    }
     if (root == nullptr) return;
 
     // Suspend onChange — resumeNotifications() MUST be called before any return.

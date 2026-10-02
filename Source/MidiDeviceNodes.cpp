@@ -41,9 +41,27 @@ bool MidiDeviceManager::applyToGraph (const juce::String& nodeId,
     return false;
 }
 
-juce::var MidiDeviceManager::getAvailableDevicesVar()
+juce::var MidiDeviceManager::getAvailableDevicesVar (bool isStandalone)
 {
     juce::Array<juce::var> outArr;
+    juce::Array<juce::var> inArr;
+
+    // v0.0.919 (2026-10-02) — plugin builds: a virtual "DAW" device at the
+    // top of both lists, like the audio device lists (AudioDeviceManager::
+    // getAvailableDevicesVar()). MIDI In "DAW" = the host's MIDI into the
+    // graph; MIDI Out "DAW" = back to the host.
+    if (! isStandalone)
+    {
+        auto makeDaw = []() -> juce::var {
+            auto* obj = new juce::DynamicObject();
+            obj->setProperty ("id",   "DAW");
+            obj->setProperty ("name", "DAW");
+            return obj;
+        };
+        outArr.add (makeDaw());
+        inArr.add  (makeDaw());
+    }
+
     for (const auto& d : juce::MidiOutput::getAvailableDevices())
     {
         auto* obj = new juce::DynamicObject();
@@ -52,7 +70,6 @@ juce::var MidiDeviceManager::getAvailableDevicesVar()
         outArr.add (obj);
     }
 
-    juce::Array<juce::var> inArr;
     for (const auto& d : juce::MidiInput::getAvailableDevices())
     {
         auto* obj = new juce::DynamicObject();

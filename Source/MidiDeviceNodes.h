@@ -50,6 +50,16 @@ public:
         selectedDeviceId = deviceIdentifier;
         if (deviceIdentifier.isEmpty()) return;
 
+        // v0.0.919 (2026-10-02) — "DAW" (plugin builds): no hardware port;
+        // ProcessingGraph::process() hands this node's MIDI back to the host
+        // instead (same idea as the Audio Out "DAW" device).
+        if (deviceIdentifier == "DAW")
+        {
+            dawOutput.store (true, std::memory_order_relaxed);
+            juce::Logger::writeToLog ("MidiOutDeviceNode: sending to the DAW");
+            return;
+        }
+
         auto newOutput = juce::MidiOutput::openDevice (deviceIdentifier);
         if (newOutput)
             juce::Logger::writeToLog ("MidiOutDeviceNode: opened " + deviceIdentifier);
@@ -62,6 +72,7 @@ public:
 
     void closeDevice()
     {
+        dawOutput.store (false, std::memory_order_relaxed);   // v0.0.919
         std::unique_ptr<juce::MidiOutput> old;
         {
             juce::SpinLock::ScopedLockType sl (outputLock);
@@ -136,12 +147,17 @@ public:
     // (see this project's own established "commit alone doesn't reach a
     // running node" lesson) — bypasses the rebuild requirement entirely.
     void setChannelFilter (std::uint16_t mask) { channelFilter.store (mask, std::memory_order_relaxed); }
+
+    /** v0.0.919 — true when set to the "DAW" device: its MIDI goes back to
+     *  the host (audio thread reads it; set on the message thread). */
+    bool isDawOutput() const { return dawOutput.load (std::memory_order_relaxed); }
     std::uint16_t getChannelFilter() const     { return channelFilter.load (std::memory_order_relaxed); }
 
     juce::String selectedDeviceId;
 
 private:
     std::unique_ptr<juce::MidiOutput> output;
+    std::atomic<bool>                 dawOutput { false };   // v0.0.919 — see isDawOutput()
     juce::SpinLock outputLock;   // protects output from the message-thread/audio-thread race above
     std::atomic<std::uint16_t> channelFilter { 0 }; // one bit per channel (1-16); 0 = omni
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MidiOutDeviceNode)
@@ -190,6 +206,18 @@ public:
 
         if (deviceIdentifier.isEmpty()) return;
 
+        // v0.0.919 (2026-10-02) — "DAW" (plugin builds): no hardware port;
+        // process() forwards the host's MIDI (track clips/regions, the
+        // controller through the track), which ProcessingGraph hands this
+        // node as inputMidi. Before, that host MIDI was silently ignored.
+        if (deviceIdentifier == "DAW")
+        {
+            selectedDeviceName = "DAW";
+            dawInput.store (true, std::memory_order_relaxed);
+            juce::Logger::writeToLog ("MidiInDeviceNode: receiving from the DAW");
+            return;
+        }
+
         input = juce::MidiInput::openDevice (deviceIdentifier, this);
         if (input)
         {
@@ -204,6 +232,7 @@ public:
 
     void closeDevice()
     {
+        dawInput.store (false, std::memory_order_relaxed);   // v0.0.919
         if (input) { input->stop(); input.reset(); }
     }
 
@@ -227,6 +256,13 @@ public:
         // drained and discarded, keeping this node correctly "cut"
         // (silent), not accidentally pass-through.
         outputMidi.clear();
+
+        // v0.0.919 — "DAW" device: the host's MIDI for this block, sample
+        // positions kept (inputMidi is the host's buffer, see ProcessingGraph).
+        if (dawInput.load (std::memory_order_relaxed) && ! disabled)
+            for (const auto meta : inputMidi)
+                outputMidi.addEvent (meta.getMessage(), meta.samplePosition);
+
         juce::MidiMessage msg;
         int samplePos = 0;
         while (fifo.pop (msg))
@@ -238,6 +274,7 @@ public:
 
     juce::String selectedDeviceId;
     juce::String selectedDeviceName;   // human-readable, for MidiMonitor source info
+    std::atomic<bool> dawInput { false };   // v0.0.919 — "DAW" device, see openDevice()
 
 private:
     void handleIncomingMidiMessage (juce::MidiInput*,
@@ -313,7 +350,7 @@ public:
     }
 
     /** Query system MIDI devices for the UI comboboxes. */
-    static juce::var getAvailableDevicesVar();
+    static juce::var getAvailableDevicesVar (bool isStandalone);
 
 private:
     std::unordered_map<juce::String, juce::String> selections;

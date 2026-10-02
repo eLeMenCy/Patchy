@@ -39,6 +39,10 @@ void WebBridge::handleMessage (const juce::String& json)
         handleSetNodeLabel (obj);
     else if (type == "setNodeCustomName")
         handleSetNodeCustomName (obj);
+    else if (type == "resizeEditor")   // v0.0.920 — the UI's resize grip (plugin builds)
+    {
+        if (resizeEditor) resizeEditor ((int) obj->getProperty ("w"), (int) obj->getProperty ("h"));
+    }
     else if (type == "setKeepRunningWhenHostPaused")   // v0.0.919 — per-project option, not graph state (no undo)
     {
         if (setKeepRunning) setKeepRunning ((bool) obj->getProperty ("enabled"));

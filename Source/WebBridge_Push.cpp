@@ -100,7 +100,7 @@ void WebBridge::pushPaxList()
 
 void WebBridge::pushMidiDevices()
 {
-    pushToUI ("onMidiDevices", juce::JSON::toString (MidiDeviceManager::getAvailableDevicesVar(), true));
+    pushToUI ("onMidiDevices", juce::JSON::toString (MidiDeviceManager::getAvailableDevicesVar (isStandalone), true));
 }
 
 void WebBridge::pushAudioDevices()

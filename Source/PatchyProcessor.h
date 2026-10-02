@@ -1,8 +1,10 @@
 #pragma once
 #include <set>
+#include <map>
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <chrono>
 #include "GraphModel.h"
+#include "PatchyLog.h"
 #include "ProcessingGraph.h"
 #include "MidiDeviceNodes.h"
 #include "MidiMonitorNode.h"
@@ -34,16 +36,35 @@
  *   ProcessingGraph — rebuilt on message thread, processed on audio thread.
  *                     A simple flag + swap ensures no concurrent access.
  */
-class PatchyProcessor : public juce::AudioProcessor
+// v0.0.919 — PatchyLog::Scope FIRST: the file log is installed before any
+// member is constructed (and can log) and removed after all are destroyed.
+class PatchyProcessor : private PatchyLog::Scope,
+                        public  juce::AudioProcessor
 {
 public:
     PatchyProcessor();
-    ~PatchyProcessor() override = default;
+    ~PatchyProcessor() override;   // v0.0.919 — stops the host-idle driver first
 
     //─── AudioProcessor ────────────────────────────────────────────────────
     void prepareToPlay  (double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override { processingGraph.closeAllProtocolDeviceSockets(); }
+    void releaseResources() override;   // v0.0.919 — out of line, logs (lifecycle visibility)
+    void reset() override;              // v0.0.919 — logs only (lifecycle visibility)
     void processBlock   (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    void processBlockBypassed (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;   // v0.0.919
+
+    /** v0.0.919 — true while the host has stopped calling processBlock() and
+     *  the HostIdleDriver runs the graph instead (see PatchyProcessor.cpp). */
+    bool isRunningIndependently() const { return runningIndependently.load(); }
+
+    /** v0.0.919 — when may the HostIdleDriver run? While Patchy's window is
+     *  open, or always if keepRunningWhenHostPaused is on (per project,
+     *  saved in the plugin state). Agreed 2026-10-01: Logic keeps a CLOSED
+     *  project's Patchy alive until quit/reopen (only its window closes), so
+     *  "always" would keep a closed project sending DMX/network — hence
+     *  window-open by default, "always" as an explicit opt-in. */
+    void setEditorOpen (bool open)                 { editorOpen.store (open); }
+    void setKeepRunningWhenHostPaused (bool on)    { keepRunningWhenHostPaused.store (on); }
+    bool getKeepRunningWhenHostPaused() const      { return keepRunningWhenHostPaused.load(); }
 
     juce::AudioProcessorEditor* createEditor() override;
     bool                        hasEditor()    const override { return true; }
@@ -52,6 +73,9 @@ public:
     bool   acceptsMidi()                       const override { return true; }
     bool   producesMidi()                      const override { return true; }
     bool   isMidiEffect()                      const override { return false; }
+    // 0 s. A 24 h tail was tried on 2026-10-01 to stop Logic Pro pausing
+    // Patchy when idle and made no difference — the HostIdleDriver
+    // (PatchyProcessor.cpp) handles that case instead.
     double getTailLengthSeconds()              const override { return 0.0; }
 
     int    getNumPrograms()                    override { return 1; }
@@ -1206,6 +1230,26 @@ public:
             // and its "port in use" never reached the UI. Pushed while in
             // use, plus ONE more entry (portInUse 0) when it clears, so the
             // node's red state goes away again.
+            // Fix, v0.0.919 (2026-09-30) — received bytes on their own
+            // (UDP/OSC/ArtNet/DMX In) were never pushed: the byte rate only
+            // showed when the node ALSO emitted events (UDP In with a
+            // downstream connection); OSC In with unparsable packets, or UDP
+            // In with nothing connected, showed nothing. Now pushed whenever
+            // bytes arrived, plus ONE clearing entry (bytes 0) after ~1 s
+            // (30 pushes) without any, so the label holds between packets
+            // instead of blinking, and still clears when traffic stops.
+            bool bytesChanged = false;
+            if (a.udpBytes > 0)
+            {
+                bytesIdlePushes[node->id] = 0;
+                bytesChanged = true;
+            }
+            else if (auto idleIt = bytesIdlePushes.find (node->id); idleIt != bytesIdlePushes.end() && ++idleIt->second >= 30)
+            {
+                bytesIdlePushes.erase (idleIt);
+                bytesChanged = true;
+            }
+
             bool portInUseChanged = false;
             if (a.portInUse != 0 || a.dmxStatus != 0)   // v0.0.916 — DMX status rides the same push
             {
@@ -1217,7 +1261,8 @@ public:
 
             if (a.midiOutEvents > 0 || a.audioRmsL > 0.f || a.audioRmsR > 0.f
                 || ! a.incomingNotes.empty() || ! a.paxReadOnlyValues.empty()
-                || ! a.genericValuePortValues.empty() || portInUseChanged)
+                || ! a.genericValuePortValues.empty() || portInUseChanged
+                || bytesChanged)
                 result.push_back (a);
         }
 
@@ -1227,6 +1272,28 @@ public:
     // v0.0.916 — ids of nodes last reported as "port in use" (message thread
     // only, getPortActivity()); lets the clearing entry be sent exactly once.
     std::set<juce::String> portInUseReported;
+    // v0.0.919 — nodes that recently reported bytes: pushes since the last
+    // byte (message thread only, getPortActivity()).
+    std::map<juce::String, int> bytesIdlePushes;
+
+    bool hostInfoLogged = false;   // v0.0.919 — see prepareToPlay()
+
+    // v0.0.919 — host-idle driver (see PatchyProcessor.cpp). The graph body
+    // is processGraphBlock(); processLock keeps host and driver exclusive.
+    struct HostIdleDriver;
+    void processGraphBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&);
+    void startHostIdleDriver (double sampleRate, int blockSize);
+    void stopHostIdleDriver();
+    std::unique_ptr<HostIdleDriver> hostIdleDriver;
+    juce::SpinLock                  processLock;
+    std::atomic<double>             lastHostCallMs { 0.0 };
+    std::atomic<bool>               runningIndependently { false };
+    std::atomic<bool>               editorOpen { false };                  // v0.0.919 — see setEditorOpen()
+    std::atomic<bool>               keepRunningWhenHostPaused { false };   // v0.0.919 — per project (plugin state)
+    juce::AudioBuffer<float>        idleBuffer;
+    juce::MidiBuffer                idleMidi;
+    double                          idleSampleRate = 44100.0;
+    int                             idleBlockSize  = 512;
 
     /** Collects playhead position + playing status for every live
      *  AudioPlayerNode — the frontend has no other way to track a

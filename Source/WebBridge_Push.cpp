@@ -221,6 +221,18 @@ void WebBridge::timerCallback()
         pushAudioSnapshots();
         pushSpectrumSnapshots();
         pushPortActivity();
+
+        // v0.0.919 — "Host paused — Patchy running independently" indicator:
+        // pushed only when the state changes (or after a page (re)load).
+        if (isHostPaused)
+        {
+            const int paused = isHostPaused() ? 1 : 0;
+            if (paused != lastPushedHostPaused)
+            {
+                lastPushedHostPaused = paused;
+                pushToUI ("onHostPaused", paused ? "true" : "false");
+            }
+        }
         pushDmxSnapshots();
         pushArtNetSnapshots();
         pushOscMonitorEvents();

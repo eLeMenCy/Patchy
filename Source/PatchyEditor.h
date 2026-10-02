@@ -18,7 +18,7 @@ class PatchyEditor : public juce::AudioProcessorEditor,
 {
 public:
     explicit PatchyEditor (PatchyProcessor& p);
-    ~PatchyEditor() override = default;
+    ~PatchyEditor() override;   // v0.0.919 — logs (lifecycle visibility)
 
     void paint                  (juce::Graphics&) override;
     void resized                ()                override;

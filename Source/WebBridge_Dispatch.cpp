@@ -39,6 +39,11 @@ void WebBridge::handleMessage (const juce::String& json)
         handleSetNodeLabel (obj);
     else if (type == "setNodeCustomName")
         handleSetNodeCustomName (obj);
+    else if (type == "setKeepRunningWhenHostPaused")   // v0.0.919 — per-project option, not graph state (no undo)
+    {
+        if (setKeepRunning) setKeepRunning ((bool) obj->getProperty ("enabled"));
+        if (getKeepRunning) pushToUI ("onKeepRunningWhenHostPaused", getKeepRunning() ? "true" : "false");
+    }
     else if (type == "setTextEditing")   // Phase 6 rename fix, 2026-09-25 — see WebBridge::isTextEditing()
         textEditing = (bool) obj->getProperty ("editing");
     else if (type == "midiKeyEvent")
@@ -88,12 +93,15 @@ void WebBridge::handleReady ()
     // Guard against double-ready (WebView sometimes fires twice on load)
     const bool wasConnected = connected;
     connected = true;
+    lastPushedHostPaused = -1;   // v0.0.919 — re-send the host-paused state to a freshly loaded page
     juce::Logger::writeToLog ("WebBridge: UI ready.");
     pushPaxList();
     pushToUI ("onFileState", buildFileStateJson());
     pushMidiDevices();
     pushAudioDevices();
     pushStartupFadeDevices();
+    if (getKeepRunning)   // v0.0.919
+        pushToUI ("onKeepRunningWhenHostPaused", getKeepRunning() ? "true" : "false");
     pushSerialPorts();
     pushGraphToUI();
     pushUndoState();

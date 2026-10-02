@@ -208,6 +208,9 @@ public:
     std::function<void(const juce::String&, int, const juce::String&)>                           onSetArtNetSettings;
     std::function<void(const juce::String&, const juce::String&, int)>                          onSetDmxSettings;
     std::function<std::vector<DmxSnapshot>()>                                                    drainDmxSnapshots;
+    std::function<bool()>                                                                        isHostPaused;   // v0.0.919
+    std::function<bool()>                                                                        getKeepRunning; // v0.0.919 — per-project option
+    std::function<void (bool)>                                                                   setKeepRunning; // v0.0.919
     std::function<void(const juce::String&, int, uint8_t)>                                       onSetDmxConsoleChannel;
     // MidiChMatrixNode's own controls — same "live update, no full rebuild"
     // reasoning as onSetDmxConsoleChannel above.
@@ -342,6 +345,7 @@ private:
     std::unique_ptr<Browser> webView;
 
     bool         connected = false;
+    int          lastPushedHostPaused = -1;   // v0.0.919 — -1 = push on next tick (page (re)load)
     juce::String devServerUrl;
     PaxRegistry*  registry         = nullptr;
     std::function<std::vector<MidiMonitorBatch>()> drainMonitor;

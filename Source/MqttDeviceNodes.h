@@ -91,6 +91,28 @@ public:
      *  Cleanup then happens automatically in ~MqttConnection(), safely,
      *  off the message thread, on whichever thread drops the last
      *  reference. */
+    // v0.0.919 (2026-10-01) — rebuild handover. Every graph edit used to
+    // make the new node open a BRAND-NEW broker connection (connect, then
+    // subscribe: tens to hundreds of ms) while the old one closed with the
+    // old graph — anything published in that gap was lost (a circulating
+    // test message died on every node drop, in Logic and the Standalone
+    // alike). Now the new node takes over its predecessor's live connection
+    // together with the settings and client id it was made with, so the
+    // configure() that follows finds nothing changed and doesn't reconnect.
+    // The connection is self-contained (callbacks and fifo live in it, never
+    // in a node), so moving the shared_ptr is all it takes; messages that
+    // arrive before the swap simply wait in its fifo for this node.
+    void takeConnectionFrom (MqttSubscribeNode& old)
+    {
+        std::shared_ptr<MqttConnection> c;
+        { const juce::SpinLock::ScopedLockType sl (old.connectionLock); c = std::move (old.connection); }
+        if (c == nullptr) return;
+        brokerHost = old.brokerHost; brokerPort = old.brokerPort; topic = old.topic;
+        qos = old.qos; username = old.username; password = old.password; clientId = old.clientId;
+        const juce::SpinLock::ScopedLockType sl (connectionLock);
+        connection = std::move (c);
+    }
+
     void configure (const juce::String& host, int port, const juce::String& topicToUse,
                     int qosToUse, const juce::String& user, const juce::String& pass)
     {
@@ -453,6 +475,21 @@ public:
      *  by this node, so stopThread() in teardown() would still race
      *  against a thread stuck inside the one blocking
      *  mosquitto_connect_async() call. */
+    // v0.0.919 — rebuild handover, see MqttSubscribeNode::takeConnectionFrom().
+    // The old node is left with no connection, so its teardown (on graph
+    // destruction) has nothing to stop; the send thread keeps running for
+    // this node.
+    void takeConnectionFrom (MqttPublishNode& old)
+    {
+        std::shared_ptr<PublishConnection> c;
+        { const juce::SpinLock::ScopedLockType sl (old.connectionLock); c = std::move (old.connection); }
+        if (c == nullptr) return;
+        brokerHost = old.brokerHost; brokerPort = old.brokerPort; topic = old.topic; qos = old.qos;
+        retain = old.retain; username = old.username; password = old.password; clientId = old.clientId;
+        const juce::SpinLock::ScopedLockType sl (connectionLock);
+        connection = std::move (c);
+    }
+
     void configure (const juce::String& host, int port, const juce::String& topicToUse,
                     int qosToUse, bool retainToUse, const juce::String& user, const juce::String& pass)
     {
@@ -930,7 +967,10 @@ public:
     }
 
     bool applyToGraph (const juce::String& nodeId, class ProcessingGraph& graph);
-    void applyAllSettings (class ProcessingGraph& graph);
+    /** v0.0.919 — `previous`: the graph that currently holds the live
+     *  connections (pending if not yet swapped, else the live one); each
+     *  new node takes over its predecessor's connection first. */
+    void applyAllSettings (class ProcessingGraph& graph, class ProcessingGraph* previous = nullptr);
 
 private:
     std::unordered_map<juce::String, Settings> settings;

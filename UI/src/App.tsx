@@ -673,6 +673,11 @@ function FlowCanvas() {
   const { isStandalone } = useContext(DawContext);
   const [nodes, setNodes] = useState<Node<any>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
+
+  // v0.0.919 — "Host paused — Patchy running independently" indicator
+  // (bottom-left of the canvas). See Bridge.onHostPaused.
+  const [hostPaused, setHostPaused] = useState(false);
+  useEffect(() => Bridge.onHostPaused(setHostPaused), []);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { setHint } = useContext(HintContext);
   const { screenToFlowPosition, setViewport, updateNode, getNodes, deleteElements } = useReactFlow();
@@ -1328,8 +1333,25 @@ function FlowCanvas() {
         <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="var(--border)" />
         <Controls style={{ bottom: 16, right: 16, left: 'auto' }} />
 
+        {/* v0.0.919 — shown while the host (e.g. Logic) has stopped calling
+            Patchy's audio engine and Patchy drives its graph itself. Fades
+            in/out; never intercepts clicks. */}
+        <div style={{
+          position: 'absolute', bottom: 16, left: 16, zIndex: 10,
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '4px 9px', borderRadius: 4,
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.02em',
+          pointerEvents: 'none', userSelect: 'none',
+          opacity: hostPaused ? 0.9 : 0, transition: 'opacity 0.4s ease',
+        }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#f59e0b', flexShrink: 0 }} />
+          Host paused — Patchy running independently
+        </div>
+
         {/* File menu + Fold/Unfold + Preferences buttons */}
         <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 10, display: 'flex', gap: 6 }}>
+
 
           {/* ☰ Hamburger file menu */}
           <div style={{ position: 'relative' }}>

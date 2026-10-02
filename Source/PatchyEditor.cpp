@@ -1,5 +1,12 @@
 #include "PatchyProcessor.h"
 #include "PatchyEditor.h"
+#include "DiagLog.h"
+
+PatchyEditor::~PatchyEditor()
+{
+    diagLog ("PatchyEditor: window closed");   // v0.0.919 — lifecycle visibility (hosts)
+    static_cast<PatchyProcessor&> (processor).setEditorOpen (false);   // v0.0.919 — see setEditorOpen()
+}
 
 PatchyEditor::PatchyEditor (PatchyProcessor& p)
     : AudioProcessorEditor (&p),
@@ -52,6 +59,9 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
     bridge.onSetDmxSettings          = [&p](const juce::String& nid, const juce::String& devicePath, int universe)
                                        { p.setDmxSettings (nid, devicePath, universe); };
     bridge.drainDmxSnapshots         = [&p]() { return p.drainAllDmxSnapshots(); };
+    bridge.isHostPaused              = [&p]() { return p.isRunningIndependently(); };   // v0.0.919
+    bridge.getKeepRunning            = [&p]() { return p.getKeepRunningWhenHostPaused(); };   // v0.0.919
+    bridge.setKeepRunning            = [&p] (bool on) { p.setKeepRunningWhenHostPaused (on); };
     bridge.drainOscMonitor           = [&p]() { return p.drainAllOscMonitorEvents(); };
     bridge.drainUdpMonitor           = [&p]() { return p.drainAllUdpMonitorEvents(); };
     bridge.drainMqttMonitor          = [&p]() { return p.drainAllMqttMonitorEvents(); };
@@ -259,9 +269,17 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
                                                node = p.getPendingGraph()->findArtNetMonitorNode (nid);
                                            if (node) node->setUniverseFilter (filter);
                                        };
+    diagLog ("PatchyEditor: window opened");   // v0.0.919 — lifecycle visibility (hosts)
+    p.setEditorOpen (true);                    // v0.0.919 — see PatchyProcessor::setEditorOpen()
     addAndMakeVisible (bridge);
-    setSize (640, 400);
-    setResizable (true, false);
+    // v0.0.919 (2026-09-30) — in plugin hosts Patchy draws its own resize
+    // grip (bottom-right): Logic Pro gives AU windows no resize handle of its
+    // own, so the window couldn't be resized at all. The Standalone keeps
+    // resizing through its own window. Plugins also open larger by default.
+    const bool isPlugin = p.wrapperType != juce::AudioProcessor::wrapperType_Standalone;
+    setResizable (true, isPlugin);
+    setResizeLimits (480, 320, 8192, 8192);
+    setSize (isPlugin ? 1100 : 640, isPlugin ? 720 : 400);
     bridge.loadUI();
 }
 

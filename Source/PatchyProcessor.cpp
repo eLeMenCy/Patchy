@@ -1,4 +1,5 @@
 #include "PatchyProcessor.h"
+#include "DiagLog.h"   // timestamped lifecycle / host-idle driver log lines (v0.0.919)
 #include "PatchyEditor.h"
 #include "AudioDeviceNodes.h"
 #include <utility>
@@ -11,6 +12,20 @@ PatchyProcessor::PatchyProcessor()
           .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
           .withOutput ("Output", juce::AudioChannelSet::stereo(), true))
 {
+    // v0.0.919 — session header in the log file (see PatchyLog.h). The home
+    // folder shows whether the host sandboxes us: inside a sandbox it is
+    // the container (~/Library/Containers/<id>/Data), not ~.
+    {
+        // Plugin type and host are NOT known yet here (logged "Undefined in
+        // Unknown" in Logic, 2026-09-30) — they're logged on the first
+        // prepareToPlay() instead.
+        juce::Logger::writeToLog ("===== Patchy " + juce::String (JucePlugin_VersionString)
+                                  + " started, " + juce::Time::getCurrentTime().toString (true, true));
+        juce::Logger::writeToLog ("Patchy: home folder seen by this process: "
+                                  + juce::File::getSpecialLocation (juce::File::userHomeDirectory).getFullPathName());
+        juce::Logger::writeToLog ("Patchy: log file: " + PatchyLog::getLogFile().getFullPathName());
+    }
+
     // Scan for dynamic Pax at startup
     auto scanResults = PaxScanner::scan();
     registry.load (scanResults);
@@ -48,9 +63,27 @@ PatchyProcessor::PatchyProcessor()
 
 void PatchyProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
+    diagLog ("PatchyProcessor: prepareToPlay (" + juce::String (sampleRate) + " Hz, "
+                              + juce::String (samplesPerBlock) + ")");   // v0.0.919 — lifecycle visibility (hosts)
+    // v0.0.919 — the idle driver must not run the graph while it's being
+    // re-prepared; restarted at the end of this function.
+    stopHostIdleDriver();
+
+    // v0.0.919 — once per instance: plugin type + host (see the constructor).
+    if (! hostInfoLogged)
+    {
+        hostInfoLogged = true;
+        juce::PluginHostType host;
+        juce::Logger::writeToLog ("Patchy: running as " + juce::String (juce::AudioProcessor::getWrapperTypeDescription (wrapperType))
+                                  + (wrapperType == wrapperType_Standalone ? juce::String()
+                                                                           : " in " + juce::String (host.getHostDescription())));
+    }
+
     lastSampleRate = sampleRate;
     lastBlockSize  = samplesPerBlock;
     rebuildProcessingGraph();
+
+    startHostIdleDriver (sampleRate, samplesPerBlock);   // v0.0.919 — plugin builds only
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -70,8 +103,150 @@ bool PatchyProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Host-idle driver — v0.0.919 (2026-10-01)
+//
+//  Why: Logic Pro stops calling processBlock() for an instrument plugin whose
+//  track isn't "live" (idle, Logic in the background, focus in Patchy's own
+//  out-of-process window…), and nothing on the plugin side prevents it — a
+//  24 h tail was tried and made no difference (SessionLog 2026-10-01). Patchy
+//  runs its WHOLE graph in processBlock(), so network, DMX, MIDI-device and
+//  monitor routing all froze while the UI kept running.
+//
+//  How: plugin builds only. The host's processBlock() stamps lastHostCallMs.
+//  This thread ticks at the block rate; when the host hasn't called for
+//  kIdleMs (or 4 block periods, whichever is longer) it runs the graph itself
+//  with a silent input buffer and discards the host-side audio/MIDI output.
+//  The moment the host calls again, processBlock() takes over. processLock
+//  makes the two mutually exclusive: the host's audio thread only ever waits
+//  for the end of the driver's current block (well under a millisecond), and
+//  the driver re-checks the stamp under the lock before each block. Graph
+//  swaps after edits happen inside processGraphBlock(), so they work here too.
+// ─────────────────────────────────────────────────────────────────────────────
+
+struct PatchyProcessor::HostIdleDriver : public juce::Thread
+{
+    explicit HostIdleDriver (PatchyProcessor& o) : juce::Thread ("PatchyHostIdle"), owner (o) {}
+
+    void run() override
+    {
+        static constexpr double kIdleMs = 100.0;
+        double next = juce::Time::getMillisecondCounterHiRes();
+
+        while (! threadShouldExit())
+        {
+            const double periodMs = 1000.0 * owner.idleBlockSize / owner.idleSampleRate;
+            const double idleMs   = juce::jmax (kIdleMs, 4.0 * periodMs);
+
+            next += periodMs;
+            const double now = juce::Time::getMillisecondCounterHiRes();
+            if (next < now - 100.0) next = now;            // fell behind (sleep, debugger…) — resync
+            if (next - now >= 1.0) wait ((int) (next - now));
+            if (threadShouldExit()) break;
+
+            bool ran = false;
+            // v0.0.919 — only while Patchy's window is open, unless the
+            // project opted in to "always" (see setEditorOpen()).
+            const bool allowed = owner.editorOpen.load() || owner.keepRunningWhenHostPaused.load();
+            if (allowed && juce::Time::getMillisecondCounterHiRes() - owner.lastHostCallMs.load() > idleMs)
+            {
+                const juce::SpinLock::ScopedLockType sl (owner.processLock);
+                // Re-check under the lock: the host may have resumed meanwhile.
+                if (juce::Time::getMillisecondCounterHiRes() - owner.lastHostCallMs.load() > idleMs)
+                {
+                    owner.idleBuffer.clear();
+                    owner.idleMidi.clear();
+                    owner.processGraphBlock (owner.idleBuffer, owner.idleMidi);
+                    ran = true;
+                }
+            }
+
+            if (! ran && ! allowed && owner.runningIndependently.exchange (false))
+                diagLog ("PatchyProcessor: window closed while host paused - idle until the host calls again");
+            if (ran && ! owner.runningIndependently.exchange (true))
+                diagLog ("PatchyProcessor: host stopped calling - running independently");
+        }
+        owner.runningIndependently.store (false);
+    }
+
+    PatchyProcessor& owner;
+};
+
+PatchyProcessor::~PatchyProcessor()
+{
+    diagLog ("PatchyProcessor: destroyed");   // v0.0.919 — lifecycle visibility (hosts)
+    stopHostIdleDriver();   // before any member it uses goes away
+}
+
+void PatchyProcessor::reset()
+{
+    diagLog ("PatchyProcessor: reset()");   // v0.0.919 — lifecycle visibility (hosts); base does nothing
+}
+
+void PatchyProcessor::releaseResources()
+{
+    diagLog ("PatchyProcessor: releaseResources()");   // v0.0.919 — lifecycle visibility (hosts)
+    stopHostIdleDriver();
+    processingGraph.closeAllProtocolDeviceSockets();
+}
+
+void PatchyProcessor::startHostIdleDriver (double sampleRate, int blockSize)
+{
+    stopHostIdleDriver();
+    if (wrapperType == wrapperType_Standalone) return;   // the Standalone always drives itself
+
+    idleSampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
+    idleBlockSize  = blockSize  > 0   ? blockSize  : 512;
+    idleBuffer.setSize (juce::jmax (1, getTotalNumInputChannels(), getTotalNumOutputChannels()), idleBlockSize);
+    idleMidi.ensureSize (2048);
+    lastHostCallMs.store (juce::Time::getMillisecondCounterHiRes());   // don't take over before the host's first call
+
+    hostIdleDriver = std::make_unique<HostIdleDriver> (*this);
+    hostIdleDriver->startThread (juce::Thread::Priority::highest);
+}
+
+void PatchyProcessor::stopHostIdleDriver()
+{
+    if (hostIdleDriver != nullptr)
+    {
+        hostIdleDriver->stopThread (2000);
+        hostIdleDriver.reset();
+    }
+    runningIndependently.store (false);
+}
+
+// v0.0.919 (2026-10-01) — the host's bypass (Logic's power button on the
+// plugin window) keeps the host rendering, but JUCE then calls this instead
+// of processBlock(). Without this override the HostIdleDriver read bypass as
+// "host paused", took over and kept the whole graph running ("Host paused"
+// indicator shown, loop still going). Now bypass counts as the host being
+// present — no takeover — and Patchy's graph simply doesn't run: off is off.
+// Audio is handled by JUCE's default bypass.
+void PatchyProcessor::processBlockBypassed (juce::AudioBuffer<float>& buffer,
+                                            juce::MidiBuffer& midiMessages)
+{
+    lastHostCallMs.store (juce::Time::getMillisecondCounterHiRes());
+    if (runningIndependently.exchange (false))
+        diagLog ("PatchyProcessor: host bypassed Patchy - graph stopped");
+    juce::AudioProcessor::processBlockBypassed (buffer, midiMessages);
+}
+
 void PatchyProcessor::processBlock (juce::AudioBuffer<float>& buffer,
-                                     juce::MidiBuffer& midiMessages)
+                                    juce::MidiBuffer& midiMessages)
+{
+    lastHostCallMs.store (juce::Time::getMillisecondCounterHiRes());
+
+    const juce::SpinLock::ScopedLockType sl (processLock);
+    if (runningIndependently.exchange (false))
+        diagLog ("PatchyProcessor: host resumed calling - back under host control");
+    processGraphBlock (buffer, midiMessages);
+}
+
+// v0.0.919 (2026-10-01) — the graph-processing body, formerly processBlock()
+// itself. Called by the host (processBlock() below) or, while the host has
+// stopped calling us, by the HostIdleDriver — never both at once (processLock).
+void PatchyProcessor::processGraphBlock (juce::AudioBuffer<float>& buffer,
+                                         juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
 
@@ -552,7 +727,7 @@ void PatchyProcessor::rebuildProcessingGraph()
     audioDeviceManager.applyAllChannelSelections (*newGraph);
     udpDeviceManager.applyAllSettings            (*newGraph);
     oscDeviceManager.applyAllSettings            (*newGraph);
-    mqttDeviceManager.applyAllSettings           (*newGraph);
+    mqttDeviceManager.applyAllSettings           (*newGraph, pendingGraph ? pendingGraph.get() : &processingGraph);   // v0.0.919 — connection handover
     artNetDeviceManager.applyAllSettings         (*newGraph, pendingGraph ? pendingGraph.get() : &processingGraph);
     dmxDeviceManager.applyAllSettings            (*newGraph, pendingGraph ? pendingGraph.get() : &processingGraph);
 
@@ -718,7 +893,13 @@ juce::AudioProcessorEditor* PatchyProcessor::createEditor()
 void PatchyProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     // Serialise the graph model to JSON and store it
-    auto json = juce::JSON::toString (graphModel.toVar(), true);
+    // v0.0.919 — plus the per-project "keep running when the host pauses"
+    // option: a top-level property next to the graph, NOT inside the graph
+    // model (undo snapshots restore the whole model and would flip it back).
+    auto stateVar = graphModel.toVar();
+    if (auto* o = stateVar.getDynamicObject())
+        o->setProperty ("keepRunningWhenHostPaused", keepRunningWhenHostPaused.load());
+    auto json = juce::JSON::toString (stateVar, true);
     destData.replaceAll (json.toRawUTF8(), static_cast<size_t>(json.getNumBytesAsUTF8()));
 }
 
@@ -770,6 +951,8 @@ void PatchyProcessor::setStateInformation (const void* data, int sizeInBytes)
     if (! v.isObject()) return;
 
     auto* root = v.getDynamicObject();
+    if (root != nullptr)   // v0.0.919 — see getStateInformation(); absent = off
+        keepRunningWhenHostPaused.store ((bool) root->getProperty ("keepRunningWhenHostPaused"));
     if (root == nullptr) return;
 
     // Suspend onChange — resumeNotifications() MUST be called before any return.

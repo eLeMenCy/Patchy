@@ -207,6 +207,9 @@ function GraphTab ({ prefs, onChange }: {
     savePrefs(next);
   };
   const { isStandalone, dawLoopbackEnabled, setDawLoopback, dawHostEnabled, setDawHost } = useContext(DawContext);
+  // v0.0.919 — per-project, stored by the backend in the plugin state.
+  const [keepRunning, setKeepRunning] = useState(false);
+  useEffect(() => Bridge.onKeepRunningWhenHostPaused(setKeepRunning), []);
 
   return (
     <>
@@ -224,6 +227,12 @@ function GraphTab ({ prefs, onChange }: {
             desc="Allow selection of your DAW's own virtual audio devices. May cause signal doubling!"
             value={dawHostEnabled}
             onChange={setDawHost}
+          />
+          <ToggleRow
+            label="Keep running when the host pauses, even with this window closed"
+            desc="Off: Patchy keeps routing while the host is paused only while its window is open. On: always — but a host that keeps closed projects alive (Logic does, until you quit it) will then keep this project's DMX/network output running. Saved with the project."
+            value={keepRunning}
+            onChange={v => Bridge.setKeepRunningWhenHostPaused(v)}
           />
         </>
       )}

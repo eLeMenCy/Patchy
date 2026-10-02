@@ -304,6 +304,19 @@ function _dispatchStartupFadeDevices(devices: StartupFadeDevices) {
   _startupFadeSubscribers.forEach(cb => cb(devices));
 }
 
+// v0.0.919 — true while the host (e.g. Logic Pro) has stopped calling the
+// audio engine and Patchy runs its graph on its own (see the backend's
+// HostIdleDriver). Pushed on change and after every page (re)load.
+type HostPausedCallback = (paused: boolean) => void;
+const _hostPausedSubscribers: HostPausedCallback[] = [];
+let   _hostPausedCache = false;
+
+// v0.0.919 — per-project option (plugin builds): keep running while the host
+// is paused even with Patchy's window closed. Pushed on page load and after
+// each change; see the backend's PatchyProcessor::setEditorOpen().
+const _keepRunningSubscribers: HostPausedCallback[] = [];
+let   _keepRunningCache = false;
+
 // ── Serial ports ──────────────────────────────────────────────────────────────
 type SerialPortsCallback = (ports: string[]) => void;
 const _serialPortSubscribers: SerialPortsCallback[] = [];
@@ -452,6 +465,14 @@ function _dispatchClaimed() {
     } catch (e) {
       console.error('Bridge midiDevices parse error', e);
     }
+  },
+  onKeepRunningWhenHostPaused: (json: string) => {
+    _keepRunningCache = json === 'true';
+    _keepRunningSubscribers.forEach(cb => cb(_keepRunningCache));
+  },
+  onHostPaused: (json: string) => {
+    _hostPausedCache = json === 'true';
+    _hostPausedSubscribers.forEach(cb => cb(_hostPausedCache));
   },
   onStartupFadeDevices: (json: string) => {
     try {
@@ -778,6 +799,27 @@ export const Bridge = {
     return () => {
       const idx = _audioDeviceSubscribers.indexOf(cb);
       if (idx !== -1) _audioDeviceSubscribers.splice(idx, 1);
+    };
+  },
+  /** v0.0.919 — see _keepRunningSubscribers. Calls back at once with the current value. */
+  onKeepRunningWhenHostPaused(cb: HostPausedCallback) {
+    _keepRunningSubscribers.push(cb);
+    cb(_keepRunningCache);
+    return () => {
+      const idx = _keepRunningSubscribers.indexOf(cb);
+      if (idx !== -1) _keepRunningSubscribers.splice(idx, 1);
+    };
+  },
+  setKeepRunningWhenHostPaused(enabled: boolean) {
+    sendToJuce({ type: 'setKeepRunningWhenHostPaused', enabled });
+  },
+  /** v0.0.919 — see _hostPausedSubscribers. Calls back at once with the current state. */
+  onHostPaused(cb: HostPausedCallback) {
+    _hostPausedSubscribers.push(cb);
+    cb(_hostPausedCache);
+    return () => {
+      const idx = _hostPausedSubscribers.indexOf(cb);
+      if (idx !== -1) _hostPausedSubscribers.splice(idx, 1);
     };
   },
   onStartupFadeDevices(cb: StartupFadeCallback) {

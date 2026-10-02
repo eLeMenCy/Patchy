@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Patchy VERSION 0.0.918)
+project(Patchy VERSION 0.0.919)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -90,7 +90,7 @@ endif()
 
 # ── Plugin target ─────────────────────────────────────────────────────────────
 juce_add_plugin(Patchy
-    VERSION                  "0.0.918"
+    VERSION                  "0.0.919"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGrp"
@@ -103,6 +103,9 @@ juce_add_plugin(Patchy
     IS_MIDI_EFFECT           FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     VST3_CATEGORIES          "Instrument" "Fx"
+    # The AU of this target is the INSTRUMENT (aumu): instrument tracks in
+    # Logic, fed by the track's MIDI. Its sibling PatchyFX (below) is the
+    # MIDI-controlled EFFECT (aumf) — see there.
     AU_MAIN_TYPE             "kAudioUnitType_MusicDevice"
     COPY_PLUGIN_AFTER_BUILD  TRUE
     # Fix, 2026-09-11: standalone build was silently receiving all-zero
@@ -118,7 +121,8 @@ juce_add_plugin(Patchy
     MICROPHONE_PERMISSION_TEXT    "Patchy needs audio input access to route audio from your chosen input devices."
 )
 
-target_sources(Patchy PRIVATE
+# Shared by Patchy and PatchyFX — see patchy_configure_target() below.
+set(PATCHY_SOURCES
     Source/PatchyProcessor.cpp
     Source/PatchyEditor.cpp
     Source/ProcessingGraph.cpp
@@ -135,6 +139,7 @@ target_sources(Patchy PRIVATE
     Source/MidiDeviceNodes.cpp
     Source/AudioDeviceNodes.cpp
     Source/SleepGuard.cpp
+    Source/PatchyLog.cpp
     Source/UdpDeviceNodes.cpp
     Source/OscDeviceNodes.cpp
     Source/OscMonitorNode.cpp
@@ -153,12 +158,6 @@ target_sources(Patchy PRIVATE
     Source/MidiKeyboardNode.cpp
 )
 
-if(NOT NODEGRAPH_DEV_MODE)
-    target_link_libraries(Patchy PRIVATE PatchyUI)
-    target_compile_definitions(Patchy PRIVATE HAS_BUNDLED_UI=1)
-else()
-    target_compile_definitions(Patchy PRIVATE HAS_BUNDLED_UI=0)
-endif()
 
 # ── libmosquitto (MQTT client library) ───────────────────────────────────────
 # Homebrew's mosquitto formula is keg-only on macOS (not symlinked into the
@@ -184,43 +183,93 @@ endif()
 message(STATUS "libmosquitto include: ${MOSQUITTO_INCLUDE_DIR}")
 message(STATUS "libmosquitto library: ${MOSQUITTO_LIBRARY}")
 
-target_link_libraries(Patchy
-    PRIVATE
-        juce::juce_audio_utils
-        juce::juce_audio_devices
-        juce::juce_audio_formats
-        juce::juce_gui_extra
-        juce::juce_dsp
-        ${MOSQUITTO_LIBRARY}
-    PUBLIC
-        juce::juce_recommended_config_flags
-        juce::juce_recommended_warning_flags
-)
-target_include_directories(Patchy PRIVATE ${MOSQUITTO_INCLUDE_DIR})
+# ── Shared target setup — v0.0.919 (2026-10-02) ──────────────────────────────
+# Patchy and PatchyFX are the same program built twice: identical sources,
+# UI bundle, libraries and defines. Everything per-target goes through here
+# so the two can never drift apart.
+function(patchy_configure_target tgt)
+    target_sources(${tgt} PRIVATE ${PATCHY_SOURCES})
 
-# v0.0.915 (2026-09-27) — SleepGuard.cpp uses IOPMAssertionCreateWithName.
-# JUCE links IOKit on macOS already; explicit here so it never depends on that.
-if (APPLE)
-    target_link_libraries(Patchy PRIVATE "-framework IOKit")
-endif()
+    if(NOT NODEGRAPH_DEV_MODE)
+        target_link_libraries(${tgt} PRIVATE PatchyUI)
+        target_compile_definitions(${tgt} PRIVATE HAS_BUNDLED_UI=1)
+    else()
+        target_compile_definitions(${tgt} PRIVATE HAS_BUNDLED_UI=0)
+    endif()
 
-target_compile_definitions(Patchy PRIVATE
-        JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1
-    JUCE_WEB_BROWSER=1
-    JUCE_USE_CURL=0
-    JUCE_VST3_CAN_REPLACE_VST2=0
-    JUCE_USE_WIN_WEBVIEW2=1
-    # For AudioPlayerNode's own file loading (2026-09-04) — WAV/AIFF are
-    # already always available via juce::AudioFormatManager::
-    # registerBasicFormats(), no flag needed for either. JUCE_USE_MP3AUDIOFORMAT
-    # specifically carries its own official, explicit legal disclaimer
-    # (patent/licensing risk is the enabling party's own responsibility,
-    # not JUCE's/Raw Material Software's) — flagged to the user directly
-    # before enabling this, not silently turned on.
-    JUCE_USE_FLAC=1
-    JUCE_USE_OGGVORBIS=1
-    JUCE_USE_MP3AUDIOFORMAT=1
+    target_link_libraries(${tgt}
+        PRIVATE
+            juce::juce_audio_utils
+            juce::juce_audio_devices
+            juce::juce_audio_formats
+            juce::juce_gui_extra
+            juce::juce_dsp
+            ${MOSQUITTO_LIBRARY}
+        PUBLIC
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags
+    )
+    target_include_directories(${tgt} PRIVATE ${MOSQUITTO_INCLUDE_DIR})
+
+    # v0.0.915 (2026-09-27) — SleepGuard.cpp uses IOPMAssertionCreateWithName.
+    # JUCE links IOKit on macOS already; explicit here so it never depends on that.
+    if (APPLE)
+        target_link_libraries(${tgt} PRIVATE "-framework IOKit")
+    endif()
+
+    target_compile_definitions(${tgt} PRIVATE
+            JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1
+        JUCE_WEB_BROWSER=1
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0
+        JUCE_USE_WIN_WEBVIEW2=1
+        # For AudioPlayerNode's own file loading (2026-09-04) — WAV/AIFF are
+        # already always available via juce::AudioFormatManager::
+        # registerBasicFormats(), no flag needed for either. JUCE_USE_MP3AUDIOFORMAT
+        # specifically carries its own official, explicit legal disclaimer
+        # (patent/licensing risk is the enabling party's own responsibility,
+        # not JUCE's/Raw Material Software's) — flagged to the user directly
+        # before enabling this, not silently turned on.
+        JUCE_USE_FLAC=1
+        JUCE_USE_OGGVORBIS=1
+        JUCE_USE_MP3AUDIOFORMAT=1
+    )
+endfunction()
+
+patchy_configure_target(Patchy)
+
+# ── PatchyFX — AU only, MIDI-controlled EFFECT (aumf) — v0.0.919 ────────────
+# Why (Logic Pro tests, 2026-10-01): as an INSTRUMENT, Patchy sits on an
+# instrument track, which has no audio input in Logic; declared as a
+# MIDI-controlled effect it goes on audio/aux tracks, receives the track's
+# audio (tested ✅) and MIDI via the plugin window's side-chain selector.
+# Same program and state format as Patchy; its own subtype code, name and
+# bundle id so hosts see two distinct plugins. VST3 needs no twin — one
+# VST3 already works as instrument and effect (Bitwig).
+juce_add_plugin(PatchyFX
+    VERSION                  "0.0.919"
+    COMPANY_NAME             "eLeMenCy"
+    PLUGIN_MANUFACTURER_CODE "ELMc"
+    PLUGIN_CODE              "NGfx"
+    FORMATS                  AU
+    PRODUCT_NAME             "Patchy FX"
+    BUNDLE_ID                "com.elemency.patchy.fx"
+    IS_SYNTH                 FALSE
+    NEEDS_MIDI_INPUT         TRUE
+    NEEDS_MIDI_OUTPUT        TRUE
+    IS_MIDI_EFFECT           FALSE
+    EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+    AU_MAIN_TYPE             "kAudioUnitType_MusicEffect"
+    COPY_PLUGIN_AFTER_BUILD  TRUE
 )
+patchy_configure_target(PatchyFX)
+
+# ── One target to build everything — v0.0.919 (2026-10-02) ───────────────────
+# Patchy_All (VST3 + AU instrument + Standalone) and PatchyFX_All (AU effect)
+# in one go: pick "Patchy_Everything" in CLion's target list. The UI is still
+# rebuilt separately (ui_rebuild), as before — npm on every build would be slow.
+add_custom_target(Patchy_Everything)
+add_dependencies(Patchy_Everything Patchy_All PatchyFX_All)
 
 # ── Example Pax (built separately) (optional, built separately)
 add_subdirectory(Pax EXCLUDE_FROM_ALL)

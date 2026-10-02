@@ -1,4 +1,5 @@
-import { DragEvent, useEffect, useState, useContext } from 'react';
+import { DragEvent, useEffect, useState, useContext, useRef } from 'react';
+import { Pin, PinOff } from 'lucide-react';
 import { DawContext } from './DawContext';
 import { HintPanel, NODE_HINTS, HintContext } from './HintPanel';
 import { Bridge, PaxInfo } from './Bridge';
@@ -255,28 +256,94 @@ function Section({ label, accent, children, defaultOpen = true }: {
   );
 }
 
+// ── Sidebar modes — v0.0.921 (2026-10-02) ───────────────────────────────────
+// Pinned (default, as before): always open, takes its own column.
+// Auto: hidden; slides out FLOATING over the canvas (nodes never move) when
+// the cursor reaches the window's left edge, slides back AUTO_HIDE_MS after
+// the cursor leaves it (also after a drag from it ends). Pin button in the
+// header; per-install, like the other UI preferences (localStorage).
+const PIN_KEY      = 'patchy.sidebarPinned';
+const AUTO_HIDE_MS = 3000;
+const EDGE_PX      = 20;  // hot zone at the left edge that reveals it (was 8: too narrow, user)
+
+function loadPinned (): boolean {
+  try { return localStorage.getItem(PIN_KEY) !== 'false'; } catch { return true; }
+}
+
 export default function Sidebar() {
   const { isStandalone } = useContext(DawContext);
+  const { setHint } = useContext(HintContext);
   const [paxItems, setPaxItems] = useState<PaxInfo[]>([]);
   useEffect(() => { Bridge.onPaxList(list => setPaxItems(list)); }, []);
   const hasPax = paxItems.length > 0;
 
+  const [pinned, setPinned] = useState<boolean>(loadPinned);
+  const [open,   setOpen]   = useState(false);   // Auto mode only
+  const hideTimer = useRef<number | null>(null);
+  const cancelHide   = () => { if (hideTimer.current !== null) { clearTimeout(hideTimer.current); hideTimer.current = null; } };
+  const scheduleHide = () => { cancelHide(); hideTimer.current = window.setTimeout(() => { hideTimer.current = null; setOpen(false); }, AUTO_HIDE_MS); };
+  const togglePinned = () => {
+    const next = !pinned;
+    setPinned(next);
+    try { localStorage.setItem(PIN_KEY, String(next)); } catch {}
+    cancelHide();
+    setOpen(!next);   // just unpinned with the cursor on it: stay out until it leaves
+  };
+  // A drag from the sidebar swallows mouseleave: start the countdown when it ends.
+  useEffect(() => {
+    if (pinned) return;
+    const onDragEnd = () => scheduleHide();
+    window.addEventListener('dragend', onDragEnd);
+    return () => window.removeEventListener('dragend', onDragEnd);
+  }, [pinned]);
+  useEffect(() => () => cancelHide(), []);
+
+  const floating = !pinned;
   return (
-    <aside style={{
+    <>
+    {floating && !open && (
+      <div
+        onMouseEnter={() => { cancelHide(); setOpen(true); }}
+        style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: EDGE_PX, zIndex: 39 }}
+      />
+    )}
+    <aside
+      onMouseEnter={floating ? () => { cancelHide(); setOpen(true); } : undefined}
+      onMouseLeave={floating ? scheduleHide : undefined}
+      style={{
       width: 210, background: 'var(--surface2)', borderRight: '1px solid var(--border)',
       display: 'flex', flexDirection: 'column', flexShrink: 0, overflow: 'hidden',
+      ...(floating ? {
+        position: 'absolute', left: 0, top: 0, bottom: 0, zIndex: 40,
+        transform: open ? 'translateX(0)' : 'translateX(-100%)',
+        transition: 'transform 0.25s ease, box-shadow 0.25s ease',
+        boxShadow: open ? '4px 0 18px rgba(0,0,0,0.45)' : 'none',
+      } : {}),
     }}>
-      {/* Scrollable node list */}
-      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
-
-      {/* Header */}
-      <div style={{ padding: '16px 14px 12px', borderBottom: '1px solid var(--border)' }}>
+      {/* Header — fixed (v0.0.921), with the pin button */}
+      <div style={{ padding: '16px 14px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0, position: 'relative' }}>
         <div style={{
           fontFamily: "'Syne', sans-serif", fontWeight: 800,
           fontSize: 15, color: 'var(--text)', letterSpacing: '0.06em',
         }}>PATCHY</div>
         <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>Drag nodes onto canvas</div>
+        <button
+          onClick={togglePinned}
+          onMouseEnter={() => setHint({ title: pinned ? 'Sidebar pinned' : 'Sidebar auto-hide',
+            body: pinned ? 'Click to auto-hide: the sidebar then slides out when the cursor reaches the left edge, and back a few seconds after it leaves.'
+                         : 'Click to pin the sidebar open.' })}
+          onMouseLeave={() => setHint(null)}
+          style={{
+            position: 'absolute', top: 12, right: 10, width: 22, height: 22,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'transparent', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+            color: pinned ? 'var(--text-dim)' : 'var(--accent)', cursor: 'pointer',
+          }}
+        >{pinned ? <Pin size={12} /> : <PinOff size={12} />}</button>
       </div>
+
+      {/* Scrollable node list — the only part that scrolls (v0.0.921) */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column' }}>
 
       {/* Built-in label */}
       <div style={{ padding: '8px 12px 0' }}>
@@ -363,8 +430,9 @@ export default function Sidebar() {
       </div>
 
       </div>
-      {/* Fixed hint panel — never scrolls */}
+      {/* Fixed hint panel — fixed height, scrolls internally (v0.0.921) */}
       <HintPanel />
     </aside>
+    </>
   );
 }

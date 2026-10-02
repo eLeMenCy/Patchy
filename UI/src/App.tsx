@@ -1668,7 +1668,7 @@ export default function App() {
   return (
     <DawContext.Provider value={{ isStandalone, dawLoopbackEnabled, setDawLoopback, dawHostEnabled, setDawHost }}>
       <HintProvider>
-        <div style={{ display: 'flex', width: '100%', height: '100%' }}>
+        <div style={{ display: 'flex', width: '100%', height: '100%', position: 'relative' }}>   {/* relative: v0.0.921 floating sidebar */}
           <ReactFlowProvider>
       <Sidebar />
             <FlowCanvas />

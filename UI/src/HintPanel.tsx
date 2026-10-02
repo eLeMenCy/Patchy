@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 
 // ── Hint context ──────────────────────────────────────────────────────────────
 interface HintState { title: string; body: string; }
@@ -37,13 +37,53 @@ export const EDGE_HINTS: Record<string, { title: string; body: string }> = {
 };
 
 // ── HintPanel — renders at bottom of sidebar ─────────────────────────────────
+// v0.0.921 (2026-10-02) — fixed-height panel; a hint longer than the panel
+// scrolls BY ITSELF (user's choice): a manual scrollbar is useless, since
+// moving the cursor to the panel changes the hint, and growing the panel over
+// the node list got in the way of grabbing nodes. Waits HINT_START_MS, scrolls
+// at HINT_PX_PER_S (~1 line/s), pauses HINT_END_MS at the end, back to the
+// top, loops. Restarts from the top for every new hint; short hints never move.
+const HINT_START_MS = 1500;
+const HINT_END_MS   = 2000;
+const HINT_PX_PER_S = 15;
+
 export function HintPanel () {
   const { hint } = useContext(HintContext);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box) return;
+    box.scrollTop = 0;
+    // Position kept here, not read back from scrollTop: ~0.25 px per frame,
+    // and WebKit may round scrollTop to whole pixels — it would never advance.
+    let raf = 0, timer = 0, last = 0, pos = 0;
+    const max = () => box.scrollHeight - box.clientHeight;
+    const start = () => {
+      if (max() <= 1) return;   // fits: nothing to do
+      timer = window.setTimeout(() => { last = performance.now(); raf = requestAnimationFrame(step); }, HINT_START_MS);
+    };
+    const step = (now: number) => {
+      pos = Math.min(max(), pos + (now - last) * HINT_PX_PER_S / 1000);
+      last = now;
+      box.scrollTop = Math.round(pos);
+      if (pos >= max())
+        timer = window.setTimeout(() => { pos = 0; box.scrollTop = 0; start(); }, HINT_END_MS);
+      else
+        raf = requestAnimationFrame(step);
+    };
+    start();
+    return () => { cancelAnimationFrame(raf); clearTimeout(timer); };
+  }, [hint]);
+
   return (
-    <div style={{
+    <div ref={boxRef} style={{
       borderTop:   '1px solid var(--border)',
       padding:     '10px 12px',
-      minHeight:   80,
+      height:      110,
+      flexShrink:  0,
+      overflowY:   'hidden',
+      boxSizing:   'border-box',
       transition:  'opacity 0.15s',
       opacity:     1,
     }}>

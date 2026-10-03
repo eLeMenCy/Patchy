@@ -278,7 +278,10 @@ export default function Sidebar() {
   const hasPax = paxItems.length > 0;
 
   const [pinned, setPinned] = useState<boolean>(loadPinned);
-  const [open,   setOpen]   = useState(false);   // Auto mode only
+  // Auto mode: starts OUT (v0.0.922) — a hidden sidebar at launch left only
+  // the empty dark canvas, which looked like Patchy was broken (user). It
+  // then slides away on the usual countdown unless the cursor moves onto it.
+  const [open,   setOpen]   = useState(true);   // Auto mode only
   const hideTimer = useRef<number | null>(null);
   const cancelHide   = () => { if (hideTimer.current !== null) { clearTimeout(hideTimer.current); hideTimer.current = null; } };
   const scheduleHide = () => { cancelHide(); hideTimer.current = window.setTimeout(() => { hideTimer.current = null; setOpen(false); }, AUTO_HIDE_MS); };
@@ -296,7 +299,10 @@ export default function Sidebar() {
     window.addEventListener('dragend', onDragEnd);
     return () => window.removeEventListener('dragend', onDragEnd);
   }, [pinned]);
-  useEffect(() => () => cancelHide(), []);
+  useEffect(() => {
+    if (!loadPinned()) scheduleHide();   // launch "peek" in Auto mode, see `open` above
+    return () => cancelHide();
+  }, []);
 
   const floating = !pinned;
   return (

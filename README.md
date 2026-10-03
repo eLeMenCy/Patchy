@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.921
+> Version 0.0.922
 
 ---
 
@@ -470,7 +470,7 @@ Undo/Redo is accessible via `⌘Z` / `⌘⇧Z`, or via **☰ → Edit → Undo /
 - JUCE 8 (fetched automatically via CMake FetchContent)
 - Node.js 18+ and npm (for UI build)
 - C++20 compiler
-- `libmosquitto` (MQTT support — macOS: `brew install mosquitto`; the build fails with a clear error if not found)
+- `libmosquitto` (MQTT support) — fetched and built from source by CMake as a static library (client only, no TLS) and linked into Patchy; nothing to install. The macOS build is universal (arm64 + x86_64) by default; `-DPATCHY_UNIVERSAL=OFF` builds for the host architecture only (faster debug builds).
 
 ### Host (VST3 / AU / Standalone)
 
@@ -696,4 +696,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.921 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.922 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

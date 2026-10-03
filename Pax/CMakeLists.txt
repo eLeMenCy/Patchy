@@ -54,6 +54,25 @@ else()
     set(PAX_INSTALL_DIR "$ENV{HOME}/.patchy/pax")
 endif()
 
-install(TARGETS LevelPax TransposePax ChannelFilterPax AmpPax EnvelopePax StereoSplitterPax SpectrumyserPax MqttToValuePax OscToValuePax ValueToDMXPax AudioToDmxPax MidiToDmxPax UdpValueToMidiCCPax AudioPeakToOscPax
+set(PAX_TARGETS LevelPax TransposePax ChannelFilterPax AmpPax EnvelopePax StereoSplitterPax SpectrumyserPax MqttToValuePax OscToValuePax ValueToDMXPax AudioToDmxPax MidiToDmxPax UdpValueToMidiCCPax AudioPeakToOscPax)
+
+install(TARGETS ${PAX_TARGETS}
         LIBRARY DESTINATION "${PAX_INSTALL_DIR}"
         RUNTIME DESTINATION "${PAX_INSTALL_DIR}")
+
+# ── Pax_Install — v0.0.922 (2026-10-03) ──────────────────────────────────────
+# Builds every Pax and copies them to the Pax folder Patchy scans, in one go
+# (part of the main project's Patchy_Everything). Needed since the universal
+# build: Patchy running as Intel code (Logic under Rosetta) can only load
+# Intel dylibs, so the installed Pax must be rebuilt with the same
+# architectures as Patchy — this keeps them in step automatically.
+set(_pax_files "")
+foreach(_t IN LISTS PAX_TARGETS)
+    list(APPEND _pax_files "$<TARGET_FILE:${_t}>")
+endforeach()
+add_custom_target(Pax_Install
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${PAX_INSTALL_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_pax_files} "${PAX_INSTALL_DIR}"
+    COMMENT "Installing Pax to ${PAX_INSTALL_DIR}"
+    VERBATIM)
+add_dependencies(Pax_Install ${PAX_TARGETS})

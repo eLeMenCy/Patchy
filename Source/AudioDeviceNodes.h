@@ -844,6 +844,10 @@ public:
     void pruneDeletedNodeManagers (ProcessingGraph& graph);
 
 private:
+    // v0.0.922 — handed to nodes set to "DAW" (their openDevice() returns
+    // before using it). NEVER initialised, so it never opens a device.
+    juce::AudioDeviceManager dawPlaceholderManager;
+
     juce::AudioDeviceManager& getOrCreateManager (
         std::unordered_map<juce::String, std::unique_ptr<juce::AudioDeviceManager>>& managers,
         const juce::String& nodeId, int numInputChannels, int numOutputChannels)

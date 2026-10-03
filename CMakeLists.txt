@@ -1,5 +1,18 @@
 cmake_minimum_required(VERSION 3.22)
-project(Patchy VERSION 0.0.921)
+
+# ── Universal build (macOS) — v0.0.922 (2026-10-03) ─────────────────────────
+# Apple Silicon + Intel in one binary, so Patchy also loads in hosts running
+# under Rosetta (Logic "Open using Rosetta" only loads Intel plug-ins — the
+# user needs that mode for Native Instruments). Must be set before project().
+# Covers JUCE, Patchy, Patchy FX, the Pax and libmosquitto (built from source
+# below). Turn off for faster local debug builds (roughly halves compile time):
+#   -DPATCHY_UNIVERSAL=OFF
+option(PATCHY_UNIVERSAL "macOS: build arm64 + x86_64 (universal)" ON)
+if (CMAKE_HOST_APPLE AND PATCHY_UNIVERSAL)
+    set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
+endif()
+
+project(Patchy VERSION 0.0.922)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -90,7 +103,7 @@ endif()
 
 # ── Plugin target ─────────────────────────────────────────────────────────────
 juce_add_plugin(Patchy
-    VERSION                  "0.0.921"
+    VERSION                  "0.0.922"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGrp"
@@ -159,29 +172,40 @@ set(PATCHY_SOURCES
 )
 
 
-# ── libmosquitto (MQTT client library) ───────────────────────────────────────
-# Homebrew's mosquitto formula is keg-only on macOS (not symlinked into the
-# standard /opt/homebrew/lib path), so search its keg path explicitly. Covers
-# both Apple Silicon (/opt/homebrew) and Intel (/usr/local) Homebrew prefixes.
-find_path(MOSQUITTO_INCLUDE_DIR
-    NAMES mosquitto.h
-    PATHS /opt/homebrew/opt/mosquitto/include
-          /usr/local/opt/mosquitto/include
-          /opt/homebrew/include
-          /usr/local/include
+# ── libmosquitto (MQTT client library) — v0.0.922 (2026-10-03) ──────────────
+# Built from source as a STATIC library and linked into Patchy, instead of the
+# Homebrew dylib (/opt/homebrew/opt/mosquitto/lib): Homebrew's is arm64-only
+# (no universal build possible) and a dynamic Homebrew dependency means
+# Patchy can't load on a Mac without Homebrew mosquitto. Client library only:
+# no broker, no command-line tools, no TLS (Patchy uses plain MQTT —
+# connect/subscribe/publish/username+password — so no OpenSSL needed).
+set(WITH_TLS               OFF CACHE BOOL "" FORCE)
+set(WITH_TLS_PSK           OFF CACHE BOOL "" FORCE)
+set(WITH_EC                OFF CACHE BOOL "" FORCE)
+set(WITH_SRV               OFF CACHE BOOL "" FORCE)
+set(WITH_CJSON             OFF CACHE BOOL "" FORCE)
+set(WITH_BROKER            OFF CACHE BOOL "" FORCE)
+set(WITH_APPS              OFF CACHE BOOL "" FORCE)
+set(WITH_PLUGINS           OFF CACHE BOOL "" FORCE)
+set(WITH_CLIENTS           OFF CACHE BOOL "" FORCE)
+set(WITH_LIB_CPP           OFF CACHE BOOL "" FORCE)
+set(DOCUMENTATION          OFF CACHE BOOL "" FORCE)
+set(WITH_STATIC_LIBRARIES  ON  CACHE BOOL "" FORCE)
+set(WITH_PIC               ON  CACHE BOOL "" FORCE)   # linked into a plug-in (shared module)
+set(WITH_THREADING         ON  CACHE BOOL "" FORCE)   # mosquitto_loop_start()
+# mosquitto's own CMakeLists declares an old minimum CMake version, which
+# CMake 4 refuses unless told the minimum policy version to assume.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+FetchContent_Declare(
+    mosquitto
+    GIT_REPOSITORY https://github.com/eclipse-mosquitto/mosquitto.git
+    GIT_TAG        v2.0.20
+    GIT_SHALLOW    TRUE
 )
-find_library(MOSQUITTO_LIBRARY
-    NAMES mosquitto
-    PATHS /opt/homebrew/opt/mosquitto/lib
-          /usr/local/opt/mosquitto/lib
-          /opt/homebrew/lib
-          /usr/local/lib
-)
-if (NOT MOSQUITTO_INCLUDE_DIR OR NOT MOSQUITTO_LIBRARY)
-    message(FATAL_ERROR "libmosquitto not found. Install it with: brew install mosquitto")
-endif()
-message(STATUS "libmosquitto include: ${MOSQUITTO_INCLUDE_DIR}")
-message(STATUS "libmosquitto library: ${MOSQUITTO_LIBRARY}")
+FetchContent_MakeAvailable(mosquitto)
+set(MOSQUITTO_INCLUDE_DIR "${mosquitto_SOURCE_DIR}/include")
+set(MOSQUITTO_LIBRARY     libmosquitto_static)
+message(STATUS "libmosquitto: static, built from source (${MOSQUITTO_INCLUDE_DIR})")
 
 # ── Shared target setup — v0.0.919 (2026-10-02) ──────────────────────────────
 # Patchy and PatchyFX are the same program built twice: identical sources,
@@ -210,6 +234,7 @@ function(patchy_configure_target tgt)
             juce::juce_recommended_warning_flags
     )
     target_include_directories(${tgt} PRIVATE ${MOSQUITTO_INCLUDE_DIR})
+    target_compile_definitions(${tgt} PRIVATE LIBMOSQUITTO_STATIC)   # v0.0.922 — static libmosquitto
 
     # v0.0.915 (2026-09-27) — SleepGuard.cpp uses IOPMAssertionCreateWithName.
     # JUCE links IOKit on macOS already; explicit here so it never depends on that.
@@ -247,7 +272,7 @@ patchy_configure_target(Patchy)
 # bundle id so hosts see two distinct plugins. VST3 needs no twin — one
 # VST3 already works as instrument and effect (Bitwig).
 juce_add_plugin(PatchyFX
-    VERSION                  "0.0.921"
+    VERSION                  "0.0.922"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGfx"
@@ -265,7 +290,8 @@ juce_add_plugin(PatchyFX
 patchy_configure_target(PatchyFX)
 
 # ── One target to build everything — v0.0.919 (2026-10-02) ───────────────────
-# Patchy_All (VST3 + AU instrument + Standalone) and PatchyFX_All (AU effect)
+# Patchy_All (VST3 + AU instrument + Standalone), PatchyFX_All (AU effect)
+# and, v0.0.922, Pax_Install (every Pax, copied to ~/Library/Patchy/Pax)
 # in one go: pick "Patchy_Everything" in CLion's target list. The UI is still
 # rebuilt separately (ui_rebuild), as before — npm on every build would be slow.
 add_custom_target(Patchy_Everything)
@@ -273,6 +299,9 @@ add_dependencies(Patchy_Everything Patchy_All PatchyFX_All)
 
 # ── Example Pax (built separately) (optional, built separately)
 add_subdirectory(Pax EXCLUDE_FROM_ALL)
+# v0.0.922 — Patchy_Everything also builds and installs the Pax (universal,
+# like Patchy — see Pax_Install in Pax/CMakeLists.txt).
+add_dependencies(Patchy_Everything Pax_Install)
 
 # ── Convenience targets ───────────────────────────────────────────────────────
 if(NPM_EXE)

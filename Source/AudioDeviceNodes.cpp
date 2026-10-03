@@ -28,7 +28,13 @@ bool AudioDeviceManager::applyToGraph (const juce::String& nodeId,
         if (deviceName.isEmpty())
             n->closeDevice();           // always close, even if transferred
         else if (! n->wasTransferred())
-            n->openDevice (deviceName, getOrCreateOutputManager (nodeId), targetSampleRate, targetBlockSize);
+            // Fix, v0.0.922 — "DAW" never touches hardware: give it the
+            // never-initialised placeholder instead of creating a per-node
+            // manager, whose initialiseWithDefaultDevices() OPENED the default
+            // devices for nothing (in the host's process under Rosetta: Logic's
+            // own output — see getAvailableDevicesVar()).
+            n->openDevice (deviceName, deviceName == "DAW" ? dawPlaceholderManager : getOrCreateOutputManager (nodeId),
+                           targetSampleRate, targetBlockSize);
         else
             n->syncDeviceConfig (targetSampleRate, targetBlockSize);
         return true;
@@ -38,7 +44,8 @@ bool AudioDeviceManager::applyToGraph (const juce::String& nodeId,
         if (deviceName.isEmpty())
             n->closeDevice();           // always close, even if transferred
         else if (! n->wasTransferred())
-            n->openDevice (deviceName, getOrCreateInputManager (nodeId), targetSampleRate, targetBlockSize);
+            n->openDevice (deviceName, deviceName == "DAW" ? dawPlaceholderManager : getOrCreateInputManager (nodeId),
+                           targetSampleRate, targetBlockSize);   // see the Out branch above
         else
             n->syncDeviceConfig (targetSampleRate, targetBlockSize);
         return true;
@@ -100,8 +107,18 @@ juce::var AudioDeviceManager::getAvailableDevicesVar (bool isStandalone)
         inArr.add  (makeDaw ("DAW"));
     }
 
+    // Fix, v0.0.922 (2026-10-03) — this used to call
+    // tempManager.initialiseWithDefaultDevices (2, 2), which OPENS and starts
+    // the default input + output devices just to read a list. In a plug-in
+    // hosted in the host's own process (Logic under Rosetta loads Intel
+    // plug-ins in-process) that opened Logic's own output device with JUCE's
+    // default buffer settings — "Sample Rate 10 986 recognized / check
+    // conflict with external device", Logic's engine running 4× too slow
+    // (callbacks every ~93 ms instead of ~23 ms). Listing needs no open
+    // device: getAvailableDeviceTypes() creates and scans the types itself,
+    // and createDevice() below only builds device objects to read channel
+    // names, without opening them.
     juce::AudioDeviceManager tempManager;
-    tempManager.initialiseWithDefaultDevices (2, 2);
 
     // Known DAW virtual device patterns — confusing and potentially dangerous
     auto isDawVirtualDevice = [](const juce::String& name) -> bool {

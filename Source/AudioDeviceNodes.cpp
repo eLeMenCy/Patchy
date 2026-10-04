@@ -466,6 +466,7 @@ void AudioInDeviceNode::armStartupFade (const juce::String& deviceName)
     // Moved here unchanged from openDevice() (v0.0.915) so a reconfigure
     // restart can arm it too — see syncDeviceConfig().
     const int muteMs = StartupFadeRegistry::getMuteMs (deviceName);
+    fadeListed.store (muteMs >= 0, std::memory_order_relaxed);   // v0.0.923 — dropout fade
     if (muteMs >= 0)
     {
         fadeInMuteMs.store (muteMs, std::memory_order_relaxed);
@@ -477,6 +478,14 @@ void AudioInDeviceNode::armStartupFade (const juce::String& deviceName)
         // listed device on this node that never got to start.
         fadeInArmed.store (false, std::memory_order_relaxed);
     }
+}
+
+void AudioInDeviceNode::refreshStartupFadeListing()
+{
+    const int muteMs = registeredDeviceName.isEmpty() ? -1 : StartupFadeRegistry::getMuteMs (registeredDeviceName);
+    fadeListed.store (muteMs >= 0, std::memory_order_relaxed);
+    if (muteMs >= 0)
+        fadeInMuteMs.store (muteMs, std::memory_order_relaxed);
 }
 
 void AudioInDeviceNode::syncDeviceConfig (double targetSampleRate, int targetBlockSize)
@@ -521,6 +530,26 @@ void AudioInDeviceNode::process (int numSamples)
     // See fadeInArmed's own comment in AudioDeviceNodes.h.
     if (gotAudio && fadeInArmed.exchange (false, std::memory_order_relaxed))
         fadeInPos = 0;
+
+    // v0.0.923 — dropout fade: audio back after a gap of at least
+    // kDropoutSeconds → the same mute-then-ramp, for listed devices. See
+    // fadeListed's own comment in AudioDeviceNodes.h.
+    if (! gotAudio)
+        starvedSamples += numSamples;
+    else
+    {
+        if (fadeInPos < 0
+            && fadeListed.load (std::memory_order_relaxed)
+            && starvedSamples >= (juce::int64) (currentSampleRate * kDropoutSeconds))
+        {
+            fadeInPos = 0;
+            diagLog ("AudioIn[" + registeredDeviceName + "] dropout of "
+                     + juce::String ((int) (1000.0 * (double) starvedSamples / currentSampleRate))
+                     + " ms - fade re-armed");
+        }
+        starvedSamples = 0;
+    }
+
     if (fadeInPos >= 0)
     {
         const int muteLen = (int) (currentSampleRate * 0.001 * fadeInMuteMs.load (std::memory_order_relaxed));

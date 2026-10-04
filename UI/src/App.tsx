@@ -21,7 +21,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { Bridge, FileState, AudioSettings, GraphState, RawNode, RawConnection, RawPort, PortActivityEntry, PaxParamInfo, PaxInfo, FragmentData, UndoState, AudioPlayerStatus } from './Bridge';
+import { Bridge, RecentFile, FileMissing, FileState, AudioSettings, GraphState, RawNode, RawConnection, RawPort, PortActivityEntry, PaxParamInfo, PaxInfo, FragmentData, UndoState, AudioPlayerStatus } from './Bridge';
 import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
@@ -664,6 +664,17 @@ function MenuRow ({ label, shortcut, enabled = true, onClick, onMouseEnter, trai
   );
 }
 
+// v0.0.923 — buttons of the launch dialogs (FlowCanvas).
+function dialogBtn (primary: boolean): React.CSSProperties {
+  return {
+    padding: '5px 14px', fontSize: 11, cursor: 'pointer',
+    borderRadius: 'var(--radius)',
+    border: `1px solid ${primary ? 'var(--accent)' : 'var(--border)'}`,
+    background: primary ? 'var(--accent)' : 'transparent',
+    color: primary ? 'var(--bg)' : 'var(--text)',
+  };
+}
+
 function MenuDivider() {
   return <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />;
 }
@@ -678,6 +689,15 @@ function FlowCanvas() {
   // (bottom-left of the canvas). See Bridge.onHostPaused.
   const [hostPaused, setHostPaused] = useState(false);
   useEffect(() => Bridge.onHostPaused(setHostPaused), []);
+
+  // v0.0.923 — recent files + the two launch dialogs (see Bridge / AppSettings.h).
+  const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
+  const [recentOpen,  setRecentOpen]  = useState(false);
+  const [fileMissing, setFileMissing] = useState<FileMissing | null>(null);
+  const [askReopen,   setAskReopen]   = useState(false);
+  useEffect(() => Bridge.onRecentFiles(setRecentFiles), []);
+  useEffect(() => Bridge.onFileMissing(setFileMissing), []);
+  useEffect(() => Bridge.onAskReopenLastProject(() => setAskReopen(true)), []);
 
   // v0.0.920 — plugin window resize grip (bottom-right; plugin builds only).
   // Hosts like Logic give AU windows no resize handle, and JUCE's own grip
@@ -1361,6 +1381,54 @@ function FlowCanvas() {
         <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="var(--border)" />
         <Controls style={{ bottom: 16, right: 16, left: 'auto' }} />
 
+        {/* v0.0.923 — launch dialogs: last project missing / first-launch question */}
+        {(fileMissing || askReopen) && (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.55)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <div style={{
+              width: 380, maxWidth: '90%', padding: '18px 20px',
+              background: 'var(--surface2)', border: '1px solid var(--border)',
+              borderRadius: 'var(--radius)', boxShadow: '0 12px 40px rgba(0,0,0,.6)',
+              color: 'var(--text)', fontSize: 12,
+            }}>
+              {fileMissing ? (<>
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>
+                  {fileMissing.context === 'launch' ? 'Last project not found' : 'Project not found'}
+                </div>
+                <div style={{ color: 'var(--text-muted)', marginBottom: 6 }}>
+                  {fileMissing.context === 'launch'
+                    ? 'Patchy couldn\'t find the project it was asked to reopen:'
+                    : 'This recent project couldn\'t be found (it was removed from the list):'}
+                </div>
+                <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, wordBreak: 'break-all', marginBottom: 16 }}>
+                  {fileMissing.path}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                  <button className="nodrag" onClick={() => setFileMissing(null)} style={dialogBtn(false)}>
+                    {fileMissing.context === 'launch' ? 'Start empty' : 'Cancel'}
+                  </button>
+                  <button className="nodrag" onClick={() => { Bridge.locateFile(fileMissing.path); setFileMissing(null); }} style={dialogBtn(true)}>
+                    Locate…
+                  </button>
+                </div>
+              </>) : (<>
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>Reopen your last project at launch?</div>
+                <div style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
+                  Patchy can reopen the project you last worked on each time it starts.
+                  You can change this later in Preferences.
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                  <button className="nodrag" onClick={() => { Bridge.setReopenLastProject(false); setAskReopen(false); }} style={dialogBtn(false)}>No</button>
+                  <button className="nodrag" onClick={() => { Bridge.setReopenLastProject(true);  setAskReopen(false); }} style={dialogBtn(true)}>Yes</button>
+                </div>
+              </>)}
+            </div>
+          </div>
+        )}
+
         {/* v0.0.920 — plugin window resize grip (see onGripDown). */}
         {!isStandalone && (
           <div
@@ -1463,6 +1531,38 @@ function FlowCanvas() {
                     }}>
                     <MenuRow label="New"      shortcut="⌘N"  onClick={() => { Bridge.fileNew();    setShowFileMenu(false); }} />
                     <MenuRow label="Open…"    shortcut="⌘O"  onClick={() => { Bridge.fileOpen();   setShowFileMenu(false); }} />
+                    {/* v0.0.923 — Open Recent (opens further left, like the File submenu) */}
+                    <div style={{ position: 'relative' }}
+                         onMouseEnter={() => setRecentOpen(true)}
+                         onMouseLeave={() => setRecentOpen(false)}>
+                      <MenuRow
+                        label="Open Recent"
+                        enabled={recentFiles.length > 0}
+                        trailing={<ChevronLeft size={12} style={{ color: 'var(--text-muted)' }} />}
+                      />
+                      {recentOpen && recentFiles.length > 0 && (
+                        <div
+                          onMouseDown={e => e.stopPropagation()}
+                          style={{
+                            position: 'absolute', top: -4, right: '100%',
+                            background: 'var(--surface2)', border: '1px solid var(--border)',
+                            borderRadius: 'var(--radius)', padding: '4px 0',
+                            boxShadow: '0 8px 32px rgba(0,0,0,.6)',
+                            minWidth: 220, maxWidth: 360, zIndex: 101,
+                          }}>
+                          {recentFiles.map(f => (
+                            <MenuRow
+                              key={f.path}
+                              label={f.name}
+                              trailing={<span style={{ color: 'var(--text-muted)', fontSize: 10 }}>{f.folder}</span>}
+                              onClick={() => { Bridge.openRecentFile(f.path); setShowFileMenu(false); }}
+                            />
+                          ))}
+                          <MenuDivider />
+                          <MenuRow label="Clear Recent" onClick={() => { Bridge.clearRecentFiles(); setShowFileMenu(false); }} />
+                        </div>
+                      )}
+                    </div>
                     <MenuRow label={fileState.hasFile ? 'Save' : 'Save…'} shortcut="⌘S" onClick={() => { Bridge.fileSave(); setShowFileMenu(false); }} />
                     <MenuRow label="Save As…" shortcut="⌘⇧S" onClick={() => { Bridge.fileSaveAs(); setShowFileMenu(false); }} />
                     <MenuDivider />

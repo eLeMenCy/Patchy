@@ -1,4 +1,5 @@
 #include "WebBridge.h"
+#include "AppSettings.h"
 #include "StartupFadeRegistry.h"
 #include "MidiDeviceNodes.h"
 #include "AudioDeviceNodes.h"
@@ -39,6 +40,32 @@ void WebBridge::handleMessage (const juce::String& json)
         handleSetNodeLabel (obj);
     else if (type == "setNodeCustomName")
         handleSetNodeCustomName (obj);
+    // ── v0.0.923 — recent files / reopen last project (AppSettings.h) ──
+    else if (type == "openRecentFile" || type == "locateFile")
+    {
+        const juce::File f (obj->getProperty ("path").toString());
+        if (type == "locateFile")
+            showOpenDialog (f.getParentDirectory());   // browse from where it used to be
+        else if (! openFile (f))
+        {
+            AppSettings::removeRecentFile (f.getFullPathName());
+            pushRecentFiles();
+            auto* o = new juce::DynamicObject();
+            o->setProperty ("path", f.getFullPathName());
+            o->setProperty ("context", "recent");
+            pushToUI ("onFileMissing", juce::JSON::toString (juce::var (o), true));
+        }
+    }
+    else if (type == "clearRecentFiles")
+    {
+        AppSettings::clearRecentFiles();
+        pushRecentFiles();
+    }
+    else if (type == "setReopenLastProject")
+    {
+        AppSettings::setReopenLastProject ((bool) obj->getProperty ("enabled"));
+        pushAppSettings();
+    }
     else if (type == "resizeEditor")   // v0.0.920 — the UI's resize grip (plugin builds)
     {
         if (resizeEditor) resizeEditor ((int) obj->getProperty ("w"), (int) obj->getProperty ("h"));
@@ -106,6 +133,9 @@ void WebBridge::handleReady ()
     pushStartupFadeDevices();
     if (getKeepRunning)   // v0.0.919
         pushToUI ("onKeepRunningWhenHostPaused", getKeepRunning() ? "true" : "false");
+    pushRecentFiles();     // v0.0.923
+    pushAppSettings();
+    handleLaunchActions();
     pushSerialPorts();
     pushGraphToUI();
     pushUndoState();

@@ -379,8 +379,13 @@ private:
     // ── File operations ───────────────────────────────────────────────────────
     void saveToFile     (const juce::File& file);
     void showSaveDialog ();
-    void showOpenDialog ();
+    void showOpenDialog (const juce::File& startDirOverride = {});
     juce::String buildFileStateJson ();
+    // v0.0.923 — recent files / reopen last project (see AppSettings.h)
+    bool openFile (const juce::File& file);   // load + make current + recent list; false if unreadable
+    void pushRecentFiles();
+    void pushAppSettings();
+    void handleLaunchActions();               // Standalone, once per process: ask / reopen / report missing
     void handleAudioPlayerLoadFile (const juce::DynamicObject* obj);
     void handleAudioPlayerRequestFileInfo (const juce::DynamicObject* obj);
 

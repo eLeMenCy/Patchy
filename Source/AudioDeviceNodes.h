@@ -444,6 +444,7 @@ public:
         // new node, or a rebuild landing in that window would skip it.
         dst.fadeInMuteMs.store (fadeInMuteMs.load (std::memory_order_relaxed), std::memory_order_relaxed);
         dst.fadeInArmed.store (fadeInArmed.load (std::memory_order_relaxed), std::memory_order_relaxed);
+        dst.fadeListed.store  (fadeListed.load  (std::memory_order_relaxed), std::memory_order_relaxed);   // v0.0.923
         // Shared-fifo fix, 2026-09-24 — same as AudioOutDeviceNode's own
         // transferCallbackTo(); see its comment.
         dst.audioFifo = audioFifo;
@@ -711,9 +712,31 @@ private:
     std::atomic<int>          fadeInMuteMs { 0 };
     std::atomic<bool>         fadeInArmed { false };
     int                       fadeInPos   = -1;
+
+    // v0.0.923 (2026-10-04) — dropout fade. The FCA1616 was seen (user log,
+    // 2026-10-04) stopping its stream for ~250–280 ms every few minutes
+    // (~20–24 consecutive STARVED blocks, nothing reopened by Patchy) and
+    // producing its usual stream-start pop (jump 0.807) ~1 s after the audio
+    // came back. For a device on the startup-fade list, a gap of at least
+    // kDropoutSeconds without audio re-runs the same mute-then-ramp when the
+    // audio returns, so that pop is silenced too. fadeListed: is this
+    // device on the list (set by armStartupFade(), refreshed from the
+    // message thread by refreshStartupFadeListing() so the panel's tick box
+    // applies at once). starvedSamples: audio thread only.
+    static constexpr double   kDropoutSeconds = 0.100;
+    std::atomic<bool>         fadeListed { false };
+    juce::int64               starvedSamples = 0;
     // Arms (listed device) or clears (unlisted) the fade for deviceName.
     // Message thread. Used by openDevice() and, v0.0.915, syncDeviceConfig().
     void armStartupFade (const juce::String& deviceName);
+
+public:
+    /** v0.0.923 — message thread (WebBridge activity timer): re-reads whether
+     *  this device is on the startup-fade list (and its mute length), for
+     *  the dropout fade. See fadeListed. */
+    void refreshStartupFadeListing();
+
+private:
 
     // selectedChannels is written from the message thread and read from the
     // device callback thread — protect with a SpinLock.

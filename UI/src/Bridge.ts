@@ -317,6 +317,22 @@ let   _hostPausedCache = false;
 const _keepRunningSubscribers: HostPausedCallback[] = [];
 let   _keepRunningCache = false;
 
+// v0.0.923 — recent files / reopen last project (backend: AppSettings.h).
+export interface RecentFile { path: string; name: string; folder: string; }
+export interface FileMissing { path: string; context: 'launch' | 'recent'; }
+type RecentFilesCallback = (files: RecentFile[]) => void;
+type AppSettingsCallback = (s: { reopenLastProject: number }) => void;   // -1 never asked, 0 no, 1 yes
+type FileMissingCallback = (m: FileMissing) => void;
+type AskReopenCallback   = () => void;
+const _recentSubscribers:      RecentFilesCallback[] = [];
+let   _recentCache:            RecentFile[] = [];
+const _appSettingsSubscribers: AppSettingsCallback[] = [];
+let   _appSettingsCache:       { reopenLastProject: number } = { reopenLastProject: -1 };
+const _fileMissingSubscribers: FileMissingCallback[] = [];
+let   _fileMissingPending:     FileMissing | null = null;   // events, kept until someone listens
+const _askReopenSubscribers:   AskReopenCallback[] = [];
+let   _askReopenPending = false;
+
 // ── Serial ports ──────────────────────────────────────────────────────────────
 type SerialPortsCallback = (ports: string[]) => void;
 const _serialPortSubscribers: SerialPortsCallback[] = [];
@@ -465,6 +481,24 @@ function _dispatchClaimed() {
     } catch (e) {
       console.error('Bridge midiDevices parse error', e);
     }
+  },
+  onRecentFiles: (json: string) => {
+    try { _recentCache = JSON.parse(json) as RecentFile[]; } catch { _recentCache = []; }
+    _recentSubscribers.forEach(cb => cb(_recentCache));
+  },
+  onAppSettings: (json: string) => {
+    try { _appSettingsCache = JSON.parse(json); } catch { /* keep */ }
+    _appSettingsSubscribers.forEach(cb => cb(_appSettingsCache));
+  },
+  onFileMissing: (json: string) => {
+    let m: FileMissing;
+    try { m = JSON.parse(json) as FileMissing; } catch { return; }
+    if (_fileMissingSubscribers.length) _fileMissingSubscribers.forEach(cb => cb(m));
+    else _fileMissingPending = m;
+  },
+  onAskReopenLastProject: (_json: string) => {
+    if (_askReopenSubscribers.length) _askReopenSubscribers.forEach(cb => cb());
+    else _askReopenPending = true;
   },
   onKeepRunningWhenHostPaused: (json: string) => {
     _keepRunningCache = json === 'true';
@@ -813,6 +847,30 @@ export const Bridge = {
   setKeepRunningWhenHostPaused(enabled: boolean) {
     sendToJuce({ type: 'setKeepRunningWhenHostPaused', enabled });
   },
+  /** v0.0.923 — recent files / reopen last project. Subscriptions call back
+   *  at once with the cached value (or a pending event). */
+  onRecentFiles(cb: RecentFilesCallback) {
+    _recentSubscribers.push(cb); cb(_recentCache);
+    return () => { const i = _recentSubscribers.indexOf(cb); if (i !== -1) _recentSubscribers.splice(i, 1); };
+  },
+  onAppSettings(cb: AppSettingsCallback) {
+    _appSettingsSubscribers.push(cb); cb(_appSettingsCache);
+    return () => { const i = _appSettingsSubscribers.indexOf(cb); if (i !== -1) _appSettingsSubscribers.splice(i, 1); };
+  },
+  onFileMissing(cb: FileMissingCallback) {
+    _fileMissingSubscribers.push(cb);
+    if (_fileMissingPending) { const m = _fileMissingPending; _fileMissingPending = null; cb(m); }
+    return () => { const i = _fileMissingSubscribers.indexOf(cb); if (i !== -1) _fileMissingSubscribers.splice(i, 1); };
+  },
+  onAskReopenLastProject(cb: AskReopenCallback) {
+    _askReopenSubscribers.push(cb);
+    if (_askReopenPending) { _askReopenPending = false; cb(); }
+    return () => { const i = _askReopenSubscribers.indexOf(cb); if (i !== -1) _askReopenSubscribers.splice(i, 1); };
+  },
+  openRecentFile(path: string)          { sendToJuce({ type: 'openRecentFile', path }); },
+  locateFile(path: string)              { sendToJuce({ type: 'locateFile', path }); },
+  clearRecentFiles()                    { sendToJuce({ type: 'clearRecentFiles' }); },
+  setReopenLastProject(enabled: boolean) { sendToJuce({ type: 'setReopenLastProject', enabled }); },
   /** v0.0.920 — the plugin window's resize grip (see App.tsx FlowCanvas). */
   resizeEditor(w: number, h: number) {
     sendToJuce({ type: 'resizeEditor', w: Math.round(w), h: Math.round(h) });

@@ -1131,6 +1131,11 @@ public:
             }
 
             // Byte-rate for DMX In nodes (reuses udpBytes field — same UI display)
+            // v0.0.923 — keep the AudioIn dropout fade in step with the
+            // startup-fade list (the panel's tick box only updates the list).
+            if (auto* audioIn = dynamic_cast<AudioInDeviceNode*> (node.get()))
+                audioIn->refreshStartupFadeListing();
+
             if (auto* dmxIn = dynamic_cast<DmxInDeviceNode*> (node.get()))
             {
                 a.udpBytes   = dmxIn->drainByteActivity();

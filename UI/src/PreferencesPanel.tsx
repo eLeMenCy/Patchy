@@ -210,9 +210,24 @@ function GraphTab ({ prefs, onChange }: {
   // v0.0.919 — per-project, stored by the backend in the plugin state.
   const [keepRunning, setKeepRunning] = useState(false);
   useEffect(() => Bridge.onKeepRunningWhenHostPaused(setKeepRunning), []);
+  // v0.0.923 — Standalone "reopen last project" (app-wide, AppSettings.h).
+  const [reopenLast, setReopenLast] = useState(false);
+  useEffect(() => Bridge.onAppSettings(st => setReopenLast(st.reopenLastProject === 1)), []);
 
   return (
     <>
+      {isStandalone && (
+        <>
+          {/* v0.0.923 — Standalone: plug-ins get their project from the host. */}
+          <SectionHeader label="Startup" />
+          <ToggleRow
+            label="Reopen last project at launch"
+            desc="When Patchy starts, reopen the project you last opened or saved. If it has moved, Patchy asks you to locate it."
+            value={reopenLast}
+            onChange={v => Bridge.setReopenLastProject(v)}
+          />
+        </>
+      )}
       {!isStandalone && (
         <>
           <SectionHeader label="DAW Routing" />

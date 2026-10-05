@@ -38,7 +38,8 @@ struct AudioSettings
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-class StandaloneWindow final : public juce::DocumentWindow
+class StandaloneWindow final : public juce::DocumentWindow,
+                               private juce::ChangeListener   // v0.0.924 — device watch, see changeListenerCallback()
 {
 public:
     StandaloneWindow();
@@ -56,6 +57,11 @@ private:
     // Audio settings
     AudioSettings     getAudioSettings() const { return audioSettings; }
     void              applyAudioSettings (const AudioSettings& s);
+
+    // v0.0.924 (2026-10-05) — keep the user's sample rate / buffer size.
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
+    int          settingsRestoreAttempts = 0;    // consecutive; reset once the device matches
+    juce::uint32 lastSettingsRestoreMs   = 0;
     juce::StringArray getAvailableSampleRates() const;
     juce::StringArray getAvailableBufferSizes() const;
 

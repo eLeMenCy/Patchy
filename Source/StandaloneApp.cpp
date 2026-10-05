@@ -63,10 +63,12 @@ StandaloneWindow::StandaloneWindow()
     setVisible (true);
     restoreWindowBounds();
     restoreAudioSettings();
+    deviceManager.addChangeListener (this);   // v0.0.924 — after the restore (see changeListenerCallback)
 }
 
 StandaloneWindow::~StandaloneWindow()
 {
+    deviceManager.removeChangeListener (this);   // v0.0.924
     deviceManager.removeAudioCallback (&player);
     player.setProcessor (nullptr);
     clearContentComponent();
@@ -234,6 +236,47 @@ void StandaloneWindow::closeButtonPressed()
 // and last-open-directory above. Saved immediately on change (not only on
 // clean app close like window bounds) since a crash/force-quit shouldn't
 // lose it.
+// v0.0.924 (2026-10-05) — the Standalone's device kept its user settings only
+// until something made JUCE restart it on its own: user logs (2026-10-04/05,
+// three tests incl. the MacBook speakers as main device) show, every time,
+// the engine starting at 512, switching to the user's 128, then — shortly
+// after the Audio In node opened the FCA1616 — restarting at 512 while
+// Patchy's settings still showed 128; every device followed (v0.0.915) and
+// the FCA popped. JUCE re-opens a device with its own default buffer size
+// when it restarts it itself (e.g. on macOS device notifications). Watch the
+// device manager: if the running device no longer matches the user's
+// settings, re-apply them (async — never from inside the notification), at
+// most once per second and 3 times in a row, so a device that genuinely
+// can't run at the requested setting isn't fought in a loop.
+void StandaloneWindow::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    auto* device = deviceManager.getCurrentAudioDevice();
+    if (device == nullptr) return;
+
+    const int    bs = device->getCurrentBufferSizeSamples();
+    const double sr = device->getCurrentSampleRate();
+    const bool matches = bs == audioSettings.bufferSize
+                      && std::abs (sr - audioSettings.sampleRate) < 1.0;
+    if (matches) { settingsRestoreAttempts = 0; return; }
+
+    const auto now = juce::Time::getMillisecondCounter();
+    if (settingsRestoreAttempts >= 3 || now - lastSettingsRestoreMs < 1000) return;
+    ++settingsRestoreAttempts;
+    lastSettingsRestoreMs = now;
+
+    juce::Logger::writeToLog ("Standalone: audio device now at " + juce::String ((int) sr) + " Hz / "
+                              + juce::String (bs) + " without a settings change - restoring "
+                              + juce::String ((int) audioSettings.sampleRate) + " / "
+                              + juce::String (audioSettings.bufferSize)
+                              + " (attempt " + juce::String (settingsRestoreAttempts) + ")");
+    juce::Component::SafePointer<StandaloneWindow> safe (this);
+    juce::MessageManager::callAsync ([safe]
+    {
+        if (safe != nullptr)
+            safe->applyAudioSettings (safe->audioSettings);
+    });
+}
+
 void StandaloneWindow::saveAudioSettings()
 {
     if (auto* p = appProperties.getUserSettings())

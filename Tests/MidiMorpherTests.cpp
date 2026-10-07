@@ -143,6 +143,33 @@ public:
             expectOne (run (r, juce::MidiMessage::controllerEvent (1, 7, 7), true), juce::MidiMessage::controllerEvent (1, 7, 7), "disabled");
         }
 
+        beginTest ("Live feedback: counts and last morph (v0.0.926)");
+        {
+            MidiMorpherNode node ("fb");
+            node.prepare (48000.0, 64);
+            node.setRule (fromJson (R"({"inCh":3,"inMsg":4,"inD1":[7,7],"outD1":[110,110],"unmatched":"block"})"));
+            node.inputMidi.addEvent (juce::MidiMessage::controllerEvent (3, 7, 64), 0);   // match
+            node.inputMidi.addEvent (juce::MidiMessage::controllerEvent (3, 8, 1),  1);   // blocked
+            node.inputMidi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 9), 2);   // blocked
+            node.process (64);
+            auto f = node.drainFeedback();
+            expectEquals (f.matched, 1);
+            expectEquals (f.passed,  0);
+            expectEquals (f.blocked, 2);
+            expect (f.last == M::packMorph (M::kCC, 3, 7, 64, M::kCC, 3, 110, 64), "last morph packed");
+            expect ((f.last >> 63) == 1, "valid flag");
+            auto again = node.drainFeedback();
+            expectEquals (again.matched + again.passed + again.blocked, 0, "counts reset after drain");
+            expect (again.last == f.last, "last morph kept");
+
+            const auto big = M::packMorph (M::kPitch, 16, 16383, 0, M::kCC, 1, 127, 127);
+            expectEquals ((int) (big & 0x7), (int) M::kPitch);
+            expectEquals ((int) ((big >> 3) & 0xF), 15);
+            expectEquals ((int) ((big >> 7) & 0x3FFF), 16383);
+            expectEquals ((int) ((big >> 28) & 0x7), (int) M::kCC);
+            expectEquals ((int) ((big >> 49) & 0x7F), 127);
+        }
+
         beginTest ("parseRule clamps and defaults");
         {
             const Rule r = fromJson (R"({"inCh":99,"inMsg":-3,"inD1":[-5,99999],"outD1":"junk"})");

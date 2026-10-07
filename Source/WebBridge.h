@@ -121,6 +121,13 @@ struct PortActivity
     // drainOutputChannelActivity() for the full story.
     std::uint16_t     inputChannelActivity  = 0;
     std::uint16_t     outputChannelActivity = 0;
+    // v0.0.926 — MidiMorpherNode only (isMorpher): events matched / passed /
+    // blocked since the last poll, and the last morph (MidiMorpherNode::packMorph).
+    bool              isMorpher     = false;
+    int               morphMatched  = 0;
+    int               morphPassed   = 0;
+    int               morphBlocked  = 0;
+    std::uint64_t     morphLast     = 0;
 };
 
 struct SpectrumSnapshot

@@ -634,9 +634,12 @@ export function NodeCollapseArrow ({ collapsed, accent }: { collapsed: boolean; 
  */
 export function NodeHeader ({
   title, accent, showSettings, onToggleSettings, onDelete, collapsed, onToggleCollapsed,
-  disabled, onToggleDisabled, children, rename,
+  disabled, onToggleDisabled, children, rename, subtitle,
 }: {
   title:              string;
+  // v0.0.926 — optional short muted text after the title (e.g. the MIDI
+  // Morpher's rule summary when folded). Not part of the editable name.
+  subtitle?:          string;
   accent:             string;
   // Optional since 2026-09-25 — a node with nothing left in its settings
   // panel once the Name row moved to the header (MQTT Console) has no cog.
@@ -717,6 +720,13 @@ export function NodeHeader ({
           }}>
             {title}
           </div>
+        )}
+        {subtitle && (
+          <span title={subtitle} style={{ fontSize: 10, color: 'var(--text-dim)', whiteSpace: 'nowrap',
+                                          overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180,
+                                          marginLeft: 4, fontFamily: "'JetBrains Mono', monospace" }}>
+            {subtitle}
+          </span>
         )}
       </div>
 

@@ -141,6 +141,9 @@ public:
             r = rule;
         }
 
+        int nMatched = 0, nPassed = 0, nBlocked = 0;
+        std::uint64_t last = 0;
+
         for (const auto meta : inputMidi)
         {
             const auto msg = meta.getMessage();
@@ -160,8 +163,8 @@ public:
 
             if (! matches (r, type, ch, d1, d2))
             {
-                if (! r.blockUnmatched)
-                    outputMidi.addEvent (msg, meta.samplePosition);
+                if (! r.blockUnmatched) { outputMidi.addEvent (msg, meta.samplePosition); ++nPassed; }
+                else                    ++nBlocked;
                 continue;
             }
 
@@ -184,10 +187,50 @@ public:
             const int o2 = scale (src2Has, src2Val, src2Rng, src2Max, r.outD2, 127);
 
             outputMidi.addEvent (build (outType, outCh, o1, o2), meta.samplePosition);
+            ++nMatched;
+            last = packMorph (type, ch, d1, d2, outType, outCh, o1, hasData2 (outType) ? o2 : 0);
         }
+
+        if (nMatched > 0)
+        {
+            matchedCount.fetch_add (nMatched, std::memory_order_relaxed);
+            lastMorph.store (last, std::memory_order_relaxed);
+        }
+        if (nPassed  > 0) passedCount.fetch_add  (nPassed,  std::memory_order_relaxed);
+        if (nBlocked > 0) blockedCount.fetch_add (nBlocked, std::memory_order_relaxed);
 
         if (! outputMidi.isEmpty())
             recordMidiActivity (outputMidi.getNumEvents());
+    }
+
+    // ── Live feedback (v0.0.926) — drained by the 30 Hz activity poll ────
+    // Counts since the last poll: events that matched (and were morphed),
+    // unmatched events passed through, unmatched events blocked; plus the
+    // most recent morph, packed in one 64-bit word so the audio thread
+    // never takes a lock for it (see packMorph()).
+    struct Feedback { int matched = 0, passed = 0, blocked = 0; std::uint64_t last = 0; };
+    Feedback drainFeedback()
+    {
+        Feedback f;
+        f.matched = matchedCount.exchange (0, std::memory_order_relaxed);
+        f.passed  = passedCount.exchange  (0, std::memory_order_relaxed);
+        f.blocked = blockedCount.exchange (0, std::memory_order_relaxed);
+        f.last    = lastMorph.load (std::memory_order_relaxed);
+        return f;
+    }
+
+    /** One side = type (3 bits) | channel-1 (4) | data1 (14) | data2 (7) = 28 bits.
+        Word = in side (bits 0-27) | out side (bits 28-55) | valid flag (bit 63). */
+    static std::uint64_t packMorph (int t, int ch, int d1, int d2, int ot, int och, int o1, int o2)
+    {
+        const auto side = [] (int ty, int c, int a, int b) -> std::uint64_t
+        {
+            return  (std::uint64_t) (ty & 0x7)
+                 | ((std::uint64_t) ((c - 1) & 0xF)   << 3)
+                 | ((std::uint64_t) (a & 0x3FFF)      << 7)
+                 | ((std::uint64_t) (b & 0x7F)        << 21);
+        };
+        return side (t, ch, d1, d2) | (side (ot, och, o1, o2) << 28) | (std::uint64_t (1) << 63);
     }
 
     // ── Pure helpers (public so they can be unit-tested) ─────────────────
@@ -284,6 +327,9 @@ public:
 private:
     juce::SpinLock ruleLock;
     Rule           rule;   // guarded by ruleLock — copied once per block in process()
+
+    std::atomic<int>           matchedCount { 0 }, passedCount { 0 }, blockedCount { 0 };
+    std::atomic<std::uint64_t> lastMorph    { 0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MidiMorpherNode)
 };

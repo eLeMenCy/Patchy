@@ -1001,6 +1001,15 @@ public:
                 a.inputChannelActivity  = matrix->drainInputChannelActivity();
                 a.outputChannelActivity = matrix->drainOutputChannelActivity();
             }
+            else if (auto* morpher = dynamic_cast<MidiMorpherNode*> (node.get()))   // v0.0.926
+            {
+                const auto f   = morpher->drainFeedback();
+                a.isMorpher    = true;
+                a.morphMatched = f.matched;
+                a.morphPassed  = f.passed;
+                a.morphBlocked = f.blocked;
+                a.morphLast    = f.last;
+            }
 
             // Current DMX channel level, for gradual intensity rendering —
             // works for any node whose lightweight Value mirror is DMX-typed
@@ -1298,7 +1307,11 @@ public:
             if (a.midiOutEvents > 0 || a.audioRmsL > 0.f || a.audioRmsR > 0.f
                 || ! a.incomingNotes.empty() || ! a.paxReadOnlyValues.empty()
                 || ! a.genericValuePortValues.empty() || portInUseChanged
-                || bytesChanged)
+                || bytesChanged
+                // v0.0.926 fix — a Morpher in Block mode outputs nothing for
+                // blocked events, so midiOutEvents alone dropped its entry and
+                // the red "blocked" ring never reached the UI.
+                || (a.isMorpher && (a.morphMatched > 0 || a.morphPassed > 0 || a.morphBlocked > 0)))
                 result.push_back (a);
         }
 

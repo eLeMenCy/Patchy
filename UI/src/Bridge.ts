@@ -62,6 +62,10 @@ export interface PortActivityEntry {
   genericValuePortValues: number[];  // current value of each declared generic ("Value" edge) output port, in the same order this node's own Value-classified ports appear in its own `ports` array — Phase 5's live readout-on-hover feature, empty for every node except a Pax with at least one generic Value output
   inChMask:  number;  // MidiChMatrixNode only — bitmask, one bit per input channel (1-16) that had any activity since the last poll, 0 for every other node
   outChMask: number;  // MidiChMatrixNode only — bitmask, one bit per output channel that genuinely emitted a message since the last poll, 0 for every other node
+  // v0.0.926 — MidiMorpherNode only: events matched / passed / blocked since
+  // the last poll, and the last morph packed as a decimal string (see
+  // MidiMorpherNode::packMorph — decode with BigInt).
+  morph?: { m: number; p: number; b: number; last: string };
 }
 type PortActivityCallback = (entries: PortActivityEntry[]) => void;
 const _portActivitySubscribers: PortActivityCallback[] = [];

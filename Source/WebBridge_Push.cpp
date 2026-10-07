@@ -618,6 +618,10 @@ void WebBridge::pushSettingsToUI (const juce::String& nodeId, const juce::String
     obj->setProperty ("settingsJson", settingsJson);
     pushToUI ("onNodeSettings", juce::JSON::toString (juce::var (obj.release()), false));
 
+    // v0.0.925 — live apply for nodes whose settings drive processing (MIDI Morpher)
+    if (onNodeSettingsChanged)
+        onNodeSettingsChanged (nodeId, settingsJson);
+
     // If this settingsJson contains dmxChannels, restore C++ fader state (undo/redo)
     if (onRestoreDmxConsoleChannels && settingsJson.contains ("dmxChannels"))
         onRestoreDmxConsoleChannels (nodeId, settingsJson);

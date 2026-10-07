@@ -10,6 +10,7 @@
 #include "MidiMonitorNode.h"
 #include "DmxConsoleNode.h"
 #include "MidiChMatrixNode.h"
+#include "MidiMorpherNode.h"
 #include "ArtNetConsoleNode.h"
 #include "AudioMonitorNode.h"
 #include "AudioPlayerNode.h"
@@ -672,6 +673,30 @@ public:
             node->restoreState (n, cells, drop);
         }
         catch (...) {}
+    }
+
+    /** v0.0.925 — MIDI Morpher: settingsJson → the running node's rule.
+     *  Live path (graph == nullptr): applied to the current graph AND to a
+     *  pending one if a rebuild is in flight, so neither misses the change.
+     *  Rebuild path: applied to the freshly built graph. Not a Morpher → no-op. */
+    void applyMidiMorpherSettings (const juce::String& nodeId, const juce::String& settingsJson,
+                                   ProcessingGraph* graph = nullptr)
+    {
+        juce::var parsed;
+        try { parsed = juce::JSON::parse (settingsJson); } catch (...) {}
+        const auto rule = MidiMorpherNode::parseRule (parsed);
+
+        if (graph != nullptr)
+        {
+            if (auto* node = graph->findMidiMorpherNode (nodeId))
+                node->setRule (rule);
+            return;
+        }
+        if (auto* node = processingGraph.findMidiMorpherNode (nodeId))
+            node->setRule (rule);
+        if (pendingGraph != nullptr)
+            if (auto* node = pendingGraph->findMidiMorpherNode (nodeId))
+                node->setRule (rule);
     }
 
     void saveMidiOutDeviceChannelFilter (const juce::String& nodeId)

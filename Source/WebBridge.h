@@ -223,6 +223,11 @@ public:
     // rebuild" reasoning as the above; mask is a bitmask (bit N-1 set for
     // channel N), 0 = omni.
     std::function<void(const juce::String&, std::uint16_t)>                                        onSetMidiOutDeviceChannelFilter;
+    // v0.0.925 — every settingsJson the UI commits (setNodeSettings /
+    // commitSettingsChange / undo-free pushes) also goes to the running
+    // nodes that apply their settings live (MidiMorpherNode). Called from
+    // pushSettingsToUI(); nodes it doesn't concern simply ignore it.
+    std::function<void(const juce::String&, const juce::String&)>                                  onNodeSettingsChanged;
     // AudioPlayerNode's own controls — playback (play/pause/stop/seek/
     // return-to-start) is real-time/discrete, handled separately from the
     // small, discrete settings (mode/frequency/noise type/level/loop),

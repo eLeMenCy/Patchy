@@ -216,6 +216,12 @@ std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
         // playback, sine, or noise), same shape as AudioInDeviceNode.
         mk ("Audio Out", PortType::Audio, PortDirection::Output);
     }
+    else if (t == 28)
+    {
+        // MidiMorpherNode (v0.0.925): MIDI In + MIDI Out, one rule per node
+        mk ("MIDI In",  PortType::Midi, PortDirection::Input);
+        mk ("MIDI Out", PortType::Midi, PortDirection::Output);
+    }
     else if (t >= 100)
     {
         // Dynamic Pax node — ports based on Pax nodeType (t - 100)
@@ -323,6 +329,7 @@ static juce::String labelForType (int t, const juce::String& paxName)
         case 25: return "MQTT Console";
         case 26: return "Audio Player";
         case 27: return "Matrix";
+        case 28: return "MIDI Morpher";
         default: return "Pax Node";
     }
 }

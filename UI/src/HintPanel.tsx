@@ -129,6 +129,7 @@ export const NODE_HINTS: Record<string, { title: string; body: string }> = {
   // Built-in nodes
   'MIDI IN DEVICE':   { title: 'MIDI In Device',   body: 'Receives MIDI from an external device or virtual port. Select your controller or DAW output from the dropdown.' },
   'MIDI OUT DEVICE':  { title: 'MIDI Out Device',  body: 'Sends MIDI to an external device or virtual port. Select your synth, DAW input or other destination.' },
+  'MIDI MORPHER':     { title: 'MIDI Morpher',     body: 'Turns MIDI events matching one rule (channel, message, Data1/Data2 ranges) into another: change channel or message type, rescale or invert values, swap Data1/Data2. Events outside the rule pass through or are blocked (funnel button). Cog or double-click the table to edit.' },
   'AUDIO IN DEVICE':  { title: 'Audio In Device',  body: 'Captures audio from a hardware input or system source. Select your interface or microphone.' },
   'AUDIO OUT DEVICE': { title: 'Audio Out Device', body: 'Sends audio to a hardware output or system destination. Select your speakers or interface.' },
   'MIDI MONITOR':     { title: 'MIDI Monitor',     body: 'Displays incoming MIDI events in real time. Filter by channel or event type. Double-click header to fold.' },

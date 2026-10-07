@@ -27,6 +27,7 @@ import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNod
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
 import AudioPlayerNode,    { AudioPlayerNodeData }    from './AudioPlayerNode';
 import MidiChMatrixNode,   { MidiChMatrixNodeData }   from './MidiChMatrixNode';
+import MidiMorpherNode,    { MidiMorpherNodeData }    from './MidiMorpherNode';
 import MidiKeyboardNode,  { MidiKeyboardNodeData }  from './MidiKeyboardNode';
 import { DmxMonitorNode, DmxMonitorNodeData } from './DmxMonitorNode';
 import { DmxConsoleNode } from './DmxConsoleNode';
@@ -48,7 +49,7 @@ import AudioPeakToOscNode from './AudioPeakToOscNode';
 import { _paxInfoMap } from './NodeUtils';
 
 // ── Node type registry ────────────────────────────────────────────────────────
-const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, audioPlayer: AudioPlayerNode, midiChMatrix: MidiChMatrixNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, channelFilterPax: ChannelFilterPaxNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode };
+const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, audioPlayer: AudioPlayerNode, midiChMatrix: MidiChMatrixNode, midiMorpher: MidiMorpherNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, channelFilterPax: ChannelFilterPaxNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 // _paxInfoMap lives in NodeUtils.tsx (not declared here) — GenericNode.tsx
@@ -57,7 +58,7 @@ const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMoni
 // create a circular import. NodeUtils.tsx is a lower-level shared utility
 // file both already depend on safely.
 
-function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<NodeData | MidiMonitorNodeData | DmxMonitorNodeData | OscMonitorNodeData | UdpMonitorNodeData | MqttMonitorNodeData | MqttConsoleNodeData | MidiChMatrixNodeData> {
+function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<NodeData | MidiMonitorNodeData | DmxMonitorNodeData | OscMonitorNodeData | UdpMonitorNodeData | MqttMonitorNodeData | MqttConsoleNodeData | MidiChMatrixNodeData | MidiMorpherNodeData> {
   const isMidiMonitor    = raw.nodeType === 5;
   const isAudioMonitor   = raw.nodeType === 6;
   const isMidiKeyboard   = raw.nodeType === 7;
@@ -71,6 +72,7 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
   const isMqttConsole    = raw.nodeType === 25;
   const isAudioPlayer    = raw.nodeType === 26;
   const isMidiChMatrix   = raw.nodeType === 27;
+  const isMidiMorpher    = raw.nodeType === 28;
   return {
     id:       raw.id,
     type:     isMidiMonitor    ? 'midiMonitor'
@@ -86,6 +88,7 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
             : isMqttConsole    ? 'mqttConsole'
             : isAudioPlayer    ? 'audioPlayer'
             : isMidiChMatrix   ? 'midiChMatrix'
+            : isMidiMorpher    ? 'midiMorpher'
             : raw.paxName === 'Spectrumyser' ? 'spectrumyser'
             : raw.paxName === 'Channel Filter' ? 'channelFilterPax'
             : raw.paxName === 'Envelope'     ? 'envelope'
@@ -118,6 +121,8 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
       ? { label: raw.label, nodeType: 26, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as AudioPlayerNodeData
       : isMidiChMatrix
       ? { label: raw.label, nodeType: 27, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson, customName: raw.customName } as MidiChMatrixNodeData
+      : isMidiMorpher
+      ? { label: raw.label, nodeType: 28, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson, customName: raw.customName } as MidiMorpherNodeData
       : { label: raw.label, nodeType: raw.nodeType,
           ports: raw.ports, selectedDeviceId: raw.selectedDeviceId,
           paxName: raw.paxName,

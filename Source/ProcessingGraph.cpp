@@ -13,6 +13,7 @@
 #include "UdpMonitorNode.h"
 #include "MqttDeviceNodes.h"
 #include "MidiChMatrixNode.h"
+#include "MidiMorpherNode.h"
 #include <unordered_set>
 #include <algorithm>
 
@@ -103,6 +104,7 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                 case 25: proc = std::make_unique<MqttConsoleNode>     (id); break;
                 case 26: proc = std::make_unique<AudioPlayerNode>     (id, getAudioPlayerState ? getAudioPlayerState(id) : nullptr); break;
                 case 27: proc = std::make_unique<MidiChMatrixNode>    (id); break;
+                case 28: proc = std::make_unique<MidiMorpherNode>     (id); break;   // v0.0.925
                 default:
                     juce::Logger::writeToLog ("ProcessingGraph: unknown built-in type " + juce::String (type));
                     break;
@@ -852,6 +854,13 @@ MidiChMatrixNode* ProcessingGraph::findMidiChMatrixNode (const juce::String& nod
     auto it = nodeMap.find (nodeId);
     if (it == nodeMap.end()) return nullptr;
     return dynamic_cast<MidiChMatrixNode*> (it->second);
+}
+
+MidiMorpherNode* ProcessingGraph::findMidiMorpherNode (const juce::String& nodeId)
+{
+    auto it = nodeMap.find (nodeId);
+    if (it == nodeMap.end()) return nullptr;
+    return dynamic_cast<MidiMorpherNode*> (it->second);
 }
 
 MidiOutDeviceNode* ProcessingGraph::findMidiOutDeviceNode (const juce::String& nodeId)

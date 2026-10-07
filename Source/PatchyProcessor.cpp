@@ -696,6 +696,13 @@ void PatchyProcessor::rebuildProcessingGraph()
             if (n.settingsJson.isNotEmpty())
                 channelRestores.push_back ({ n.id, n.settingsJson, 27 });
         }
+        else if (n.nodeType == 28)
+        {
+            // v0.0.925 — MIDI Morpher's rule lives entirely in settingsJson;
+            // a fresh node starts at the default rule (copy everything).
+            if (n.settingsJson.isNotEmpty())
+                channelRestores.push_back ({ n.id, n.settingsJson, 28 });
+        }
         else if (n.nodeType == 18)
         {
             // Fix, v0.0.916 (2026-09-28) — ArtNet Monitor's universe filter
@@ -826,6 +833,8 @@ void PatchyProcessor::rebuildProcessingGraph()
             restoreAudioPlayerSettings (r.nodeId, r.settingsJson, newGraph.get());
         else if (r.nodeType == 27)
             restoreMidiChMatrixState (r.nodeId, r.settingsJson, newGraph.get());
+        else if (r.nodeType == 28)
+            applyMidiMorpherSettings (r.nodeId, r.settingsJson, newGraph.get());
         else if (r.nodeType == 18)
         {
             // Fix, v0.0.916 — see the nodeType 18 branch above. Same keys and

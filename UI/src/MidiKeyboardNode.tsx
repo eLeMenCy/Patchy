@@ -26,6 +26,7 @@ export interface MidiKeyboardSettings {
   channel:    number;   // 1-16, 0=omni
   velocity:   'mouse' | '64' | '100' | '127';
   showNames:  boolean;
+  noteOctave: 'yamaha' | 'roland';   // v0.0.928 — middle C (60) = C3 / C4, as in the MIDI Monitor
   customName: string;
   modWheel:   number;
 }
@@ -40,10 +41,11 @@ export interface MidiKeyboardNodeData {
 
 const DEFAULT_SETTINGS: MidiKeyboardSettings = {
   octaves:   1,
-  startNote: 48,   // C3
+  startNote: 48,   // C2 Yamaha / C3 Roland
   channel:   1,
   velocity:   'mouse',
   showNames:  true,
+  noteOctave: 'yamaha',
   customName: '',
   modWheel:   0,
 };
@@ -55,6 +57,9 @@ const BLACK_NOTES = [1, 3, 6, 8, 10];         // semitones from root
 const BLACK_POS   = [1, 2, 4, 5, 6];          // position after which white key
 
 const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+/** v0.0.928 — note name in the chosen convention (Yamaha: 60 = C3, Roland: 60 = C4). */
+const noteLabel = (n: number, conv: 'yamaha' | 'roland') =>
+  `${NOTE_NAMES[n % 12]}${Math.floor (n / 12) + (conv === 'roland' ? -1 : -2)}`;
 
 function isBlack (note: number) { return BLACK_NOTES.includes(note % 12); }
 
@@ -67,8 +72,8 @@ function SettingsPanel ({ s, onChange, onDiscreteChange, onClose, onReset }: {
   onReset: () => void;
 }) {
   const startNoteOptions = [];
-  for (let oct = -1; oct <= 9; oct++)
-    startNoteOptions.push({ id: String((oct + 1) * 12), name: `C${oct}` });
+  for (let n = 0; n <= 108; n += 12)
+    startNoteOptions.push({ id: String(n), name: noteLabel(n, s.noteOctave ?? 'yamaha') });
 
   const row = (label: string, child: React.ReactNode) => (
     <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
@@ -116,6 +121,11 @@ function SettingsPanel ({ s, onChange, onDiscreteChange, onClose, onReset }: {
           onChange={v => onDiscreteChange({ velocity: v as MidiKeyboardSettings['velocity'] })}
           options={[{id:'mouse',name:'Mouse pos'},{id:'64',name:'Fixed 64'},
                     {id:'100',name:'Fixed 100'},{id:'127',name:'Fixed 127'}]} />
+      ))}
+      {row('Note C3/C4', (
+        <NodeSelect value={s.noteOctave ?? 'yamaha'} showEmpty={false} accent="var(--midi)"
+          onChange={v => onDiscreteChange({ noteOctave: v === 'roland' ? 'roland' : 'yamaha' })}
+          options={[{id:'yamaha',name:'Yamaha (C3)'},{id:'roland',name:'Roland (C4)'}]} />
       ))}
       {row('Note names', (
         <Checkbox checked={s.showNames}
@@ -231,7 +241,7 @@ function Keyboard ({ nodeId, settings, activeNotes, onNoteOn, onNoteOff }: {
                 textAnchor="middle" fontSize={7}
                 fill={active ? '#0d1117' : '#666'}
                 style={{ pointerEvents: 'none', fontFamily: "'JetBrains Mono', monospace" }}>
-                {NOTE_NAMES[k.note % 12]}{Math.floor(k.note / 12) - 1}
+                {noteLabel(k.note, settings.noteOctave ?? 'yamaha')}
               </text>
             )}
           </g>
@@ -500,10 +510,9 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
                     color:'var(--text-muted)' }}>
         <span>Ch {settings.channel === 0 ? 'Omni' : settings.channel}</span>
         <span>·</span>
-        <span>{NOTE_NAMES[settings.startNote % 12]}{Math.floor(settings.startNote/12)-1}
+        <span>{noteLabel(settings.startNote, settings.noteOctave ?? 'yamaha')}
           {' '}→{' '}
-          {NOTE_NAMES[(settings.startNote + settings.octaves * 12 - 1) % 12]}
-          {Math.floor((settings.startNote + settings.octaves * 12 - 1) / 12) - 1}
+          {noteLabel(settings.startNote + settings.octaves * 12 - 1, settings.noteOctave ?? 'yamaha')}
         </span>
         <span>·</span>
         <span>{settings.octaves} oct</span>

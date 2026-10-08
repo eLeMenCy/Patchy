@@ -273,7 +273,7 @@ function loadPinned (): boolean {
 
 export default function Sidebar() {
   const { isStandalone } = useContext(DawContext);
-  const { setHint } = useContext(HintContext);
+  const { hint, setHint } = useContext(HintContext);
   const [paxItems, setPaxItems] = useState<PaxInfo[]>([]);
   useEffect(() => { Bridge.onPaxList(list => setPaxItems(list)); }, []);
   const hasPax = paxItems.length > 0;
@@ -293,6 +293,46 @@ export default function Sidebar() {
     cancelHide();
     setOpen(!next);   // just unpinned with the cursor on it: stay out until it leaves
   };
+  // v0.0.928 — two ways the auto-hide sidebar used to stay out:
+  //  • it only hid on mouseleave; opened by the edge zone on the cursor's way
+  //    OUT of the window (or the window losing focus), no mouseleave ever came
+  //    (WebKit doesn't send one once the cursor is in another app). Now the
+  //    countdown also starts when the edge opens it, when the cursor leaves
+  //    the page, when the window loses focus and when it gets it back while
+  //    the cursor isn't on the sidebar; entering the sidebar cancels it.
+  //  • a click anywhere outside it (graph, nodes, header) now hides it at once.
+  const asideRef = useRef<HTMLElement | null>(null);
+  const hovered  = useRef(false);
+  useEffect(() => {
+    if (pinned) return;
+    const away = () => { if (! hovered.current) scheduleHide(); };
+    const onLeavePage = () => { hovered.current = false; scheduleHide(); };
+    const onPointerDown = (e: PointerEvent) => {
+      if (asideRef.current && asideRef.current.contains(e.target as Node)) return;
+      cancelHide(); hovered.current = false; setOpen(false);
+    };
+    window.addEventListener('blur', onLeavePage);
+    window.addEventListener('focus', away);
+    document.documentElement.addEventListener('mouseleave', onLeavePage);
+    window.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      window.removeEventListener('blur', onLeavePage);
+      window.removeEventListener('focus', away);
+      document.documentElement.removeEventListener('mouseleave', onLeavePage);
+      window.removeEventListener('pointerdown', onPointerDown, true);
+    };
+  }, [pinned]);
+
+  // v0.0.928 (user) — the hint panel lives at the bottom of this sidebar: while
+  // any hint is showing (node header, button, port…), don't slide away before
+  // it can be read. The countdown restarts when the hint goes away. A click
+  // in the graph still hides it at once (handler above).
+  useEffect(() => {
+    if (pinned || ! open) return;
+    if (hint) cancelHide();
+    else if (! hovered.current) scheduleHide();
+  }, [hint, pinned, open]);
+
   // A drag from the sidebar swallows mouseleave: start the countdown when it ends.
   useEffect(() => {
     if (pinned) return;
@@ -310,13 +350,14 @@ export default function Sidebar() {
     <>
     {floating && !open && (
       <div
-        onMouseEnter={() => { cancelHide(); setOpen(true); }}
+        onMouseEnter={() => { setOpen(true); scheduleHide(); }}   // hides unless the cursor moves onto it
         style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: EDGE_PX, zIndex: 39 }}
       />
     )}
     <aside
-      onMouseEnter={floating ? () => { cancelHide(); setOpen(true); } : undefined}
-      onMouseLeave={floating ? scheduleHide : undefined}
+      ref={asideRef}
+      onMouseEnter={floating ? () => { hovered.current = true; cancelHide(); setOpen(true); } : undefined}
+      onMouseLeave={floating ? () => { hovered.current = false; scheduleHide(); } : undefined}
       style={{
       width: 210, background: 'var(--surface2)', borderRight: '1px solid var(--border)',
       display: 'flex', flexDirection: 'column', flexShrink: 0, overflow: 'hidden',

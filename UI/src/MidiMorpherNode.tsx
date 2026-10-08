@@ -255,7 +255,7 @@ function BasicPanel ({ rule, onLive, onRelease, onCommit, onClose, onReset }: {
   // Too complex for Basic: show it, offer the way out.
   if (! b) {
     return (
-      <div className="nodrag nowheel" onDoubleClick={e => e.stopPropagation()} style={panelStyle}>
+      <div className="nodrag" onDoubleClick={e => e.stopPropagation()} style={panelStyle}>
         {head}
         <div style={{ fontSize: 10, color: 'var(--text)', marginBottom: 6 }}>{ruleSummary (rule)}</div>
         <div style={{ fontSize: 9, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 8 }}>
@@ -304,7 +304,7 @@ function BasicPanel ({ rule, onLive, onRelease, onCommit, onClose, onReset }: {
   );
 
   return (
-    <div className="nodrag nowheel" onDoubleClick={e => e.stopPropagation()} style={panelStyle}>
+    <div className="nodrag" onDoubleClick={e => e.stopPropagation()} style={panelStyle}>
       {head}
 
       {section ('When')}
@@ -414,7 +414,7 @@ function MorpherPanel ({ rule, onLive, onRelease, onCommit, onClose, onReset }: 
   };
 
   return (
-    <div className="nodrag nowheel"
+    <div className="nodrag"
       onDoubleClick={e => e.stopPropagation()}
       style={{
         position: 'absolute', top: 0, left: '100%', marginLeft: 6, width: 290,

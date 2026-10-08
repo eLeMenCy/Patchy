@@ -74,7 +74,7 @@ export interface MidiMonitorNodeData {
 // ── MIDI helpers ──────────────────────────────────────────────────────────────
 function noteName(midiNote: number, octaveConvention: 'yamaha' | 'roland'): string {
   const names = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-  const offset = octaveConvention === 'yamaha' ? -1 : 0;
+  const offset = octaveConvention === 'yamaha' ? -2 : -1;   // v0.0.927 fix: 60 = C3 (Yamaha) / C4 (Roland) — was one octave high
   return names[midiNote % 12] + (Math.floor(midiNote / 12) + offset);
 }
 

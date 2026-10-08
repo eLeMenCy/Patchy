@@ -1,10 +1,14 @@
-// Patchy — MIDI MORPHER node UI (v0.0.925, 2026-10-06)
+// Patchy — MIDI MORPHER node UI (v0.0.925 → v0.0.927)
 //
 // One rule per node (see Source/MidiMorpherNode.h for the engine and the
-// exact semantics). This is the "Advanced" face: the node body is a
-// MidiDash-style IN/OUT summary table, the cog opens the full rule editor.
-// The Basic face (sentence view, friendly names, Learn) comes later and
-// edits the same settingsJson.
+// exact semantics), two faces on the same settingsJson:
+//   Advanced — MidiDash-style IN/OUT table in the body, full rule editor.
+//   Basic    — the rule as a sentence in the body ("CC 7 on ch 3 → CC 110"),
+//              a friendly When / Send / Value editor (MorpherBasic.ts does
+//              the Data1/Data2/Pull work). A rule Basic can't express is
+//              shown read-only there, with "Edit in Advanced".
+// The mode is per node (settingsJson "mode", default Basic): switch in the
+// panel or with the B/A badge in the header. Pure logic: MorpherCore.ts.
 //
 // State = settingsJson (keys shared with MidiMorpherNode::parseRule):
 //   inCh / outCh       0 = Any (IN) / Copy (OUT), 1-16
@@ -29,6 +33,15 @@ import {
   useNodeSettings, useNodeDelete, useNodeDisabled, useNodeCollapsed,
   commitModelName, nodeContainerStyle,
 } from './NodeUtils';
+import {
+  Range, MorpherRule, DEFAULT_RULE, MSG_NAMES, hasData2, data1Max, parseRule, normalise,
+  fmtLo, fmtHi, clampTo, rLo, rHi, scaleValue, SlotMap, slotMap, ruleSummary, ruleNotes,
+  MorphSide, decodeMorph, eventText,
+} from './MorpherCore';
+import {
+  BasicRule, BASIC_KINDS, ValueChoice, fromAdvanced, toAdvanced, normaliseBasic, basicSentence,
+  hasNumber, valueChoices, valueMax, outKindOf, numberText, parseNote, kindShort,
+} from './MorpherBasic';
 
 export interface MidiMorpherNodeData {
   label:         string;
@@ -42,73 +55,9 @@ export interface MidiMorpherNodeData {
 
 const ACCENT = 'var(--midi)';
 
-type Range = [number, number];   // [lo, hi], hi -1 = Max
-
-export interface MorpherRule {
-  inCh: number; inMsg: number; inD1: Range; inD2: Range;
-  outCh: number; outMsg: number; outD1: Range; outD2: Range;
-  outD1Pull: boolean; outD2Pull: boolean;
-  unmatched: 'pass' | 'block';
-}
-
-export const DEFAULT_RULE: MorpherRule = {
-  inCh: 0, inMsg: 0, inD1: [0, -1], inD2: [0, -1],
-  outCh: 0, outMsg: 0, outD1: [0, -1], outD2: [0, -1],
-  outD1Pull: false, outD2Pull: false,
-  unmatched: 'pass',
-};
-
-// Short names match MidiDash's menu (node body + Advanced panel).
-export const MSG_NAMES = ['Any', 'NoteOff', 'NoteOn', 'Afttouch', 'CC', 'Program', 'ChannelAT', 'Pitch'];
-const PITCH = 7;
-const hasData2 = (m: number) => m >= 1 && m <= 4;
-const data1Max = (m: number) => (m === PITCH ? 16383 : 127);
-
-function parseRange (v: unknown, fallback: Range): Range {
-  return Array.isArray (v) && v.length === 2 && typeof v[0] === 'number' && typeof v[1] === 'number'
-    ? [v[0], v[1]] : fallback;
-}
-
-export function parseRule (json: string | undefined): MorpherRule {
-  if (! json) return { ...DEFAULT_RULE };
-  try {
-    const p = JSON.parse (json);
-    const num = (k: string, d: number) => (typeof p[k] === 'number' ? p[k] : d);
-    return {
-      inCh:  num ('inCh', 0),  inMsg:  num ('inMsg', 0),
-      inD1:  parseRange (p.inD1, [0, -1]),  inD2:  parseRange (p.inD2, [0, -1]),
-      outCh: num ('outCh', 0), outMsg: num ('outMsg', 0),
-      outD1: parseRange (p.outD1, [0, -1]), outD2: parseRange (p.outD2, [0, -1]),
-      outD1Pull: !! p.outD1Pull, outD2Pull: !! p.outD2Pull,
-      unmatched: p.unmatched === 'block' ? 'block' : 'pass',
-    };
-  } catch { return { ...DEFAULT_RULE }; }
-}
-
-/** Keep explicit values inside a slot's range after a message-type change. */
-function clampRange ([lo, hi]: Range, max: number): Range {
-  const l = Math.min (lo, max);
-  const h = hi < 0 || hi >= max ? -1 : hi;
-  return [l, h];
-}
-
-/** Re-clamp every data range to the current message types. */
-function normalise (r: MorpherRule): MorpherRule {
-  const outType = r.outMsg === 0 ? r.inMsg : r.outMsg;
-  return {
-    ...r,
-    inD1:  clampRange (r.inD1,  data1Max (r.inMsg)),
-    inD2:  clampRange (r.inD2,  127),
-    outD1: clampRange (r.outD1, data1Max (outType)),
-    outD2: clampRange (r.outD2, 127),
-  };
-}
-
-const fmtLo = (v: number) => (v === 0 ? 'Min' : String (v));
-const fmtHi = (v: number) => (v < 0 ? 'Max' : String (v));
 
 // ── Range value: drag up/down to scrub, double-click to type ─────────────────
-function RangeValue ({ value, isHi, max, onChange, onChangeLinked, onRelease, onCommit, dim }: {
+function RangeValue ({ value, isHi, max, onChange, onChangeLinked, onRelease, onCommit, dim, format, parse }: {
   value:     number;          // hi: -1 = Max
   isHi:      boolean;
   max:       number;
@@ -117,6 +66,8 @@ function RangeValue ({ value, isHi, max, onChange, onChangeLinked, onRelease, on
   onRelease: () => void;            // drag ended (closes the drag's undo step)
   onCommit:  (v: number) => void;   // typed value (one undo step)
   dim?:      boolean;
+  format?:   (v: number) => string;   // v0.0.927 — single values in Basic (note names…)
+  parse?:    (t: string) => number;   //            typed text → value (NaN = ignore)
 }) {
   const [editing, setEditing] = useState (false);
   const [draft,   setDraft]   = useState ('');
@@ -130,7 +81,7 @@ function RangeValue ({ value, isHi, max, onChange, onChangeLinked, onRelease, on
   const cbs = useRef ({ onChange, onChangeLinked, onRelease });
   cbs.current = { onChange, onChangeLinked, onRelease };
 
-  const shown  = isHi ? fmtHi (value) : fmtLo (value);
+  const shown  = format ? format (value) : isHi ? fmtHi (value) : fmtLo (value);
   const actual = isHi && value < 0 ? max : value;
   const store  = (v: number) => (isHi && v >= max ? -1 : Math.max (0, Math.min (max, v)));
   const step   = max > 127 ? 128 : 1;   // pitch bend: one MIDI-ish step per 3 px
@@ -139,7 +90,7 @@ function RangeValue ({ value, isHi, max, onChange, onChangeLinked, onRelease, on
     if (done.current) return;
     done.current = true;
     const t = draft.trim().toLowerCase();
-    const n = t === 'max' ? max : t === 'min' ? 0 : parseInt (t, 10);
+    const n = parse ? parse (draft) : t === 'max' ? max : t === 'min' ? 0 : parseInt (t, 10);
     if (! isNaN (n)) onCommit (store (n));
     setEditing (false);
   };
@@ -212,102 +163,13 @@ function RangeValue ({ value, isHi, max, onChange, onChangeLinked, onRelease, on
   ) : (
     <span className="nodrag" title="Drag up/down • ⌥ Option + drag: low and high together • double-click to type (a number, min or max)"
       onMouseDown={onMouseDown}
-      onDoubleClick={e => { e.stopPropagation(); done.current = false; setDraft (String (actual)); setEditing (true); }}
+      onDoubleClick={e => { e.stopPropagation(); done.current = false; setDraft (format ? format (actual) : String (actual)); setEditing (true); }}
       style={{ ...box, cursor: 'ns-resize', userSelect: 'none', display: 'inline-block' }}>
       {shown}
     </span>
   );
 }
 
-// ── Engine mirror (same maths as Source/MidiMorpherNode.h) ──────────────────
-const isFull = (rg: Range) => rg[0] === 0 && rg[1] < 0;
-const rLo = (rg: Range, max: number) => Math.min (rg[0], max);
-const rHi = (rg: Range, max: number) => (rg[1] < 0 ? max : Math.min (rg[1], max));
-const clampTo = (v: number, max: number) => Math.max (0, Math.min (max, v));
-
-function scaleValue (has: boolean, v: number, inRg: Range, inMax: number, outRg: Range, outMax: number): number {
-  if (isFull (outRg)) {
-    if (! has) return 0;
-    return inMax === outMax ? clampTo (v, outMax) : clampTo (Math.round (v * outMax / inMax), outMax);
-  }
-  const inLo = rLo (inRg, inMax), inHi = rHi (inRg, inMax);
-  const outLo = rLo (outRg, outMax), outHi = rHi (outRg, outMax);
-  if (! has || inLo === inHi) return outLo;
-  return clampTo (Math.round (outLo + (v - inLo) / (inHi - inLo) * (outHi - outLo)), outMax);
-}
-
-/** Where an OUT data slot takes its value from (Pull aware). */
-interface SlotMap {
-  srcName: string; srcHas: boolean; srcRange: Range; srcMax: number;
-  outRange: Range; outMax: number; exists: boolean;
-}
-function slotMap (r: MorpherRule, slot: 1 | 2): SlotMap {
-  const outType = r.outMsg === 0 ? r.inMsg : r.outMsg;
-  const fromD2  = slot === 1 ? r.outD1Pull : ! r.outD2Pull;
-  const src = fromD2
-    ? { srcName: 'IN Data2', srcHas: r.inMsg === 0 || hasData2 (r.inMsg), srcRange: r.inD2, srcMax: 127 }
-    : { srcName: 'IN Data1', srcHas: true, srcRange: r.inD1, srcMax: data1Max (r.inMsg) };
-  return slot === 1
-    ? { ...src, outRange: r.outD1, outMax: data1Max (outType), exists: true }
-    : { ...src, outRange: r.outD2, outMax: 127, exists: outType === 0 || hasData2 (outType) };
-}
-
-// ── Rule summary (folded header) — a first taste of Basic's sentence ────────
-export function ruleSummary (r: MorpherRule): string {
-  const val = (rg: Range) => (isFull (rg) ? '' : rg[0] === rg[1] ? ` ${rg[0]}` : ` ${fmtLo (rg[0])}–${fmtHi (rg[1])}`);
-  const inD2 = isFull (r.inD2) || (r.inMsg !== 0 && ! hasData2 (r.inMsg)) ? '' : ` d2${val (r.inD2)}`;
-  const inS  = `${r.inMsg ? MSG_NAMES[r.inMsg] : 'All'}${val (r.inD1)}${inD2}${r.inCh ? ` ch${r.inCh}` : ''}`;
-  const name = r.outMsg ? MSG_NAMES[r.outMsg] : (r.inMsg ? MSG_NAMES[r.inMsg] : '');
-  const d2   = isFull (r.outD2) && ! r.outD2Pull ? '' : ` d2${r.outD2Pull ? '←D1' : ''}${val (r.outD2)}`;
-  const changed = r.outMsg !== 0 || r.outCh !== 0 || r.outD1Pull || r.outD2Pull || ! isFull (r.outD1) || ! isFull (r.outD2);
-  const outS = changed
-    ? `${name}${r.outD1Pull ? ' ←D2' : ''}${val (r.outD1)}${d2}${r.outCh ? ` ch${r.outCh}` : ''}`.trim()
-    : 'same';
-  return `${inS} → ${outS}`;
-}
-
-// ── Warnings: parts of a rule that can't do what they say ──────────────────
-export interface RuleNote { level: 'warn' | 'info'; text: string }
-export function ruleNotes (r: MorpherRule): RuleNote[] {
-  const notes: RuleNote[] = [];
-  const outType = r.outMsg === 0 ? r.inMsg : r.outMsg;
-  const inNo2  = r.inMsg !== 0 && ! hasData2 (r.inMsg);
-  const outNo2 = outType !== 0 && ! hasData2 (outType);
-  const inName = MSG_NAMES[r.inMsg], outName = MSG_NAMES[outType];
-  if (inNo2 && ! isFull (r.inD2))
-    notes.push ({ level: 'warn', text: `IN Data2 range is ignored: ${inName} has no Data2.` });
-  if (outNo2 && (! isFull (r.outD2) || r.outD2Pull))
-    notes.push ({ level: 'warn', text: `OUT Data2 is ignored: ${outName} has no Data2.` });
-  if (inNo2 && r.outD1Pull)
-    notes.push ({ level: 'warn', text: `OUT Data1 pulls Data2, which ${inName} doesn't have: OUT Data1 is always ${rLo (r.outD1, data1Max (outType))}.` });
-  if (inNo2 && ! outNo2 && ! r.outD2Pull)
-    notes.push ({ level: 'warn', text: `${inName} has no Data2: OUT Data2 is always ${rLo (r.outD2, 127)}.` });
-  const changesNothing = r.outCh === 0 && (r.outMsg === 0 || r.outMsg === r.inMsg)
-    && isFull (r.outD1) && isFull (r.outD2) && ! r.outD1Pull && ! r.outD2Pull;
-  if (changesNothing && r.unmatched === 'pass')
-    notes.push ({ level: 'info', text: 'The rule changes nothing yet: every event goes out unchanged.' });
-  else if (changesNothing)
-    notes.push ({ level: 'info', text: 'Filter only: matching events go out unchanged, the rest is blocked.' });
-  return notes;
-}
-
-// ── Live feedback decoding (MidiMorpherNode::packMorph) ─────────────────────
-interface MorphSide { t: number; ch: number; d1: number; d2: number }
-function decodeMorph (packed: string): { in: MorphSide; out: MorphSide } | null {
-  let w: bigint;
-  try { w = BigInt (packed); } catch { return null; }
-  if (((w >> 63n) & 1n) === 0n) return null;
-  const side = (x: bigint): MorphSide => ({
-    t: Number (x & 7n), ch: Number ((x >> 3n) & 15n) + 1, d1: Number ((x >> 7n) & 0x3FFFn), d2: Number ((x >> 21n) & 0x7Fn),
-  });
-  return { in: side (w & 0xFFFFFFFn), out: side ((w >> 28n) & 0xFFFFFFFn) };
-}
-function eventText (e: MorphSide): string {
-  const name = MSG_NAMES[e.t] ?? '?';
-  if (e.t === 1 || e.t === 2) return `ch${e.ch} ${name} ${e.d1} v${e.d2}`;
-  if (e.t === 3 || e.t === 4) return `ch${e.ch} ${name} ${e.d1} = ${e.d2}`;
-  return `ch${e.ch} ${name} ${e.d1}`;
-}
 
 const WARN  = '#fbbf24';
 const FLASH_MS = 120;
@@ -343,6 +205,164 @@ function TransferCurve ({ m, label }: { m: SlotMap; label: string }) {
       </div>
     </div>
   );
+}
+
+// ── Basic | Advanced switch (top of both panels) ────────────────────────────
+function ModeSwitch ({ mode, onPick }: { mode: 'basic' | 'advanced'; onPick: (m: 'basic' | 'advanced') => void }) {
+  const btn = (m: 'basic' | 'advanced', label: string) => (
+    <div onClick={() => mode !== m && onPick (m)}
+      style={{ flex: 1, textAlign: 'center', padding: '3px 0', fontSize: 10, cursor: mode === m ? 'default' : 'pointer',
+               background: mode === m ? 'color-mix(in srgb, var(--midi) 22%, transparent)' : 'transparent',
+               color: mode === m ? ACCENT : 'var(--text-dim)', fontWeight: mode === m ? 700 : 400 }}>{label}</div>
+  );
+  return (
+    <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
+      {btn ('basic', 'Basic')}{btn ('advanced', 'Advanced')}
+    </div>
+  );
+}
+
+const panelStyle: React.CSSProperties = {
+  position: 'absolute', top: 0, left: '100%', marginLeft: 6, width: 300,
+  background: 'var(--surface2)', border: '1px solid var(--border-hi)', borderRadius: 'var(--radius)',
+  padding: '10px 12px', zIndex: 1000, boxShadow: '0 8px 32px rgba(0,0,0,.6)',
+  fontFamily: "'JetBrains Mono', monospace", userSelect: 'none',
+};
+
+const VALUE_LABELS: Record<ValueChoice, string> = {
+  same: 'same', inverted: 'inverted', fixed: 'fixed at', limited: 'limited to',
+};
+
+// ── Basic panel: When / Send / Value in plain words ─────────────────────────
+function BasicPanel ({ rule, onLive, onRelease, onCommit, onClose, onReset }: {
+  rule:      MorpherRule;
+  onLive:    (r: MorpherRule) => void;
+  onRelease: () => void;
+  onCommit:  (r: MorpherRule) => void;
+  onClose:   () => void;
+  onReset:   () => void;
+}) {
+  const b = fromAdvanced (rule);
+  const conv = rule.noteNames;
+
+  const head = (
+    <>
+      <SettingsPanelHeader title="MIDI Morpher" onReset={onReset} onClose={onClose} />
+      <ModeSwitch mode="basic" onPick={m => onCommit ({ ...rule, mode: m })} />
+    </>
+  );
+
+  // Too complex for Basic: show it, offer the way out.
+  if (! b) {
+    return (
+      <div className="nodrag nowheel" onDoubleClick={e => e.stopPropagation()} style={panelStyle}>
+        {head}
+        <div style={{ fontSize: 10, color: 'var(--text)', marginBottom: 6 }}>{ruleSummary (rule)}</div>
+        <div style={{ fontSize: 9, color: 'var(--text-muted)', lineHeight: 1.5, marginBottom: 8 }}>
+          This rule uses Advanced settings (ranges, swaps…) that Basic can't show. It works as it is;
+          edit it in Advanced, or press R to start again from a simple rule.
+        </div>
+        <div onClick={() => onCommit ({ ...rule, mode: 'advanced' })}
+          style={{ textAlign: 'center', padding: '4px 0', fontSize: 10, cursor: 'pointer', borderRadius: 4,
+                   border: `1px solid ${ACCENT}`, color: ACCENT }}>Edit in Advanced</div>
+      </div>
+    );
+  }
+
+  const set  = (patch: Partial<BasicRule>) => onCommit (toAdvanced (normaliseBasic ({ ...b, ...patch }), rule));
+  const live = (patch: Partial<BasicRule>) => onLive   (toAdvanced (normaliseBasic ({ ...b, ...patch }), rule));
+
+  const outType = outKindOf (b);
+  const choices = valueChoices (b);
+  const vmax    = valueMax (outType);
+  const anyNote = [b.inKind, outType].some (k => k >= 1 && k <= 3);
+
+  const section = (title: string) => (
+    <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase',
+                  marginTop: 10, marginBottom: 6, borderTop: '1px solid var(--border)', paddingTop: 6 }}>{title}</div>
+  );
+  const row = (children: React.ReactNode) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>{children}</div>
+  );
+  const word = (t: string) => <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>{t}</span>;
+  const select = (value: string, options: { id: string; name: string }[], onPick: (v: string) => void, width = 150) => (
+    <div style={{ width }}>
+      <NodeSelect value={value} onChange={onPick} options={options} accent={ACCENT} showEmpty={false} />
+    </div>
+  );
+  const chOptions = (first: string) => [{ id: '0', name: first },
+    ...Array.from ({ length: 16 }, (_, i) => ({ id: String (i + 1), name: `ch ${i + 1}` }))];
+  const kinds = (withSame: boolean) => [
+    ...(withSame ? [{ id: '0', name: 'Same' }] : []),
+    ...BASIC_KINDS.filter (k => ! withSame || k.code !== 0).map (k => ({ id: String (k.code), name: k.name })),
+  ];
+  // One value field (no Min/Max words; note names for notes)
+  const one = (kind: number, v: number, max: number, onV: (n: number) => void, onVLive: (n: number) => void) => (
+    <RangeValue value={v} isHi={false} max={max}
+      format={n => numberText (kind, n, conv)} parse={t => parseNote (t, conv)}
+      onChange={onVLive} onChangeLinked={onVLive} onRelease={onRelease} onCommit={onV} />
+  );
+
+  return (
+    <div className="nodrag nowheel" onDoubleClick={e => e.stopPropagation()} style={panelStyle}>
+      {head}
+
+      {section ('When')}
+      {row (<>
+        {select (String (b.inKind), kinds (false), v => set ({ inKind: Number (v) }))}
+      </>)}
+      {hasNumber (b.inKind) && row (<>
+        <Checkbox checked={b.inNum === null} label="any" accent={ACCENT}
+          onChange={any => set ({ inNum: any ? null : (b.inKind <= 3 ? 60 : 0) })} />
+        {b.inNum !== null && one (b.inKind, b.inNum, 127, n => set ({ inNum: n }), n => live ({ inNum: n }))}
+      </>)}
+      {row (<>{word ('on')}{select (String (b.inCh), chOptions ('Omni'), v => set ({ inCh: Number (v) }), 100)}</>)}
+
+      {section ('Send')}
+      {b.inKind === 0
+        ? row (word ('the same event (pick a "When" event to convert it)'))
+        : row (select (String (b.outKind), kinds (true), v => set ({ outKind: Number (v) })))}
+      {hasNumber (outType) && b.inKind !== 0 && row (<>
+        {hasNumber (b.inKind) && (
+          <Checkbox checked={b.outNum === null} label="same number" accent={ACCENT}
+            onChange={same => set ({ outNum: same ? null : (b.inNum ?? (outType <= 3 ? 60 : 0)) })} />
+        )}
+        {b.outNum !== null && one (outType, b.outNum, 127, n => set ({ outNum: n }), n => live ({ outNum: n }))}
+      </>)}
+      {row (<>{word ('on')}{select (String (b.outCh), chOptions ('Same channel'), v => set ({ outCh: Number (v) }), 120)}</>)}
+
+      {choices.length > 0 && <>
+        {section (`Value (${kindShort (outType) === 'Any event' ? 'value' : valueLabelFor (outType)})`)}
+        {row (<>
+          {select (b.value, choices.map (c => ({ id: c, name: VALUE_LABELS[c] })),
+            v => set (v === 'limited' ? { value: 'limited', limLo: 0, limHi: vmax } : { value: v as ValueChoice }), 110)}
+          {b.value === 'fixed' && one (0, b.fixed, vmax, n => set ({ fixed: n }), n => live ({ fixed: n }))}
+          {b.value === 'limited' && <>
+            {one (0, b.limLo, vmax, n => set ({ limLo: n }), n => live ({ limLo: n }))}
+            {word ('–')}
+            {one (0, b.limHi, vmax, n => set ({ limHi: n }), n => live ({ limHi: n }))}
+          </>}
+        </>)}
+      </>}
+
+      {section ('Other events')}
+      {row (select (rule.unmatched, [{ id: 'pass', name: 'Pass through' }, { id: 'block', name: 'Block' }],
+        v => onCommit ({ ...rule, unmatched: v === 'block' ? 'block' : 'pass' }), 130))}
+
+      {anyNote && <>
+        {section ('Note names')}
+        {row (select (conv, [{ id: 'yamaha', name: 'Yamaha (C3 = 60)' }, { id: 'roland', name: 'Roland (C4 = 60)' }],
+          v => onCommit ({ ...rule, noteNames: v === 'roland' ? 'roland' : 'yamaha' }), 150))}
+      </>}
+    </div>
+  );
+}
+
+function valueLabelFor (k: number): string {
+  if (k === 1 || k === 2) return 'velocity';
+  if (k === 3 || k === 6) return 'pressure';
+  if (k === 7) return 'bend';
+  return 'CC value';
 }
 
 // ── Settings panel (full rule editor) ────────────────────────────────────────
@@ -403,6 +423,7 @@ function MorpherPanel ({ rule, onLive, onRelease, onCommit, onClose, onReset }: 
         fontFamily: "'JetBrains Mono', monospace", userSelect: 'none',
       }}>
       <SettingsPanelHeader title="MIDI Morpher" onReset={onReset} onClose={onClose} />
+      <ModeSwitch mode="advanced" onPick={m => onCommit ({ ...rule, mode: m })} />
 
       {ruleNotes (rule).map ((n, i) => (
         <div key={i} style={{ fontSize: 9, lineHeight: 1.4, marginBottom: 4, color: n.level === 'warn' ? WARN : 'var(--text-muted)' }}>
@@ -522,6 +543,12 @@ export default function MidiMorpherNode ({ id, data, selected }: NodeProps) {
   const outType = rule.outMsg === 0 ? rule.inMsg : rule.outMsg;
   const block   = rule.unmatched === 'block';
 
+  // Basic face: the same rule as a sentence (null = too complex for Basic)
+  const isBasic  = rule.mode === 'basic';
+  const basic    = isBasic ? fromAdvanced (rule) : null;
+  const sentence = basic ? basicSentence (basic, rule.noteNames) : null;
+  const resetRule = () => commit ({ ...DEFAULT_RULE, mode: rule.mode, noteNames: rule.noteNames });
+
   // Summary table cells
   const range = (r: Range, show: boolean) => (show ? `${fmtLo (r[0])} ${fmtHi (r[1])}` : '—');
   const inHas2  = rule.inMsg === 0 || hasData2 (rule.inMsg);
@@ -544,11 +571,19 @@ export default function MidiMorpherNode ({ id, data, selected }: NodeProps) {
       <NodeHandle nodeId={id} label="MIDI Out" direction="out" colour={ACCENT} index={0} total={1} anchor="table" />
 
       <NodeHeader title={customName || 'MIDI MORPHER'} accent={ACCENT}
-        subtitle={collapsed ? ruleSummary (rule) : undefined}
+        subtitle={collapsed ? (sentence ? `${sentence.inText} → ${sentence.outText}` : ruleSummary (rule)) : undefined}
         rename={{ value: customName, placeholder: 'MIDI Morpher', onCommit: commitModelName (id) }}
         showSettings={showSettings} onToggleSettings={toggleSettings}
         onDelete={handleDelete} collapsed={collapsed} onToggleCollapsed={toggleCollapsed}
         disabled={disabled} onToggleDisabled={toggleDisabled}>
+        <NodeHeaderButton onClick={() => commit ({ ...rule, mode: isBasic ? 'advanced' : 'basic' })}
+          active={false} activeAccent={ACCENT}
+          onHint={{ onMouseEnter: () => setHint ({ title: isBasic ? 'Basic mode' : 'Advanced mode',
+                      body: isBasic ? 'The rule in plain words. Click to switch this node to Advanced (Data1/Data2 ranges, Pull…).'
+                                    : 'Full MIDI rule editor. Click to switch this node to Basic (plain words).' }),
+                    onMouseLeave: () => setHint (null) }}>
+          <span style={{ fontSize: 10, fontWeight: 700, width: 12, textAlign: 'center', color: ACCENT }}>{isBasic ? 'B' : 'A'}</span>
+        </NodeHeaderButton>
         <span style={{ borderRadius: 4, transition: 'box-shadow .08s',
                        boxShadow: blockLit ? '0 0 0 1.5px var(--error), 0 0 8px var(--error-glow)'
                                 : passLit  ? '0 0 0 1.5px var(--text-muted)' : 'none' }}>
@@ -566,6 +601,21 @@ export default function MidiMorpherNode ({ id, data, selected }: NodeProps) {
       {! collapsed && (
         <div data-port-anchor="table" onDoubleClick={toggleSettings}
           style={{ padding: '8px 6px 10px', fontSize: 10, cursor: 'pointer' }} title="Double-click to edit the rule">
+          {isBasic ? (
+            // Basic: the rule as a sentence — IN part and OUT part flash separately
+            <div style={{ fontSize: 11, lineHeight: 1.6, padding: '2px 4px', color: 'var(--text)', maxWidth: 360 }}>
+              {sentence ? <>
+                <span style={{ borderRadius: 3, padding: '1px 3px', transition: 'background .08s',
+                               background: inLit ? 'color-mix(in srgb, var(--midi) 28%, transparent)' : 'transparent' }}>{sentence.inText}</span>
+                <span style={{ color: ACCENT, margin: '0 6px' }}>→</span>
+                <span style={{ borderRadius: 3, padding: '1px 3px', transition: 'background .08s',
+                               background: outLit ? 'color-mix(in srgb, var(--midi) 28%, transparent)' : 'transparent' }}>{sentence.outText}</span>
+              </> : <>
+                <span style={{ background: (inLit || outLit) ? 'color-mix(in srgb, var(--midi) 28%, transparent)' : 'transparent', borderRadius: 3 }}>{ruleSummary (rule)}</span>
+                <div style={{ fontSize: 9, color: 'var(--text-muted)' }}>Advanced rule — open the panel to edit it in Advanced</div>
+              </>}
+            </div>
+          ) : <>
           <div style={{ display: 'flex', color: 'var(--text-muted)', fontSize: 9, marginBottom: 3 }}>
             <span style={cell (34)} /><span style={cell (40)}>Chn</span><span style={cell (70)}>Msg</span>
             <span style={cell (80)}>Data1</span><span style={cell (80)}>Data2</span>
@@ -580,6 +630,7 @@ export default function MidiMorpherNode ({ id, data, selected }: NodeProps) {
               <span style={{ ...cell (80), color: 'var(--text)' }}>{r.d2}</span>
             </div>
           ))}
+          </>}
 
           {/* Last morph readout (+ ⚠ when part of the rule can't apply) */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, paddingTop: 5,
@@ -597,9 +648,9 @@ export default function MidiMorpherNode ({ id, data, selected }: NodeProps) {
         </div>
       )}
 
-      {showSettings && ! collapsed && (
-        <MorpherPanel rule={rule} onLive={live} onRelease={release} onCommit={commit} onClose={closeSettings}
-          onReset={() => commit ({ ...DEFAULT_RULE })} />
+      {showSettings && ! collapsed && (isBasic
+        ? <BasicPanel rule={rule} onLive={live} onRelease={release} onCommit={commit} onClose={closeSettings} onReset={resetRule} />
+        : <MorpherPanel rule={rule} onLive={live} onRelease={release} onCommit={commit} onClose={closeSettings} onReset={resetRule} />
       )}
     </div>
   );

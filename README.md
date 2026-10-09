@@ -242,6 +242,9 @@ Patchy/
 ├── Tools/                           Developer utilities
 │   └── migrate_patchy_v1_to_v2.py  Migrate .patchy files: addonName→paxName
 │
+├── cmake/
+│   └── FyiBackup.cmake              Backs up the git-ignored FYI/ notes at each CMake configure
+│
 ├── CMakeLists.txt                   Main build — host + UI bundle
 └── README.md                        This file
 ```
@@ -565,6 +568,8 @@ Useful targets:
 | `Pax_Install` | Every bundled Pax, copied to `~/Library/Patchy/Pax/` |
 | `Patchy_Everything` | All of the above in one go |
 | `PatchyTests` | Unit tests (`PATCHY_BUILD_TESTS`, ON by default); run the binary, optionally with a category name |
+
+**FYI notes backup** — `FYI/` (developer notes) is git-ignored, so every CMake configure saves it as a timestamped zip (`YYYY-MM-DD_HHMMSS_vX.Y.Z.zip`), only when something changed, keeping the newest 10. Default destination: iCloud Drive `Patchy-FYI-backups` (or `~/Documents/Patchy-FYI-backups`). Options: `PATCHY_FYI_BACKUP` (ON), `PATCHY_FYI_BACKUP_DIR` (any folder, e.g. on a NAS — when it isn't reachable, e.g. NAS not mounted, the backup goes to `~/Documents/Patchy-FYI-backups` instead and the NAS catches up at the next configure once mounted), `PATCHY_FYI_BACKUP_KEEP` (10). See `cmake/FyiBackup.cmake`.
 
 ### UI dev server (hot reload)
 

@@ -17,6 +17,9 @@ project(Patchy VERSION 0.0.929)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# v0.0.929 — back up the git-ignored FYI/ notes at each configure (see the file)
+include(${CMAKE_SOURCE_DIR}/cmake/FyiBackup.cmake)
+
 # ── Options ───────────────────────────────────────────────────────────────────
 option(NODEGRAPH_DEV_MODE "Skip UI build, use Vite dev server on localhost:5173" OFF)
 

@@ -40,8 +40,34 @@ import {
 } from './MorpherCore';
 import {
   BasicRule, BASIC_KINDS, ValueChoice, fromAdvanced, toAdvanced, normaliseBasic, basicSentence,
-  hasNumber, valueChoices, valueMax, outKindOf, numberText, parseNote, kindShort,
+  hasNumber, valueChoices, valueMax, outKindOf, numberText, parseNote, kindShort, applyLearned,
 } from './MorpherBasic';
+import { useMidiLearn } from './Learn';
+
+// ── Learn (v0.0.929) ─────────────────────────────────────────────────────────
+type LearnTarget = 'in' | 'out';
+interface LearnProps { target: LearnTarget | null; start: (t: LearnTarget) => void }
+
+function LearnButton ({ armed, onClick }: { armed: boolean; onClick: () => void }) {
+  return (
+    <span onClick={onClick}
+      title={armed ? 'Listening — move a control or play a key (click to cancel)'
+                   : 'Learn: move a control or play a key on a connected controller to fill this in'}
+      style={{ fontSize: 9, letterSpacing: 0, textTransform: 'none', cursor: 'pointer', padding: '1px 6px',
+               borderRadius: 3, border: `1px solid ${armed ? ACCENT : 'var(--border)'}`,
+               color: armed ? 'var(--bg)' : 'var(--text-dim)', background: armed ? ACCENT : 'transparent',
+               animation: armed ? 'patchyLearnPulse 1s ease-in-out infinite' : 'none' }}>
+      {armed ? '● Listening…' : 'Learn'}
+    </span>
+  );
+}
+// One keyframe for the pulsing Learn button (injected once)
+if (typeof document !== 'undefined' && ! document.getElementById ('patchy-learn-kf')) {
+  const st = document.createElement ('style');
+  st.id = 'patchy-learn-kf';
+  st.textContent = '@keyframes patchyLearnPulse { 0%,100% { opacity: 1 } 50% { opacity: .55 } }';
+  document.head.appendChild (st);
+}
 
 export interface MidiMorpherNodeData {
   label:         string;
@@ -234,7 +260,8 @@ const VALUE_LABELS: Record<ValueChoice, string> = {
 };
 
 // ── Basic panel: When / Send / Value in plain words ─────────────────────────
-function BasicPanel ({ rule, onLive, onRelease, onCommit, onClose, onReset }: {
+function BasicPanel ({ rule, onLive, onRelease, onCommit, onClose, onReset, learn }: {
+  learn:     LearnProps;
   rule:      MorpherRule;
   onLive:    (r: MorpherRule) => void;
   onRelease: () => void;
@@ -277,9 +304,13 @@ function BasicPanel ({ rule, onLive, onRelease, onCommit, onClose, onReset }: {
   const vmax    = valueMax (outType);
   const anyNote = [b.inKind, outType].some (k => k >= 1 && k <= 3);
 
-  const section = (title: string) => (
+  const section = (title: string, learnFor?: LearnTarget) => (
     <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase',
-                  marginTop: 10, marginBottom: 6, borderTop: '1px solid var(--border)', paddingTop: 6 }}>{title}</div>
+                  marginTop: 10, marginBottom: 6, borderTop: '1px solid var(--border)', paddingTop: 6,
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <span>{title}</span>
+      {learnFor && <LearnButton armed={learn.target === learnFor} onClick={() => learn.start (learnFor)} />}
+    </div>
   );
   const row = (children: React.ReactNode) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>{children}</div>
@@ -307,7 +338,7 @@ function BasicPanel ({ rule, onLive, onRelease, onCommit, onClose, onReset }: {
     <div className="nodrag" onDoubleClick={e => e.stopPropagation()} style={panelStyle}>
       {head}
 
-      {section ('When')}
+      {section ('When', 'in')}
       {row (<>
         {select (String (b.inKind), kinds (false), v => set ({ inKind: Number (v) }))}
       </>)}
@@ -318,7 +349,7 @@ function BasicPanel ({ rule, onLive, onRelease, onCommit, onClose, onReset }: {
       </>)}
       {row (<>{word ('on')}{select (String (b.inCh), chOptions ('Omni'), v => set ({ inCh: Number (v) }), 100)}</>)}
 
-      {section ('Send')}
+      {section ('Send', b.inKind !== 0 ? 'out' : undefined)}
       {b.inKind === 0
         ? row (word ('the same event (pick a "When" event to convert it)'))
         : row (select (String (b.outKind), kinds (true), v => set ({ outKind: Number (v) })))}
@@ -366,7 +397,8 @@ function valueLabelFor (k: number): string {
 }
 
 // ── Settings panel (full rule editor) ────────────────────────────────────────
-function MorpherPanel ({ rule, onLive, onRelease, onCommit, onClose, onReset }: {
+function MorpherPanel ({ rule, onLive, onRelease, onCommit, onClose, onReset, learn }: {
+  learn:     LearnProps;
   rule:      MorpherRule;
   onLive:    (r: MorpherRule) => void;
   onRelease: () => void;
@@ -376,9 +408,13 @@ function MorpherPanel ({ rule, onLive, onRelease, onCommit, onClose, onReset }: 
 }) {
   const outType = rule.outMsg === 0 ? rule.inMsg : rule.outMsg;
 
-  const section = (title: string) => (
+  const section = (title: string, learnFor?: LearnTarget) => (
     <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase',
-                  marginTop: 10, marginBottom: 6, borderTop: '1px solid var(--border)', paddingTop: 6 }}>{title}</div>
+                  marginTop: 10, marginBottom: 6, borderTop: '1px solid var(--border)', paddingTop: 6,
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <span>{title}</span>
+      {learnFor && <LearnButton armed={learn.target === learnFor} onClick={() => learn.start (learnFor)} />}
+    </div>
   );
   const label = (t: string) => (
     <div style={{ width: 54, fontSize: 10, color: 'var(--text-dim)', flexShrink: 0 }}>{t}</div>
@@ -431,13 +467,13 @@ function MorpherPanel ({ rule, onLive, onRelease, onCommit, onClose, onReset }: 
         </div>
       ))}
 
-      {section ('Input')}
+      {section ('Input', 'in')}
       {row (<>{label ('Channel')}{select (rule.inCh,  chOptions ('Omni'), v => onCommit ({ ...rule, inCh: v }))}</>)}
       {row (<>{label ('Message')}{select (rule.inMsg, MSG_NAMES,         v => onCommit (normalise ({ ...rule, inMsg: v })))}</>)}
       {rangeRow ('Data1', 'inD1', data1Max (rule.inMsg), false)}
       {rangeRow ('Data2', 'inD2', 127, rule.inMsg !== 0 && ! hasData2 (rule.inMsg))}
 
-      {section ('Output')}
+      {section ('Output', 'out')}
       {row (<>{label ('Channel')}{select (rule.outCh,  chOptions ('Copy'), v => onCommit ({ ...rule, outCh: v }))}</>)}
       {row (<>{label ('Message')}{select (rule.outMsg, ['Copy', ...MSG_NAMES.slice (1)], v => onCommit (normalise ({ ...rule, outMsg: v })))}</>)}
       {rangeRow ('Data1', 'outD1', data1Max (outType), false, { key: 'outD1Pull', label: 'Pull 2' })}
@@ -549,6 +585,10 @@ export default function MidiMorpherNode ({ id, data, selected }: NodeProps) {
   const sentence = basic ? basicSentence (basic, rule.noteNames) : null;
   const resetRule = () => commit ({ ...DEFAULT_RULE, mode: rule.mode, noteNames: rule.noteNames });
 
+  // v0.0.929 — Learn: the engine captures the next event at the MIDI In
+  // (input held back meanwhile), applied to When/IN or Send/OUT, one undo step.
+  const learn = useMidiLearn<LearnTarget> (id, (t, ev) => commit (applyLearned (rule, t, ev)));
+
   // Summary table cells
   const range = (r: Range, show: boolean) => (show ? `${fmtLo (r[0])} ${fmtHi (r[1])}` : '—');
   const inHas2  = rule.inMsg === 0 || hasData2 (rule.inMsg);
@@ -642,15 +682,17 @@ export default function MidiMorpherNode ({ id, data, selected }: NodeProps) {
             )}
             <span style={{ color: lastMorph ? 'var(--text-dim)' : 'var(--text-muted)', whiteSpace: 'nowrap',
                            overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {lastMorph ? `${eventText (lastMorph.in)}  →  ${eventText (lastMorph.out)}` : 'waiting for a matching event…'}
+              {learn.target
+                ? <span style={{ color: ACCENT }}>● Learn {learn.target === 'in' ? (isBasic ? 'When' : 'Input') : (isBasic ? 'Send' : 'Output')}: move a control or play a key…</span>
+                : lastMorph ? `${eventText (lastMorph.in)}  →  ${eventText (lastMorph.out)}` : 'waiting for a matching event…'}
             </span>
           </div>
         </div>
       )}
 
       {showSettings && ! collapsed && (isBasic
-        ? <BasicPanel rule={rule} onLive={live} onRelease={release} onCommit={commit} onClose={closeSettings} onReset={resetRule} />
-        : <MorpherPanel rule={rule} onLive={live} onRelease={release} onCommit={commit} onClose={closeSettings} onReset={resetRule} />
+        ? <BasicPanel rule={rule} onLive={live} onRelease={release} onCommit={commit} onClose={closeSettings} onReset={resetRule} learn={learn} />
+        : <MorpherPanel rule={rule} onLive={live} onRelease={release} onCommit={commit} onClose={closeSettings} onReset={resetRule} learn={learn} />
       )}
     </div>
   );

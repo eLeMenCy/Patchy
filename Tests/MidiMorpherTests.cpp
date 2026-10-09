@@ -170,6 +170,53 @@ public:
             expectEquals ((int) ((big >> 49) & 0x7F), 127);
         }
 
+        beginTest ("Learn (v0.0.929): skips releases, captures the first press, holds input back");
+        {
+            MidiMorpherNode node ("learn");
+            node.prepare (48000.0, 64);
+            node.armLearn (true);
+            node.inputMidi.addEvent (juce::MidiMessage::noteOff (2, 60, (juce::uint8) 0), 0);   // release: skipped
+            node.inputMidi.addEvent (juce::MidiMessage::noteOn  (2, 61, (juce::uint8) 0), 1);   // vel 0 = release: skipped
+            node.inputMidi.addEvent (juce::MidiMessage::midiClock(), 2);                         // system: passes
+            node.inputMidi.addEvent (juce::MidiMessage::noteOn  (5, 64, (juce::uint8) 99), 3);  // learned
+            node.inputMidi.addEvent (juce::MidiMessage::controllerEvent (5, 7, 1), 4);          // after: still held this block
+            node.process (64);
+            int n = 0; bool onlyClock = true;
+            for (const auto meta : node.outputMidi) { ++n; onlyClock = onlyClock && meta.data[0] == 0xF8; }
+            expectEquals (n, 1, "only the clock went through");
+            expect (onlyClock);
+            expect (! node.learnArmed.load(), "disarmed after the capture");
+            const auto w = node.drainLearned();
+            expect ((w >> 63) == 1, "valid");
+            expectEquals ((int) (w & 0xFF), 0x94, "status = Note On ch 5");
+            expectEquals ((int) ((w >> 8) & 0x7F), 64);
+            expectEquals ((int) ((w >> 15) & 0x7F), 99);
+            expect (node.drainLearned() == 0, "drained once");
+
+            // Disarmed again: normal processing is back
+            node.resetBuffers (64);
+            node.inputMidi.addEvent (juce::MidiMessage::controllerEvent (1, 7, 64), 0);
+            node.process (64);
+            expectEquals (node.outputMidi.getNumEvents(), 1, "rule applies again");
+
+            // Pitch bend keeps both data bytes
+            node.armLearn (true);
+            node.resetBuffers (64);
+            node.inputMidi.addEvent (juce::MidiMessage::pitchWheel (1, 12345), 0);
+            node.process (64);
+            const auto pw = node.drainLearned();
+            expectEquals ((int) (((pw >> 8) & 0x7F) | (((pw >> 15) & 0x7F) << 7)), 12345);
+
+            // Disarm before anything arrives: nothing learned, input flows
+            node.armLearn (true);
+            node.armLearn (false);
+            node.resetBuffers (64);
+            node.inputMidi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+            node.process (64);
+            expectEquals (node.outputMidi.getNumEvents(), 1);
+            expect (node.drainLearned() == 0);
+        }
+
         beginTest ("parseRule clamps and defaults");
         {
             const Rule r = fromJson (R"({"inCh":99,"inMsg":-3,"inD1":[-5,99999],"outD1":"junk"})");

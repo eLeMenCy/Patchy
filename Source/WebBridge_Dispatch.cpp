@@ -402,6 +402,13 @@ void WebBridge::handleSetNodeParam (const juce::DynamicObject* obj)
     juce::String key    = obj->getProperty ("key").toString();
     juce::String value  = obj->getProperty ("value").toString();
 
+    // v0.0.929 — generic MIDI Learn arm/disarm: live only, never undoable.
+    if (key == "learnArm")
+    {
+        if (onSetLearnArm) onSetLearnArm (nodeId, value == "1" || value == "true");
+        return;
+    }
+
     // dmxConsoleChannel / artNetConsoleChannel are real-time audio updates during drag —
     // preserve the pending snapshot captured by the preceding setNodeSettings.
     // dmxBlackout / artNetBlackout undo is handled by commitSettingsChange — skip pushSnapshot here.

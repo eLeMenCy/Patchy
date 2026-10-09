@@ -128,6 +128,9 @@ struct PortActivity
     int               morphPassed   = 0;
     int               morphBlocked  = 0;
     std::uint64_t     morphLast     = 0;
+    // v0.0.929 — generic MIDI Learn: the event a node captured since the last
+    // poll (NodeProcessor::captureLearn packing), 0 = none.
+    std::uint64_t     learned       = 0;
 };
 
 struct SpectrumSnapshot
@@ -235,6 +238,9 @@ public:
     // nodes that apply their settings live (MidiMorpherNode). Called from
     // pushSettingsToUI(); nodes it doesn't concern simply ignore it.
     std::function<void(const juce::String&, const juce::String&)>                                  onNodeSettingsChanged;
+    // v0.0.929 — generic MIDI Learn: arm / disarm a node (setNodeParam key
+    // "learnArm", "1"/"0"). Not graph state: no undo snapshot, no graph push.
+    std::function<void(const juce::String&, bool)>                                                 onSetLearnArm;
     // AudioPlayerNode's own controls — playback (play/pause/stop/seek/
     // return-to-start) is real-time/discrete, handled separately from the
     // small, discrete settings (mode/frequency/noise type/level/loop),

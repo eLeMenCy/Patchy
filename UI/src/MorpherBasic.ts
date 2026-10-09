@@ -10,7 +10,8 @@
 // read-only with an "Edit in Advanced" button). fromAdvanced() is checked by
 // converting back: only an exact round trip counts as Basic.
 
-import { MorpherRule, Range, isFull, rHi, data1Max, PITCH } from './MorpherCore';
+import { MorpherRule, Range, isFull, rHi, data1Max, PITCH, normalise } from './MorpherCore';
+import type { LearnedEvent } from './Learn';
 
 // ── Message kinds (same codes as the engine: 0 Any, 1 Note Off … 7 Pitch) ──
 export const NOTE_OFF = 1, NOTE_ON = 2, POLY_AT = 3, CC = 4, PROGRAM = 5, CHAN_AT = 6;
@@ -216,4 +217,23 @@ export function basicSentence (b: BasicRule, c: NoteNames): { inText: string; ou
   let outText = parts.join (' ');
   if (valueText) outText = outText ? `${outText}, ${valueText}` : valueText;
   return { inText, outText: outText || 'unchanged' };
+}
+
+// ── Learn (v0.0.929) ─────────────────────────────────────────────────────────
+/** Apply a learned event to the When/IN side ('in') or the Send/OUT side
+ *  ('out'), in the node's current mode. Learn sets the channel it heard
+ *  (user's choice); the number (note, CC, program) when the event has one. */
+export function applyLearned (rule: MorpherRule, target: 'in' | 'out', ev: LearnedEvent): MorpherRule {
+  const num = hasNumber (ev.type) ? ev.d1 : null;
+  if (rule.mode === 'basic') {
+    const b = fromAdvanced (rule) ?? DEFAULT_BASIC;
+    const nb: BasicRule = target === 'in'
+      ? { ...b, inKind: ev.type, inNum: num, inCh: ev.ch }
+      : { ...b, outKind: ev.type === b.inKind ? 0 : ev.type, outNum: num, outCh: ev.ch };
+    return toAdvanced (normaliseBasic (nb), rule);
+  }
+  const d1: Range = num === null ? [0, -1] : [num, num];
+  return normalise (target === 'in'
+    ? { ...rule, inMsg: ev.type, inCh: ev.ch, inD1: d1, inD2: [0, -1] }
+    : { ...rule, outMsg: ev.type, outCh: ev.ch, outD1: d1 });
 }

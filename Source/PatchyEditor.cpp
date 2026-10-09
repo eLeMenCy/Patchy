@@ -105,6 +105,12 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
                                            if (node) node->resetToDefault();
                                            p.saveMidiChMatrixState (nid);
                                        };
+    bridge.onSetLearnArm             = [&p](const juce::String& nid, bool on)   // v0.0.929
+                                       {
+                                           if (auto* n = p.getProcessingGraph().findNode (nid)) n->armLearn (on);
+                                           if (auto* pg = p.getPendingGraph())
+                                               if (auto* n = pg->findNode (nid)) n->armLearn (on);
+                                       };
     bridge.onNodeSettingsChanged     = [&p](const juce::String& nid, const juce::String& json)   // v0.0.925
                                        { p.applyMidiMorpherSettings (nid, json); };
     bridge.onSetMidiOutDeviceChannelFilter = [&p](const juce::String& nid, std::uint16_t mask)

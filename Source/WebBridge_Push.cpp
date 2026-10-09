@@ -606,6 +606,8 @@ void WebBridge::pushPortActivity()
                  << Q << "p" << Q << ":" << a.morphPassed  << ","
                  << Q << "b" << Q << ":" << a.morphBlocked << ","
                  << Q << "last" << Q << ":" << Q << juce::String ((juce::uint64) a.morphLast) << Q << "}";
+        if (a.learned != 0)   // v0.0.929 — generic MIDI Learn, decimal string (64 bits)
+            json << "," << Q << "learned" << Q << ":" << Q << juce::String ((juce::uint64) a.learned) << Q;
         json << "}";
     }
     json << "]";

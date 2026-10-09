@@ -66,6 +66,9 @@ export interface PortActivityEntry {
   // the last poll, and the last morph packed as a decimal string (see
   // MidiMorpherNode::packMorph — decode with BigInt).
   morph?: { m: number; p: number; b: number; last: string };
+  // v0.0.929 — generic MIDI Learn: the event a node just captured (decimal
+  // string, see Learn.ts decodeLearned), absent when none.
+  learned?: string;
 }
 type PortActivityCallback = (entries: PortActivityEntry[]) => void;
 const _portActivitySubscribers: PortActivityCallback[] = [];

@@ -991,6 +991,7 @@ public:
             PortActivity a;
             a.nodeId        = node->id;
             a.midiOutEvents = node->drainMidiActivity();
+            a.learned       = node->drainLearned();   // v0.0.929 — generic MIDI Learn
 
             // Channel-flash feature, 2026-09-20 — per-channel activity,
             // MidiChMatrixNode only. See MidiChMatrixNode.h's own
@@ -1311,7 +1312,8 @@ public:
                 // v0.0.926 fix — a Morpher in Block mode outputs nothing for
                 // blocked events, so midiOutEvents alone dropped its entry and
                 // the red "blocked" ring never reached the UI.
-                || (a.isMorpher && (a.morphMatched > 0 || a.morphPassed > 0 || a.morphBlocked > 0)))
+                || (a.isMorpher && (a.morphMatched > 0 || a.morphPassed > 0 || a.morphBlocked > 0))
+                || a.learned != 0)   // v0.0.929 — a learned event must always reach the UI
                 result.push_back (a);
         }
 

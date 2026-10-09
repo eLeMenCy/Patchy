@@ -22,6 +22,47 @@ public:
     void recordMidiActivity (int count) { midiEventsSinceLastPoll.fetch_add (count, std::memory_order_relaxed); }
     int  drainMidiActivity()            { return midiEventsSinceLastPoll.exchange (0, std::memory_order_relaxed); }
 
+    // ── Generic MIDI Learn (v0.0.929) ────────────────────────────────────
+    // Any node can offer Learn: the UI arms it (WebBridge key "learnArm"),
+    // the node calls captureLearn() at the top of its process(), the first
+    // channel-voice event that arrives is stored here and the node disarms;
+    // the 30 Hz activity poll drains it (drainLearned) and pushes it to the
+    // UI as "learned". Note Offs (and Note On velocity 0) are skipped, so a
+    // key press learns its Note On. First user: MidiMorpherNode.
+    // Packed: status (bits 0-7) | data1 (8-14) | data2 (15-21) | valid (63).
+    std::atomic<bool>          learnArmed   { false };
+    std::atomic<std::uint64_t> learnedEvent { 0 };
+    void armLearn (bool on)
+    {
+        if (on) learnedEvent.store (0, std::memory_order_relaxed);
+        learnArmed.store (on, std::memory_order_relaxed);
+    }
+    std::uint64_t drainLearned() { return learnedEvent.exchange (0, std::memory_order_relaxed); }
+
+    /** Audio thread. Returns true while Learn is armed (including the block
+        that captures): the caller then holds its MIDI input back. */
+    bool captureLearn (const juce::MidiBuffer& in)
+    {
+        if (! learnArmed.load (std::memory_order_relaxed)) return false;
+        for (const auto meta : in)
+        {
+            const auto* raw  = meta.data;
+            const int   size = meta.numBytes;
+            if (size < 2) continue;
+            const int st = raw[0] & 0xF0;
+            if (st < 0x80 || st > 0xE0) continue;                          // channel voice only
+            if (st == 0x80 || (st == 0x90 && size > 2 && raw[2] == 0)) continue;   // a release, not a press
+            const std::uint64_t packed = (std::uint64_t) raw[0]
+                                       | ((std::uint64_t) (raw[1] & 0x7F) << 8)
+                                       | ((std::uint64_t) (size > 2 ? raw[2] & 0x7F : 0) << 15)
+                                       | (std::uint64_t (1) << 63);
+            learnedEvent.store (packed, std::memory_order_relaxed);
+            learnArmed.store (false, std::memory_order_relaxed);
+            break;
+        }
+        return true;
+    }
+
     enum class Type { Midi = 1, Audio = 2, AV = 3 };
 
     explicit NodeProcessor (const juce::String& nodeId, Type type)

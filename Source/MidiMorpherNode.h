@@ -127,6 +127,17 @@ public:
     {
         outputMidi.clear();
 
+        // v0.0.929 — Learn: while armed, channel events are held back (the
+        // user's knob turn / key press shouldn't reach the synth); system
+        // messages (clock, transport…) still pass.
+        if (captureLearn (inputMidi))
+        {
+            for (const auto meta : inputMidi)
+                if (meta.numBytes > 0 && meta.data[0] >= 0xF0)
+                    outputMidi.addEvent (meta.data, meta.numBytes, meta.samplePosition);
+            return;
+        }
+
         if (disabled)
         {
             outputMidi = inputMidi;

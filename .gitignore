@@ -2,6 +2,7 @@
 build/
 Builds/
 cmake-build-*/
+CMakeUserPresets.json
 
 # ── React / Node ──────────────────────────────────────────────────────────────
 UI/node_modules/

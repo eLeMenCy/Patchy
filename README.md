@@ -243,7 +243,6 @@ Patchy/
 │   └── migrate_patchy_v1_to_v2.py  Migrate .patchy files: addonName→paxName
 │
 ├── CMakeLists.txt                   Main build — host + UI bundle
-├── CMakePresets.json                Build presets
 └── README.md                        This file
 ```
 
@@ -573,7 +572,9 @@ Useful targets:
 cd UI && npm install && npm run dev
 ```
 
-Build the host in Debug mode with `PATCHY_DEV_MODE=ON` to connect to the Vite dev server.
+Configure the host with `-DNODEGRAPH_DEV_MODE=ON` (e.g. in a Debug build): the UI build is skipped and Patchy loads its UI from the Vite dev server (`localhost:5173`), so UI changes show up without rebuilding the plugin.
+
+Patchy is plain CMake, with no presets: open the folder in CLion (its CMake profiles, e.g. `cmake-build-debug`, are per-user in `.idea/`), VS Code (CMake Tools), or generate an Xcode project with `cmake -G Xcode`. Personal presets can go in `CMakeUserPresets.json` (git-ignored).
 
 ---
 

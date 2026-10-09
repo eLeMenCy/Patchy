@@ -193,9 +193,11 @@ set(DOCUMENTATION          OFF CACHE BOOL "" FORCE)
 set(WITH_STATIC_LIBRARIES  ON  CACHE BOOL "" FORCE)
 set(WITH_PIC               ON  CACHE BOOL "" FORCE)   # linked into a plug-in (shared module)
 set(WITH_THREADING         ON  CACHE BOOL "" FORCE)   # mosquitto_loop_start()
-# mosquitto's own CMakeLists declares an old minimum CMake version, which
-# CMake 4 refuses unless told the minimum policy version to assume.
-set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+# mosquitto's own CMakeLists declares an old minimum CMake version (3.5),
+# which CMake 4 refuses unless told the minimum policy version to assume —
+# 3.10 (v0.0.929) also silences the "Compatibility with CMake < 3.10 will be
+# removed" deprecation warning. Scoped to mosquitto: unset right after.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.10)
 FetchContent_Declare(
     mosquitto
     GIT_REPOSITORY https://github.com/eclipse-mosquitto/mosquitto.git
@@ -203,6 +205,7 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(mosquitto)
+unset(CMAKE_POLICY_VERSION_MINIMUM)
 set(MOSQUITTO_INCLUDE_DIR "${mosquitto_SOURCE_DIR}/include")
 set(MOSQUITTO_LIBRARY     libmosquitto_static)
 message(STATUS "libmosquitto: static, built from source (${MOSQUITTO_INCLUDE_DIR})")

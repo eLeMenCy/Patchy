@@ -12,7 +12,7 @@ if (CMAKE_HOST_APPLE AND PATCHY_UNIVERSAL)
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
 endif()
 
-project(Patchy VERSION 0.0.929)
+project(Patchy VERSION 0.0.930)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -106,7 +106,7 @@ endif()
 
 # ── Plugin target ─────────────────────────────────────────────────────────────
 juce_add_plugin(Patchy
-    VERSION                  "0.0.929"
+    VERSION                  "0.0.930"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGrp"
@@ -278,7 +278,7 @@ patchy_configure_target(Patchy)
 # bundle id so hosts see two distinct plugins. VST3 needs no twin — one
 # VST3 already works as instrument and effect (Bitwig).
 juce_add_plugin(PatchyFX
-    VERSION                  "0.0.929"
+    VERSION                  "0.0.930"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGfx"

@@ -367,8 +367,76 @@ bool GraphModel::removeNode (const juce::String& id)
         [&](const NodeData& n){ return n.id == id; });
     if (it == nodes.end()) return false;
     nodes.erase (it, nodes.end());
+
+    // v0.0.930 — leave its pack; a pack left empty goes away
+    for (auto& p : packs) p.nodeIds.removeString (id);
+    packs.erase (std::remove_if (packs.begin(), packs.end(),
+                                 [] (const PackData& p) { return p.nodeIds.isEmpty(); }),
+                 packs.end());
+
     notifyChange();
     return true;
+}
+
+// ── Packs (v0.0.930) ──────────────────────────────────────────────────────────
+PackData& GraphModel::addPack (const juce::String& name, const juce::StringArray& nodeIds,
+                               const juce::StringArray& ports, float x, float y)
+{
+    // One level only: a node can't be in two packs — take it out of any other
+    for (auto& p : packs)
+        for (const auto& id : nodeIds) p.nodeIds.removeString (id);
+    packs.erase (std::remove_if (packs.begin(), packs.end(),
+                                 [] (const PackData& p) { return p.nodeIds.isEmpty(); }),
+                 packs.end());
+
+    PackData p;
+    p.id      = juce::Uuid().toString();
+    p.name    = name;
+    p.nodeIds = nodeIds;
+    p.ports   = ports;
+    p.x = x;  p.y = y;
+    packs.push_back (std::move (p));
+    return packs.back();
+}
+
+PackData* GraphModel::findPack (const juce::String& packId)
+{
+    for (auto& p : packs) if (p.id == packId) return &p;
+    return nullptr;
+}
+
+bool GraphModel::removePack (const juce::String& packId)
+{
+    const auto before = packs.size();
+    packs.erase (std::remove_if (packs.begin(), packs.end(),
+                                 [&] (const PackData& p) { return p.id == packId; }),
+                 packs.end());
+    return packs.size() != before;
+}
+
+void GraphModel::restorePacks (const juce::var& packsArray)
+{
+    packs.clear();
+    auto* arr = packsArray.getArray();
+    if (arr == nullptr) return;
+    for (const auto& pv : *arr)
+    {
+        auto* o = pv.getDynamicObject();
+        if (o == nullptr) continue;
+        PackData p;
+        p.id   = o->getProperty ("id").toString();
+        p.name = o->getProperty ("name").toString();
+        if (auto* ids = o->getProperty ("nodeIds").getArray())
+            for (const auto& v : *ids)
+                if (findNode (v.toString()) != nullptr) p.nodeIds.add (v.toString());
+        if (auto* ps = o->getProperty ("ports").getArray())
+            for (const auto& v : *ps) p.ports.add (v.toString());
+        p.x    = (float) (double) o->getProperty ("x");
+        p.y    = (float) (double) o->getProperty ("y");
+        p.open = (bool) o->getProperty ("open");
+        if (p.id.isEmpty()) p.id = juce::Uuid().toString();
+        if (! p.nodeIds.isEmpty()) packs.push_back (std::move (p));
+    }
 }
 
 NodeData* GraphModel::findNode (const juce::String& id)
@@ -513,9 +581,28 @@ juce::var GraphModel::toVar() const
         connsArr.add (obj);
     }
 
+    // v0.0.930 — packs (UI / project only, see PackData)
+    juce::Array<juce::var> packsArr;
+    for (const auto& p : packs)
+    {
+        auto* o = new juce::DynamicObject();
+        o->setProperty ("id",   p.id);
+        o->setProperty ("name", p.name);
+        juce::Array<juce::var> ids, ps;
+        for (const auto& s : p.nodeIds) ids.add (s);
+        for (const auto& s : p.ports)   ps.add (s);
+        o->setProperty ("nodeIds", ids);
+        o->setProperty ("ports",   ps);
+        o->setProperty ("x",    p.x);
+        o->setProperty ("y",    p.y);
+        o->setProperty ("open", p.open);
+        packsArr.add (o);
+    }
+
     auto* root = new juce::DynamicObject();
     root->setProperty ("nodes",         nodesArr);
     root->setProperty ("connections",   connsArr);
+    root->setProperty ("packs",         packsArr);
     root->setProperty ("viewportX",     viewportX);
     root->setProperty ("viewportY",     viewportY);
     root->setProperty ("viewportZoom",  viewportZoom);
@@ -736,6 +823,8 @@ void GraphModel::restoreSnapshot (const juce::var& snapshot)
                 cObj->getProperty ("targetPortId").toString());
         }
     }
+
+    restorePacks (obj->getProperty ("packs"));   // v0.0.930 (absent in older snapshots → none)
 
     // Update device manager selections BEFORE rebuild so applyDeviceSelections
     // inside rebuildProcessingGraph picks up the correct restored values.

@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.929
+> Version 0.0.930
 
 ---
 
@@ -32,6 +32,7 @@
     * [Export](#export)
     * [Import — Ghost Overlay UX](#import--ghost-overlay-ux)
   * [MIDI Morpher](#midi-morpher)
+  * [Packs](#packs)
   * [Channel Selection](#channel-selection)
   * [Undo / Redo](#undo--redo)
   * [Keyboard Shortcuts](#keyboard-shortcuts)
@@ -103,6 +104,7 @@
 - **Dynamic port counts** — Pax can change their output port count at runtime (e.g. Spectrumyser band count) without audio interruption
 - **Restructured burger menu** — `☰` top-right opens File and Edit flyout submenus with keyboard shortcuts
 - **Hint panel** — hover any node, button, port or edge to see a description in the sidebar hint panel; hovering a Value edge (a Pax adapter/converter's generic value port) shows its current, live numeric value, updating continuously while hovered
+- **Packs** — select a few nodes, `⌘G`, and they fold into one box showing only the connections that cross its border; open it in place to work on the nodes, fold it back, unpack (`⌘⇧G`); saved with the project, undoable; nothing changes in the processing. See [Packs](#packs)
 - **Fold/Unfold** — double-click header to collapse nodes; edges merge gracefully to centre
 - **WebView UI** — React + ReactFlow running inside JUCE's `WebBrowserComponent`; all UI logic is TypeScript, all audio logic is C++
 
@@ -202,6 +204,7 @@ Patchy/
 │       ├── MidiDeviceUI.tsx         MIDI In/Out device summary + MIDI Out channel filter panel
 │       ├── MidiChMatrixNode.tsx     MIDI CH. Matrix node (type 27)
 │       ├── MidiMorpherNode.tsx      MIDI Morpher node (type 28) — Basic/Advanced faces, live feedback, Learn
+│       ├── PackNode.tsx             Packs — the folded box and the open-pack frame (drawn-only, derived in App.tsx)
 │       ├── MorpherCore.ts           MIDI Morpher rule logic (mirrors the C++ engine), no React
 │       ├── MorpherBasic.ts          MIDI Morpher Basic mode: rule ↔ plain-words conversion, sentence, note names
 │       ├── Learn.ts                 Generic MIDI Learn: decodeLearned + useMidiLearn hook
@@ -434,6 +437,8 @@ The menu is organised into two flyout submenus, opening to the left on hover:
 - **Undo** `⌘Z` — step back through 50-step history
 - **Redo** `⌘⇧Z` — step forward
 - **Cut / Copy / Paste** — reserved, coming soon
+- **Pack** `⌘G` — pack the selected nodes (2 or more)
+- **Unpack** `⌘⇧G` — unpack the selected pack (or the open pack holding a selected node)
 - **Delete** `⌫` — remove selected nodes (enabled when nodes are selected)
 
 ---
@@ -480,6 +485,21 @@ One rule per node — the node shows the whole route at a glance; chain several 
 
 ---
 
+## Packs
+
+Several nodes shown as one box, to tidy a busy canvas. A pack is display and project state only: the nodes inside stay ordinary nodes with ordinary connections, so packing never changes what Patchy does with the signal.
+
+- **Pack** — select 2 or more nodes and press `⌘G` (or **☰ → Edit → Pack**). The box takes the place of the nodes, named *PACK* (click the ✎ to rename it).
+- **The box's ports** are the connections crossing its border when it was packed or folded, plus any made since; each shows the port name and the node it belongs to. Connecting to one connects to that inner port. Signal flashes and VU show on the box as on the nodes inside.
+- **Open in place** — the ⤢ button or double-click the box: the nodes come back where they are, inside a dashed frame; fold them back with the frame's ⤡ button. Moving the box moves its nodes.
+- **Enter** (the → button) — opening the pack in its own view: coming next, shown disabled for now.
+- **Unpack** — `⌘⇧G`, **☰ → Edit → Unpack**, or the box / frame's unpack button: the pack goes, the nodes stay.
+- **✕** on the box deletes the pack **and** its nodes (undoable).
+- A node belongs to one pack at most; packs don't nest. Packing nodes from an open pack moves them to the new one.
+- Export… of a selected folded pack exports its nodes.
+
+---
+
 ## Channel Selection
 
 Audio IN and OUT device nodes support per-node channel selection for multi-channel devices (e.g. Blackhole 16ch, up to 256 channels).
@@ -512,8 +532,10 @@ Patchy maintains a **50-step snapshot history** of the full graph state.
 | Rename a node | ✅ |
 | Disable / enable a node | ✅ |
 | MIDI Learn (a learned event) | ✅ |
+| Pack / unpack / rename a pack / delete a pack | ✅ |
 | A value drag (whole drag = one step) | ✅ |
 | Move a node | ❌ (intentional — keeps history clean) |
+| Move a pack, open / fold it | ❌ (same reason) |
 
 Undo/Redo is accessible via `⌘Z` / `⌘⇧Z`, or via **☰ → Edit → Undo / Redo**.
 
@@ -529,6 +551,8 @@ Undo/Redo is accessible via `⌘Z` / `⌘⇧Z`, or via **☰ → Edit → Undo /
 | `⌘⇧S` | Save As |
 | `⌘Z` | Undo |
 | `⌘⇧Z` | Redo |
+| `⌘G` | Pack the selected nodes |
+| `⌘⇧G` | Unpack the selected pack |
 | `F` | Fold / unfold all nodes |
 | `Space` | Play / Pause the selected Audio Player node |
 | `Space Space` (within 400ms) | Return the selected Audio Player node to the start |
@@ -790,4 +814,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.929 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.930 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

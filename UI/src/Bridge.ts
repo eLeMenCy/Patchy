@@ -8,9 +8,21 @@
  * We expose `window.__bridge.onGraphUpdate(json)` for C++→JS.
  */
 
+// v0.0.930 — a pack: several nodes shown as one box (UI / project only)
+export interface RawPack {
+  id:      string;
+  name:    string;
+  nodeIds: string[];
+  ports:   string[];   // inner handle ids shown on the folded face
+  x:       number;
+  y:       number;
+  open:    boolean;
+}
+
 export interface GraphState {
   nodes:         RawNode[];
   connections:   RawConnection[];
+  packs?:        RawPack[];   // v0.0.930
   viewportX?:    number;
   viewportY?:    number;
   viewportZoom?: number;
@@ -1121,6 +1133,18 @@ export const Bridge = {
   moveNode(nodeId: string, x: number, y: number) {
     sendToJuce({ type: 'moveNode', nodeId, x, y });
   },
+
+  // ── Packs (v0.0.930) ────────────────────────────────────────────────────
+  packNodes(nodeIds: string[], name: string, ports: string[], x: number, y: number) {
+    sendToJuce({ type: 'packNodes', nodeIds, name, ports, x, y });   // undoable
+  },
+  packUnpack(packId: string)              { sendToJuce({ type: 'packUnpack', packId }); },          // undoable
+  packRename(packId: string, name: string) { sendToJuce({ type: 'packRename', packId, name }); },   // undoable
+  packRemove(packId: string)              { sendToJuce({ type: 'packRemove', packId }); },          // pack + its nodes, undoable
+  packSetOpen(packId: string, open: boolean, ports?: string[]) {
+    sendToJuce({ type: 'packSetOpen', packId, open, ...(ports ? { ports } : {}) });
+  },
+  packMove(packId: string, x: number, y: number) { sendToJuce({ type: 'packMove', packId, x, y }); },
   setViewport(x: number, y: number, zoom: number) {
     sendToJuce({ type: 'setViewport', x, y, zoom });
   },

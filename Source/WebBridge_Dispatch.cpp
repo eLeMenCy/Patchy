@@ -81,6 +81,8 @@ void WebBridge::handleMessage (const juce::String& json)
         handleMidiKeyEvent (obj);
     else if (type == "removeNode")
         handleRemoveNode (obj);
+    else if (type.startsWith ("pack"))   // v0.0.930 — packNodes, packUnpack, packSetOpen, packMove, packRename, packRemove
+        handlePackMessage (type, obj);
     else if (type == "addConnection")
         handleAddConnection (obj);
     else if (type == "removeConnection")
@@ -876,3 +878,84 @@ void WebBridge::handleSetAudioEngineSettings (const juce::DynamicObject* obj)
     if (onSetAudioEngineSettings)
         onSetAudioEngineSettings (sr, buf, mute);
 }
+
+// ── Packs (v0.0.930) ──────────────────────────────────────────────────────────
+// A pack is UI / project state only (GraphModel::PackData): none of these
+// touch the processing graph. Undoable ones push a snapshot first; moving a
+// folded pack and opening/closing it are not undoable (like moving a node).
+void WebBridge::handlePackMessage (const juce::String& type, const juce::DynamicObject* obj)
+{
+    const juce::String packId = obj->getProperty ("packId").toString();
+    auto strings = [] (const juce::var& v)
+    {
+        juce::StringArray out;
+        if (auto* a = v.getArray()) for (const auto& s : *a) out.add (s.toString());
+        return out;
+    };
+
+    if (type == "packNodes")
+    {
+        auto ids = strings (obj->getProperty ("nodeIds"));
+        juce::StringArray existing;
+        for (const auto& id : ids) if (graph.findNode (id) != nullptr) existing.add (id);
+        if (existing.isEmpty()) return;
+        pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
+        graph.pushSnapshot();
+        graph.addPack (obj->getProperty ("name").toString(), existing,
+                       strings (obj->getProperty ("ports")),
+                       (float) (double) obj->getProperty ("x"), (float) (double) obj->getProperty ("y"));
+    }
+    else if (type == "packUnpack")
+    {
+        if (graph.findPack (packId) == nullptr) return;
+        pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
+        graph.pushSnapshot();
+        graph.removePack (packId);
+    }
+    else if (type == "packRename")
+    {
+        auto* p = graph.findPack (packId);
+        const auto name = obj->getProperty ("name").toString();
+        if (p == nullptr || p->name == name) return;
+        pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
+        graph.pushSnapshot();
+        p->name = name;
+    }
+    else if (type == "packRemove")   // delete the pack AND its nodes — one undo step
+    {
+        auto* p = graph.findPack (packId);
+        if (p == nullptr) return;
+        const auto members = p->nodeIds;
+        pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
+        graph.pushSnapshot();
+        graph.suspendNotifications();
+        for (const auto& id : members) graph.removeNode (id);   // also drops the emptied pack
+        graph.removePack (packId);
+        graph.resumeNotifications();   // one rebuild, pushes the graph
+        pushUndoState();
+        return;
+    }
+    else if (type == "packSetOpen")   // not undoable; the UI already shows it
+    {
+        if (auto* p = graph.findPack (packId))
+        {
+            p->open = (bool) obj->getProperty ("open");
+            if (obj->hasProperty ("ports")) p->ports = strings (obj->getProperty ("ports"));
+        }
+        return;
+    }
+    else if (type == "packMove")   // not undoable, like moving a node
+    {
+        if (auto* p = graph.findPack (packId))
+        {
+            p->x = (float) (double) obj->getProperty ("x");
+            p->y = (float) (double) obj->getProperty ("y");
+        }
+        return;
+    }
+    else return;
+
+    pushGraphToUI();
+    pushUndoState();
+}
+

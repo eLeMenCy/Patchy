@@ -19,6 +19,7 @@ public:
         testPortsForType();
         testCycleDetection();
         testSerialisationRoundtrip();
+        testPacks();
     }
 
 private:
@@ -231,6 +232,61 @@ private:
         expectEquals (g2.getNodes().size(), (size_t) 2);
         expectEquals (g2.getNodes()[0].nodeType, g.getNodes()[0].nodeType);
         expectEquals (g2.getNodes()[1].nodeType, g.getNodes()[1].nodeType);
+    }
+
+    // v0.0.930 — packs: UI/project state kept in GraphModel
+    void testPacks()
+    {
+        beginTest ("packs: add, one-level membership, node removal, undo snapshot round trip");
+
+        auto g = makeGraph();
+        const auto a = g.addNode (5, 0.f, 0.f).id;     // MIDI Monitor
+        const auto b = g.addNode (28, 200.f, 0.f).id;  // MIDI Morpher
+        const auto c = g.addNode (5, 400.f, 0.f).id;
+
+        auto& p1 = g.addPack ("FIRST", juce::StringArray { a, b }, juce::StringArray { "x_MIDI In_in" }, 10.f, 20.f);
+        const auto p1Id = p1.id;
+        expectEquals ((int) g.getPacks().size(), 1);
+        expectEquals (g.findPack (p1Id)->nodeIds.size(), 2);
+
+        // A node joining another pack leaves the first one (one level, one pack per node)
+        const auto p2Id = g.addPack ("SECOND", juce::StringArray { b, c }, {}, 0.f, 0.f).id;
+        expectEquals (g.findPack (p1Id)->nodeIds.size(), 1, "b moved out of FIRST");
+        expectEquals (g.findPack (p2Id)->nodeIds.size(), 2);
+
+        // Undo snapshot round trip keeps packs (name, members, ports, position, open)
+        g.findPack (p1Id)->open = true;
+        g.pushSnapshot();
+        g.removePack (p2Id);
+        expectEquals ((int) g.getPacks().size(), 1);
+        expect (g.undo());
+        expectEquals ((int) g.getPacks().size(), 2, "undo brings the pack back");
+        auto* r1 = g.findPack (p1Id);
+        expect (r1 != nullptr);
+        if (r1 != nullptr)
+        {
+            expectEquals (r1->name, juce::String ("FIRST"));
+            expectEquals (r1->ports[0], juce::String ("x_MIDI In_in"));
+            expectEquals ((int) r1->x, 10);
+            expect (r1->open);
+        }
+
+        // Removing the last member removes the pack
+        g.removeNode (a);
+        expect (g.findPack (p1Id) == nullptr, "empty pack removed");
+        expectEquals ((int) g.getPacks().size(), 1);
+
+        // toVar carries packs; restorePacks drops members that no longer exist
+        auto v = g.toVar();
+        expect (v.getProperty ("packs", {}).isArray());
+        g.removeNode (c);
+        g.restorePacks (v.getProperty ("packs", {}));
+        expectEquals ((int) g.getPacks().size(), 1);
+        expectEquals (g.getPacks()[0].nodeIds.size(), 1, "c dropped, b kept");
+
+        // Older snapshots without "packs" → none
+        g.restorePacks (juce::var());
+        expectEquals ((int) g.getPacks().size(), 0);
     }
 };
 

@@ -99,6 +99,19 @@ struct NodeData
     std::vector<Port> ports;
 };
 
+/** A pack (v0.0.930) — several nodes shown as one box on the canvas.
+ *  Purely a UI / project-file concept: the processing graph never looks at
+ *  packs (members stay ordinary nodes with ordinary connections), so packing
+ *  can't affect audio/MIDI. One level only (no packs inside packs). */
+struct PackData
+{
+    juce::String      id, name;
+    juce::StringArray nodeIds;   // members
+    juce::StringArray ports;     // inner handle ids shown on the folded face (stable list)
+    float             x = 0.f, y = 0.f;   // folded box position
+    bool              open = false;       // opened in place (members shown in a frame)
+};
+
 struct Connection
 {
     juce::String id;
@@ -136,6 +149,7 @@ public:
     {
         nodes.clear();
         connections.clear();
+        packs.clear();
         viewportX = viewportY = 0.0f;
         viewportZoom = 1.0f;
     }
@@ -155,6 +169,18 @@ public:
     void        setNodeSettings  (const juce::String& nodeId, const juce::String& json);
 
     juce::var   toVar() const;
+
+    // ── Packs (v0.0.930) — see PackData ───────────────────────────────────────
+    // No onChange from these: packs don't touch processing. Callers push the
+    // graph to the UI (and an undo snapshot where it's an undoable action).
+    PackData&   addPack     (const juce::String& name, const juce::StringArray& nodeIds,
+                             const juce::StringArray& ports, float x, float y);
+    PackData*   findPack    (const juce::String& packId);
+    bool        removePack  (const juce::String& packId);   // unpack: members stay
+    /** Rebuild packs from a saved "packs" array (snapshot / file); members
+        that no longer exist are dropped, empty packs skipped. */
+    void        restorePacks (const juce::var& packsArray);
+    const std::vector<PackData>& getPacks() const { return packs; }
 
     // ── Undo / Redo ───────────────────────────────────────────────────────────
     static constexpr int kMaxUndoSteps = 50;
@@ -198,6 +224,7 @@ private:
 
     std::vector<NodeData>   nodes;
     std::vector<Connection> connections;
+    std::vector<PackData>   packs;   // v0.0.930
 
     bool notificationsSuspended  = false;
 

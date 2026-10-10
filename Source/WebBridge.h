@@ -346,6 +346,7 @@ private:
     void handleSetNodeParam_DmxSettings (const juce::String& nodeId, const juce::String& value);
     void handleSetNodeParam_DmxConsoleChannel (const juce::String& nodeId, const juce::String& value);
     void handleSetNodeParam_MidiChMatrixCell (const juce::String& nodeId, const juce::String& value);
+    void handlePackMessage (const juce::String& type, const juce::DynamicObject* obj);   // v0.0.930
     void handleSetNodeParam_MidiOutDeviceChannelFilter (const juce::String& nodeId, const juce::String& value);
     void handleSetNodeParam_DmxBlackout (const juce::String& nodeId, const juce::String& value);
     void handleSetNodeParam_ArtNetConsoleChannel (const juce::String& nodeId, const juce::String& value);

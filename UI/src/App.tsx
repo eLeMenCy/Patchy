@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useContext, DragEvent, ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useContext, DragEvent, ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { DawContext } from './DawContext';
 import {
@@ -21,7 +21,8 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { Bridge, RecentFile, FileMissing, FileState, AudioSettings, GraphState, RawNode, RawConnection, RawPort, PortActivityEntry, PaxParamInfo, PaxInfo, FragmentData, UndoState, AudioPlayerStatus } from './Bridge';
+import { Bridge, RecentFile, FileMissing, FileState, AudioSettings, GraphState, RawNode, RawConnection, RawPort, PortActivityEntry, PaxParamInfo, PaxInfo, FragmentData, UndoState, AudioPlayerStatus, RawPack } from './Bridge';
+import { PackNode, PackFrame, PackPort, PackActions, FRAME_PAD, FRAME_HEAD } from './PackNode';
 import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
@@ -49,7 +50,7 @@ import AudioPeakToOscNode from './AudioPeakToOscNode';
 import { _paxInfoMap } from './NodeUtils';
 
 // ── Node type registry ────────────────────────────────────────────────────────
-const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, audioPlayer: AudioPlayerNode, midiChMatrix: MidiChMatrixNode, midiMorpher: MidiMorpherNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, channelFilterPax: ChannelFilterPaxNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode };
+const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, audioPlayer: AudioPlayerNode, midiChMatrix: MidiChMatrixNode, midiMorpher: MidiMorpherNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, channelFilterPax: ChannelFilterPaxNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode, pack: PackNode, packFrame: PackFrame };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 // _paxInfoMap lives in NodeUtils.tsx (not declared here) — GenericNode.tsx
@@ -197,6 +198,76 @@ function colourForHandleId (handleId: string): string {
   if (h.includes('value'))   return 'var(--value)';  // Pax adapter/converter ports (Phase 4)
   if (h.includes('midi'))    return 'var(--midi)';
   return 'var(--accent)';
+}
+
+// ── Packs (v0.0.930) ────────────────────────────────────────────────────────
+// A pack is UI / project state only (see PackNode.tsx). These helpers turn
+// the real nodes / edges into what ReactFlow draws. The ids of the drawn-only
+// nodes carry a prefix so every handler can tell them from real nodes.
+const PACK_PREFIX  = 'pack:';
+const FRAME_PREFIX = 'packframe:';
+const isPackViewId = (id: string) => id.startsWith(PACK_PREFIX) || id.startsWith(FRAME_PREFIX);
+// Handle id = {nodeId}_{Label}_{in|out}; node ids are 32-hex, no underscore
+const realNodeOfHandle = (handle: string) => handle.split('_')[0];
+
+// Inner handles of the edges that cross the border of a set of nodes
+function packBoundaryHandles (members: Set<string>, edges: Edge[]): string[] {
+  const out: string[] = [];
+  for (const e of edges) {
+    const s = members.has(e.source), t = members.has(e.target);
+    if (s && !t && e.sourceHandle) out.push(e.sourceHandle);
+    if (t && !s && e.targetHandle) out.push(e.targetHandle);
+  }
+  return out;
+}
+
+// Face ports = the ones remembered at pack/fold time + any border crossing now
+function packFacePorts (p: RawPack, nodes: Node<any>[], edges: Edge[]): PackPort[] {
+  const members = new Set(p.nodeIds);
+  const byId    = new Map(nodes.map(n => [n.id, n]));
+  const seen    = new Set<string>();
+  const res: PackPort[] = [];
+  for (const h of [...p.ports, ...packBoundaryHandles(members, edges)]) {
+    if (seen.has(h)) continue;
+    seen.add(h);
+    const n = byId.get(realNodeOfHandle(h));
+    if (!n || !members.has(n.id)) continue;
+    const list = n.data?.ports as RawPort[] | undefined;
+    const rp   = list?.find(q => q.id === h);
+    if (list && !rp) continue;                       // port no longer exists
+    res.push({
+      handleId: h,
+      label:    rp?.label ?? h.split('_')[1] ?? h,
+      nodeName: (n.data?.customName as string) || (n.data?.label as string) || '',
+      dir:      h.endsWith('_in') ? 'in' : 'out',
+      colour:   colourForHandleId(h),
+    });
+  }
+  return res;
+}
+
+// A folded pack's ports are its inner ports (same handle ids), so the real
+// node of a connection end is read from the handle id.
+function toRealConnection (c: Connection): Connection {
+  return {
+    ...c,
+    source: c.source.startsWith(PACK_PREFIX) && c.sourceHandle ? realNodeOfHandle(c.sourceHandle) : c.source,
+    target: c.target.startsWith(PACK_PREFIX) && c.targetHandle ? realNodeOfHandle(c.targetHandle) : c.target,
+  };
+}
+
+// Top-left / bottom-right of a pack's members on the canvas
+function packBounds (ids: string[], nodes: Node<any>[]) {
+  const set = new Set(ids);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const n of nodes) {
+    if (!set.has(n.id)) continue;
+    const w = n.measured?.width  ?? n.width  ?? 220;
+    const h = n.measured?.height ?? n.height ?? 120;
+    x0 = Math.min(x0, n.position.x);     y0 = Math.min(y0, n.position.y);
+    x1 = Math.max(x1, n.position.x + w); y1 = Math.max(y1, n.position.y + h);
+  }
+  return x0 === Infinity ? null : { x0, y0, x1, y1 };
 }
 
 function usePortActivityStyles (edges: any[], nodes: any[]) {
@@ -690,6 +761,22 @@ function FlowCanvas() {
   const [nodes, setNodes] = useState<Node<any>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
 
+  // v0.0.930 — packs (see PackNode.tsx). packsRef mirrors the state so the
+  // drag / fold handlers always see the latest values.
+  const [packs, setPacksState] = useState<RawPack[]>([]);
+  const packsRef = useRef<RawPack[]>([]);
+  const setPacks = useCallback((next: RawPack[] | ((ps: RawPack[]) => RawPack[])) => {
+    packsRef.current = typeof next === 'function' ? next(packsRef.current) : next;
+    setPacksState(packsRef.current);
+  }, []);
+  const [selectedPacks, setSelectedPacks] = useState<Set<string>>(new Set());
+  const packDragStart = useRef<Map<string, { x: number; y: number }>>(new Map());
+  // Measured size of each folded box: ReactFlow needs it back on every render,
+  // or it hides the box until it re-measures it (= flashing while dragging)
+  const [packMeasured, setPackMeasured] = useState<Record<string, { width: number; height: number }>>({});
+  // Open-pack frame drag: frame start + members' start positions
+  const frameDrag = useRef<Map<string, { fx: number; fy: number; members: Map<string, { x: number; y: number }> }>>(new Map());
+
   // v0.0.919 — "Host paused — Patchy running independently" indicator
   // (bottom-left of the canvas). See Bridge.onHostPaused.
   const [hostPaused, setHostPaused] = useState(false);
@@ -733,7 +820,7 @@ function FlowCanvas() {
   };
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { setHint } = useContext(HintContext);
-  const { screenToFlowPosition, setViewport, updateNode, getNodes, deleteElements } = useReactFlow();
+  const { screenToFlowPosition, setViewport, updateNode, getNodes, getEdges, deleteElements } = useReactFlow();
   const pendingDrop     = useRef<{ dropX: number; dropY: number } | null>(null);
   const knownNodeIds    = useRef<Set<string>>(new Set());
   const burgerBtnRef    = useRef<HTMLButtonElement>(null);
@@ -1047,6 +1134,142 @@ function FlowCanvas() {
   }, [nodes]);
   usePortActivityStyles(edges, nodes);
 
+  // ── Packs (v0.0.930) ─────────────────────────────────────────────────────
+  // Real nodes / edges stay the truth (and feed usePortActivityStyles above);
+  // ReactFlow draws the derived view below.
+  // The real nodes (folded members are not in ReactFlow's own list)
+  const nodesRef = useRef<Node<any>[]>(nodes);
+  nodesRef.current = nodes;
+  const realNodesOfPack = useCallback((packId: string) => {
+    const p = packsRef.current.find(q => q.id === packId);
+    if (!p) return [] as Node<any>[];
+    const ids = new Set(p.nodeIds);
+    return nodesRef.current.filter(n => ids.has(n.id));
+  }, []);
+
+  const packActions = useMemo<PackActions>(() => ({
+    open: (packId) => {
+      // Members come back measured from scratch (as after a file load):
+      // sizes / handle positions kept from before they were hidden are stale
+      const p   = packsRef.current.find(q => q.id === packId);
+      const ids = new Set(p?.nodeIds ?? []);
+      setNodes(ns => ns.map(n => ids.has(n.id) ? { ...n, measured: undefined } : n));
+      setTimeout(() => ids.forEach(id => updateNodeInternals(id)), 50);
+      setPacks(ps => ps.map(p => p.id === packId ? { ...p, open: true } : p));
+      setSelectedPacks(s => { const n = new Set(s); n.delete(packId); return n; });
+      Bridge.packSetOpen(packId, true);
+    },
+    close: (packId) => {
+      const p = packsRef.current.find(q => q.id === packId);
+      if (!p) return;
+      const all   = getNodes().filter(n => !isPackViewId(n.id));
+      const ports = packFacePorts(p, all, getEdges()).map(q => q.handleId);
+      const b     = packBounds(p.nodeIds, all);
+      const x = b ? b.x0 : p.x, y = b ? b.y0 : p.y;
+      // members leave the selection as they disappear
+      const ids = new Set(p.nodeIds);
+      setNodes(ns => ns.map(n => ids.has(n.id) && n.selected ? { ...n, selected: false } : n));
+      setPacks(ps => ps.map(q => q.id === packId ? { ...q, open: false, ports, x, y } : q));
+      Bridge.packSetOpen(packId, false, ports);
+      Bridge.packMove(packId, x, y);
+    },
+    unpack: (packId) => Bridge.packUnpack(packId),
+    remove: (packId) => Bridge.packRemove(packId),
+    rename: (packId, name) => {
+      setPacks(ps => ps.map(p => p.id === packId ? { ...p, name } : p));
+      Bridge.packRename(packId, name);
+    },
+  }), [getNodes, getEdges, setPacks, updateNodeInternals]);
+
+  const view = useMemo(() => {
+    if (packs.length === 0) return { nodes, edges };
+    const closedOf = new Map<string, string>();       // member → its folded pack
+    for (const p of packs) if (!p.open) for (const id of p.nodeIds) closedOf.set(id, p.id);
+
+    const frames: Node<any>[] = [];
+    const boxes:  Node<any>[] = [];
+    for (const p of packs) {
+      if (p.open) {
+        const b = packBounds(p.nodeIds, nodes);
+        if (!b) continue;
+        const w = b.x1 - b.x0 + 2 * FRAME_PAD, h = b.y1 - b.y0 + 2 * FRAME_PAD + FRAME_HEAD;
+        frames.push({
+          id: FRAME_PREFIX + p.id, type: 'packFrame',
+          position: { x: b.x0 - FRAME_PAD, y: b.y0 - FRAME_PAD - FRAME_HEAD },
+          width: w, height: h, zIndex: -1, dragHandle: '.pack-frame-drag',
+          selectable: false, deletable: false, connectable: false, focusable: false,
+          style: { width: w, height: h, pointerEvents: 'none' },
+          data: { pack: p, actions: packActions },
+        });
+      } else {
+        boxes.push({
+          id: PACK_PREFIX + p.id, type: 'pack', position: { x: p.x, y: p.y },
+          deletable: false, selected: selectedPacks.has(p.id), measured: packMeasured[p.id],
+          data: { pack: p, ports: packFacePorts(p, nodes, edges), actions: packActions },
+        });
+      }
+    }
+    // Folded members are left out entirely (not `hidden`): ReactFlow keeps
+    // stale internals for hidden nodes, and a member shown again after being
+    // drawn once stayed invisible. Left out, it comes back as a fresh node.
+    const shown = nodes.filter(n => !closedOf.has(n.id));
+    const viewEdges: Edge[] = [];
+    for (const e of edges) {
+      const sp = closedOf.get(e.source), tp = closedOf.get(e.target);
+      if (!sp && !tp) { viewEdges.push(e); continue; }
+      if (sp && sp === tp) continue;                   // internal to a folded pack
+      viewEdges.push({ ...e, source: sp ? PACK_PREFIX + sp : e.source, target: tp ? PACK_PREFIX + tp : e.target });
+    }
+    return { nodes: [...frames, ...shown, ...boxes], edges: viewEdges };
+  }, [nodes, edges, packs, selectedPacks, packActions, packMeasured]);
+
+  // ⌘G — pack the selected nodes (2 or more)
+  const packSelection = useCallback(() => {
+    const sel = getNodes().filter(n => n.selected && !n.hidden && !isPackViewId(n.id));
+    if (sel.length < 2) return;
+    const ids     = sel.map(n => n.id);
+    const members = new Set(ids);
+    const ports   = [...new Set(packBoundaryHandles(members, getEdges()))];
+    const x = Math.min(...sel.map(n => n.position.x));
+    const y = Math.min(...sel.map(n => n.position.y));
+    setNodes(ns => ns.map(n => members.has(n.id) ? { ...n, selected: false } : n));
+    Bridge.packNodes(ids, 'PACK', ports, x, y);
+  }, [getNodes, getEdges]);
+
+  // ⌘⇧G — unpack the selected packs, or the open packs holding a selected node
+  const unpackSelection = useCallback(() => {
+    const selNodes = new Set(getNodes().filter(n => n.selected && !isPackViewId(n.id)).map(n => n.id));
+    for (const p of packsRef.current)
+      if ((!p.open && selectedPacks.has(p.id)) || (p.open && p.nodeIds.some(id => selNodes.has(id))))
+        Bridge.packUnpack(p.id);
+  }, [getNodes, selectedPacks]);
+
+  const canPack   = () => getNodes().filter(n => n.selected && !n.hidden && !isPackViewId(n.id)).length >= 2;
+  const canUnpack = () => {
+    const selNodes = new Set(getNodes().filter(n => n.selected && !isPackViewId(n.id)).map(n => n.id));
+    return packsRef.current.some(p => (!p.open && selectedPacks.has(p.id)) || (p.open && p.nodeIds.some(id => selNodes.has(id))));
+  };
+
+  const lastPackKey = useRef(0);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT' || ae.isContentEditable)) return;
+      const native = e.metaKey && (e.key === 'g' || e.key === 'G');
+      const pack   = e.key === 'Pack'   || (native && !e.shiftKey);
+      const unpack = e.key === 'Unpack' || (native &&  e.shiftKey);
+      if (!pack && !unpack) return;
+      e.preventDefault();
+      // native + forwarded copies of the same keystroke: act once
+      const now = Date.now();
+      if (now - lastPackKey.current < 200) return;
+      lastPackKey.current = now;
+      if (pack) packSelection(); else unpackSelection();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [packSelection, unpackSelection]);
+
 
   // ── Sync from JUCE model ─────────────────────────────────────────────────
   useEffect(() => {
@@ -1062,6 +1285,7 @@ function FlowCanvas() {
           });
         });
         setEdges(state.connections.map(rawToFlowEdge));
+        setPacks(state.packs ?? []);
       });
 
       // Update node internals so edge endpoints snap to port dots after load
@@ -1090,7 +1314,81 @@ function FlowCanvas() {
   }, []);
 
   // ── Node / edge change handlers ──────────────────────────────────────────
-  const onNodesChange = useCallback((changes: NodeChange[]) => {
+  const onNodesChange = useCallback((all: NodeChange[]) => {
+    // v0.0.930 — changes to the drawn-only pack box / frame never reach the
+    // real nodes: the box moves its pack (members follow at drag end) and
+    // keeps its own selection; everything else about them is ignored.
+    const changes: NodeChange[] = [];
+    for (const c of all) {
+      const id = (c as { id?: string }).id;
+      if (!id || !isPackViewId(id)) {
+        // a folded member is hidden: any size reported for it is meaningless
+        if (id && c.type === 'dimensions' && packsRef.current.some(p => !p.open && p.nodeIds.includes(id))) continue;
+        changes.push(c); continue;
+      }
+      if (id.startsWith(FRAME_PREFIX)) {
+        // Open pack: dragging the frame's title bar moves its members
+        if (c.type !== 'position') continue;
+        const packId = id.slice(FRAME_PREFIX.length);
+        let st = frameDrag.current.get(packId);
+        if (!st && c.position) {
+          const mem = realNodesOfPack(packId);
+          const b   = packBounds(mem.map(n => n.id), mem);
+          if (!b) continue;
+          st = { fx: b.x0 - FRAME_PAD, fy: b.y0 - FRAME_PAD - FRAME_HEAD,
+                 members: new Map(mem.map(n => [n.id, { x: n.position.x, y: n.position.y }])) };
+          frameDrag.current.set(packId, st);
+        }
+        if (!st) continue;
+        const s0 = st;
+        if (c.position) {
+          const dx = c.position.x - s0.fx, dy = c.position.y - s0.fy;
+          setNodes(ns => ns.map(n => { const m = s0.members.get(n.id);
+            return m ? { ...n, position: { x: m.x + dx, y: m.y + dy } } : n; }));
+          (s0 as any).dx = dx; (s0 as any).dy = dy;
+        }
+        if (c.dragging === false) {
+          frameDrag.current.delete(packId);
+          const dx = (s0 as any).dx ?? 0, dy = (s0 as any).dy ?? 0;
+          if (dx || dy) s0.members.forEach((m, nid) => Bridge.moveNode(nid, m.x + dx, m.y + dy));
+        }
+        continue;
+      }
+      const packId = id.slice(PACK_PREFIX.length);
+      if (c.type === 'dimensions') {
+        const d = c.dimensions;
+        if (d && d.width && d.height)
+          setPackMeasured(pm => pm[packId]?.width === d.width && pm[packId]?.height === d.height
+            ? pm : { ...pm, [packId]: { width: d.width, height: d.height } });
+      } else if (c.type === 'select') {
+        setSelectedPacks(sp => {
+          if (sp.has(packId) === c.selected) return sp;
+          const n = new Set(sp); if (c.selected) n.add(packId); else n.delete(packId); return n;
+        });
+      } else if (c.type === 'position') {
+        const p = packsRef.current.find(q => q.id === packId);
+        if (!p) continue;
+        if (c.position) {
+          if (!packDragStart.current.has(packId)) packDragStart.current.set(packId, { x: p.x, y: p.y });
+          const { x, y } = c.position;
+          setPacks(ps => ps.map(q => q.id === packId ? { ...q, x, y } : q));
+        }
+        if (c.dragging === false) {
+          const start = packDragStart.current.get(packId);
+          packDragStart.current.delete(packId);
+          const cur = packsRef.current.find(q => q.id === packId)!;
+          const dx = start ? cur.x - start.x : 0, dy = start ? cur.y - start.y : 0;
+          if (dx || dy) {
+            const moved = realNodesOfPack(packId).map(n => ({ id: n.id, x: n.position.x + dx, y: n.position.y + dy }));
+            const byId  = new Map(moved.map(m => [m.id, m]));
+            setNodes(ns => ns.map(n => { const m = byId.get(n.id); return m ? { ...n, position: { x: m.x, y: m.y } } : n; }));
+            moved.forEach(m => Bridge.moveNode(m.id, m.x, m.y));
+          }
+          Bridge.packMove(packId, cur.x, cur.y);
+        }
+      }
+    }
+    if (changes.length === 0) return;
     setNodes(ns => applyNodeChanges(changes, ns) as Node<any>[]);
     for (const c of changes) {
       if (c.type === 'position' && c.position)
@@ -1111,7 +1409,7 @@ function FlowCanvas() {
         knownNodeIds.current.add((c as any).id);
       }
     }
-  }, [updateNode]);
+  }, [updateNode, realNodesOfPack, setPacks]);
 
   const onEdgesChange = useCallback((changes: EdgeChange[]) => {
     setEdges(es => applyEdgeChanges(changes, es));
@@ -1185,6 +1483,7 @@ function FlowCanvas() {
   const onSelectionChange = useCallback(({ nodes: selected }: { nodes: any[] }) => {
     const selectedIds = new Set(selected.map((n: any) => n.id));
     getNodes().forEach(n => {
+      if (isPackViewId(n.id)) return;   // v0.0.930 — drawn-only pack box / frame
       const z = n.style?.zIndex ?? 0;
       const hasSettings = z === 9999 || z === 10000;
       if (selectedIds.has(n.id)) {
@@ -1202,7 +1501,8 @@ function FlowCanvas() {
   // ReactFlow v12: onReconnect fires when the drag ends on a valid new target.
   // We remove the old connection and add the new one.
   const onReconnect = useCallback(
-    (oldEdge: Edge, newConnection: Connection) => {
+    (oldEdge: Edge, viewConnection: Connection) => {
+      const newConnection = toRealConnection(viewConnection);   // v0.0.930 — pack box ports
       // Remove old connection from C++ model
       Bridge.removeConnection(oldEdge.id);
       // Add the new connection if valid
@@ -1220,8 +1520,9 @@ function FlowCanvas() {
   );
 
 
-  const onConnect = useCallback((connection: Connection) => {
-    if (!isValidConnection(connection)) return;
+  const onConnect = useCallback((viewConnection: Connection) => {
+    if (!isValidConnection(viewConnection)) return;
+    const connection = toRealConnection(viewConnection);   // v0.0.930 — pack box ports
     Bridge.addConnection(
       connection.source,
       connection.sourceHandle!,
@@ -1359,8 +1660,8 @@ function FlowCanvas() {
       <ReactFlow
         onPaneClick={() => { setShowFileMenu(false); setShowPrefs(false); }}
         onNodeClick={() => { setShowFileMenu(false); setShowPrefs(false); }}
-        nodes={nodes}
-        edges={edges}
+        nodes={view.nodes}
+        edges={view.edges}
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
@@ -1572,7 +1873,9 @@ function FlowCanvas() {
                     <MenuRow label="Save As…" shortcut="⌘⇧S" onClick={() => { Bridge.fileSaveAs(); setShowFileMenu(false); }} />
                     <MenuDivider />
                     {(() => {
-                      const selectedNodes = getNodes().filter(n => n.selected);
+                      // v0.0.930 — a selected folded pack exports its nodes
+                      const packed        = new Set(packsRef.current.filter(p => !p.open && selectedPacks.has(p.id)).flatMap(p => p.nodeIds));
+                      const selectedNodes = nodesRef.current.filter(n => (n.selected && !packsRef.current.some(p => !p.open && p.nodeIds.includes(n.id))) || packed.has(n.id));
                       const hasSelection  = selectedNodes.length > 0;
                       const handleExport  = () => {
                         if (!hasSelection) return;
@@ -1627,8 +1930,11 @@ function FlowCanvas() {
                     <MenuRow label="Copy"   shortcut="⌘C" enabled={false} />
                     <MenuRow label="Paste"  shortcut="⌘V" enabled={false} />
                     <MenuDivider />
+                    <MenuRow label="Pack"   shortcut="⌘G"  enabled={canPack()}   onClick={() => { packSelection();   setShowFileMenu(false); }} />
+                    <MenuRow label="Unpack" shortcut="⌘⇧G" enabled={canUnpack()} onClick={() => { unpackSelection(); setShowFileMenu(false); }} />
+                    <MenuDivider />
                     {(() => {
-                      const selectedNodes = getNodes().filter(n => n.selected);
+                      const selectedNodes = getNodes().filter(n => n.selected && !isPackViewId(n.id));
                       const hasSelection  = selectedNodes.length > 0;
                       return (
                         <MenuRow

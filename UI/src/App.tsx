@@ -22,7 +22,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import { Bridge, RecentFile, FileMissing, FileState, AudioSettings, GraphState, RawNode, RawConnection, RawPort, PortActivityEntry, PaxParamInfo, PaxInfo, FragmentData, UndoState, AudioPlayerStatus, RawPack } from './Bridge';
-import { PackNode, PackFrame, PackPort, PackActions, FRAME_PAD, FRAME_HEAD } from './PackNode';
+import { PackNode, PackFrame, PackPort, PackPax, PackActions, FRAME_PAD, FRAME_HEAD } from './PackNode';
 import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
@@ -47,7 +47,7 @@ import ChannelFilterPaxNode from './ChannelFilterPaxNode';
 import EnvelopeNode     from './EnvelopeNode';
 import AudioToDmxNode from './AudioToDmxNode';
 import AudioPeakToOscNode from './AudioPeakToOscNode';
-import { _paxInfoMap } from './NodeUtils';
+import { _paxInfoMap, detectPaxTheme } from './NodeUtils';
 
 // ── Node type registry ────────────────────────────────────────────────────────
 const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, audioPlayer: AudioPlayerNode, midiChMatrix: MidiChMatrixNode, midiMorpher: MidiMorpherNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, channelFilterPax: ChannelFilterPaxNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode, pack: PackNode, packFrame: PackFrame };
@@ -254,6 +254,47 @@ function toRealConnection (c: Connection): Connection {
     source: c.source.startsWith(PACK_PREFIX) && c.sourceHandle ? realNodeOfHandle(c.sourceHandle) : c.source,
     target: c.target.startsWith(PACK_PREFIX) && c.targetHandle ? realNodeOfHandle(c.targetHandle) : c.target,
   };
+}
+
+// v0.0.931 — a generic Pax's values: settingsJson is a plain array, one value
+// per parameter (missing ones = default), same reading as GenericNode
+function paxValues (n: Node<any>): number[] {
+  const params = (n.data?.paxParams ?? []) as PaxParamInfo[];
+  let raw: number[] | null = null;
+  try { raw = n.data?.settingsJson ? JSON.parse(n.data.settingsJson) : null; } catch { raw = null; }
+  return params.map((p, i) => (Array.isArray(raw) && typeof raw[i] === 'number') ? raw[i] : p.defaultValue);
+}
+
+// A Pax node's own colour (same detection as GenericNode's header)
+const paxNodeAccent = (n: Node<any>) =>
+  detectPaxTheme(n.data.ports ?? [], _paxInfoMap.get(n.data.paxName)?.colourCategory).accent;
+
+// The generic Pax inside a pack (type 'custom' with a paxName — the bespoke
+// Pax nodes keep their own settings layouts and are not listed yet)
+function packPaxOf (p: RawPack, nodes: Node<any>[]): PackPax[] {
+  const ids = new Set(p.nodeIds);
+  return nodes
+    .filter(n => ids.has(n.id) && n.type === 'custom' && n.data?.paxName && (n.data?.paxParams ?? []).length > 0)
+    .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x)
+    .map(n => ({
+      nodeId: n.id,
+      name:   (n.data.customName as string) || (n.data.paxName as string) || (n.data.label as string) || 'Pax',
+      params: n.data.paxParams as PaxParamInfo[],
+      values: paxValues(n),
+      accent: paxNodeAccent(n),
+      // live values = what the Pax sends out: its output wires' colour
+      // (same label-based mapping as the edges); several output types →
+      // the node's own colour
+      liveColour: (() => {
+        const outs = ((n.data.ports ?? []) as RawPort[]).filter(q => q.direction === 'output').map(q => colourForHandleId(q.id));
+        return outs.length > 0 && outs.every(c => c === outs[0]) ? outs[0] : paxNodeAccent(n);
+      })(),
+    }))
+    // two Pax of the same name in one pack: "Amp", "Amp 2" (top to bottom)
+    .map((x, k, all) => {
+      const same = all.slice(0, k).filter(y => y.name === x.name).length;
+      return same > 0 ? { ...x, name: `${x.name} ${same + 1}` } : x;
+    });
 }
 
 // Top-left / bottom-right of a pack's members on the canvas
@@ -1179,6 +1220,21 @@ function FlowCanvas() {
       setPacks(ps => ps.map(p => p.id === packId ? { ...p, name } : p));
       Bridge.packRename(packId, name);
     },
+    // v0.0.931 — the pack panel edits the (not drawn) Pax node exactly like
+    // its own controls do; the local settingsJson is updated too, so the
+    // panel, the summary and the node itself (when shown again) agree
+    setParam: (nodeId, index, value) => {
+      const n = nodesRef.current.find(m => m.id === nodeId);
+      if (!n) return;
+      const vals = paxValues(n);
+      vals[index] = value;
+      const json = JSON.stringify(vals);
+      nodesRef.current = nodesRef.current.map(m => m.id === nodeId ? { ...m, data: { ...m.data, settingsJson: json } } : m);
+      setNodes(ns => ns.map(m => m.id === nodeId ? { ...m, data: { ...m.data, settingsJson: json } } : m));
+      Bridge.setNodeSettings(nodeId, vals);
+      Bridge.setPaxParameter(nodeId, index, value);
+    },
+    commitParam: (nodeId) => Bridge.commitNodeSettings(nodeId),
   }), [getNodes, getEdges, setPacks, updateNodeInternals]);
 
   const view = useMemo(() => {
@@ -1205,7 +1261,7 @@ function FlowCanvas() {
         boxes.push({
           id: PACK_PREFIX + p.id, type: 'pack', position: { x: p.x, y: p.y },
           deletable: false, selected: selectedPacks.has(p.id), measured: packMeasured[p.id],
-          data: { pack: p, ports: packFacePorts(p, nodes, edges), actions: packActions },
+          data: { pack: p, ports: packFacePorts(p, nodes, edges), pax: packPaxOf(p, nodes), actions: packActions },
         });
       }
     }

@@ -42,7 +42,8 @@ export const EDGE_HINTS: Record<string, { title: string; body: string }> = {
 // moving the cursor to the panel changes the hint, and growing the panel over
 // the node list got in the way of grabbing nodes. Waits HINT_START_MS, scrolls
 // at HINT_PX_PER_S (~1 line/s), pauses HINT_END_MS at the end, back to the
-// top, loops. Restarts from the top for every new hint; short hints never move.
+// top, loops. Restarts from the top for every new hint (a new title — a live
+// hint updating its values keeps scrolling); short hints never move.
 const HINT_START_MS = 1500;
 const HINT_END_MS   = 2000;
 const HINT_PX_PER_S = 15;
@@ -74,7 +75,10 @@ export function HintPanel () {
     };
     start();
     return () => { cancelAnimationFrame(raf); clearTimeout(timer); };
-  }, [hint]);
+  // v0.0.931 — keyed on the TITLE, not the hint object: a live hint (pack
+  // summary, Value-edge readout) is re-sent many times a second with new
+  // values; restarting on each one kept it at the top for ever.
+  }, [hint?.title, hint == null]);
 
   return (
     <div ref={boxRef} style={{

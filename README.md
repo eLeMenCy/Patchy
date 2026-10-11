@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.930
+> Version 0.0.931
 
 ---
 
@@ -104,7 +104,7 @@
 - **Dynamic port counts** — Pax can change their output port count at runtime (e.g. Spectrumyser band count) without audio interruption
 - **Restructured burger menu** — `☰` top-right opens File and Edit flyout submenus with keyboard shortcuts
 - **Hint panel** — hover any node, button, port or edge to see a description in the sidebar hint panel; hovering a Value edge (a Pax adapter/converter's generic value port) shows its current, live numeric value, updating continuously while hovered
-- **Packs** — select a few nodes, `⌘G`, and they fold into one box showing only the connections that cross its border; open it in place to work on the nodes, fold it back, unpack (`⌘⇧G`); saved with the project, undoable; nothing changes in the processing. See [Packs](#packs)
+- **Packs** — select a few nodes, `⌘G`, and they fold into one box showing only the connections that cross its border; its ⚙ panel shows every Pax parameter inside; open it in place to work on the nodes, fold it back, unpack (`⌘⇧G`); saved with the project, undoable; nothing changes in the processing. See [Packs](#packs)
 - **Fold/Unfold** — double-click header to collapse nodes; edges merge gracefully to centre
 - **WebView UI** — React + ReactFlow running inside JUCE's `WebBrowserComponent`; all UI logic is TypeScript, all audio logic is C++
 
@@ -492,6 +492,7 @@ Several nodes shown as one box, to tidy a busy canvas. A pack is display and pro
 - **Pack** — select 2 or more nodes and press `⌘G` (or **☰ → Edit → Pack**). The box takes the place of the nodes, named *PACK* (click the ✎ to rename it).
 - **The box's ports** are the connections crossing its border when it was packed or folded, plus any made since; each shows the port name and the node it belongs to. Connecting to one connects to that inner port. Signal flashes and VU show on the box as on the nodes inside.
 - **Open in place** — the ⤢ button or double-click the box: the nodes come back where they are, inside a dashed frame; fold them back with the frame's ⤡ button. Moving the box moves its nodes.
+- **Pax controls** — the box shows a summary of the values of the Pax inside — live read-only values first, in the colour of their Pax's output wires (*● Current Value 0.786*; when several Pax share a name, the node's name is shown instead: *● OSC TO VALUE 0.5*), then the settings (*Min 0.00 · Max 1.00*), up to two lines — hover it to see all of them, live, right there (and in the hint panel); its ⚙ opens a panel with every Pax parameter inside, grouped by node — the same sliders / switches as on the nodes, one undo step per change. The bespoke Pax (Spectrumyser, Envelope, Audio→DMX, Audio Peak→OSC, Channel Filter) are edited by opening the pack, for now.
 - **Enter** (the → button) — opening the pack in its own view: coming next, shown disabled for now.
 - **Unpack** — `⌘⇧G`, **☰ → Edit → Unpack**, or the box / frame's unpack button: the pack goes, the nodes stay.
 - **✕** on the box deletes the pack **and** its nodes (undoable).
@@ -814,4 +815,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.930 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.931 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

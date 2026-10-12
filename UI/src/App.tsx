@@ -1235,6 +1235,11 @@ function FlowCanvas() {
       Bridge.setPaxParameter(nodeId, index, value);
     },
     commitParam: (nodeId) => Bridge.commitNodeSettings(nodeId),
+    // v0.0.932 — pin / unpin / rename a control on the box (one undo step)
+    setPins: (packId, pins) => {
+      setPacks(ps => ps.map(p => p.id === packId ? { ...p, pins } : p));
+      Bridge.packSetPins(packId, pins);
+    },
   }), [getNodes, getEdges, setPacks, updateNodeInternals]);
 
   const view = useMemo(() => {

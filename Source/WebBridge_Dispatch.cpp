@@ -81,7 +81,7 @@ void WebBridge::handleMessage (const juce::String& json)
         handleMidiKeyEvent (obj);
     else if (type == "removeNode")
         handleRemoveNode (obj);
-    else if (type.startsWith ("pack"))   // v0.0.930 — packNodes, packUnpack, packSetOpen, packMove, packRename, packRemove
+    else if (type.startsWith ("pack"))   // v0.0.930 — packNodes, packUnpack, packSetOpen, packMove, packRename, packRemove (+ packSetPins v0.0.932)
         handlePackMessage (type, obj);
     else if (type == "addConnection")
         handleAddConnection (obj);
@@ -920,6 +920,24 @@ void WebBridge::handlePackMessage (const juce::String& type, const juce::Dynamic
         pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
         graph.pushSnapshot();
         p->name = name;
+    }
+    else if (type == "packSetPins")   // v0.0.932 — pin / unpin / rename a pinned control: one undo step
+    {
+        auto* p = graph.findPack (packId);
+        if (p == nullptr) return;
+        std::vector<PackPin> pins;
+        if (auto* arr = obj->getProperty ("pins").getArray())
+            for (const auto& v : *arr)
+                if (auto* q = v.getDynamicObject())
+                {
+                    PackPin pin { q->getProperty ("nodeId").toString(), (int) q->getProperty ("index"),
+                                  q->getProperty ("label").toString() };
+                    if (p->nodeIds.contains (pin.nodeId)) pins.push_back (pin);
+                }
+        if (pins == p->pins) return;
+        pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
+        graph.pushSnapshot();
+        p->pins = std::move (pins);
     }
     else if (type == "packRemove")   // delete the pack AND its nodes — one undo step
     {

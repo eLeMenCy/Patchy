@@ -20,6 +20,7 @@ public:
         testCycleDetection();
         testSerialisationRoundtrip();
         testPacks();
+        testPackPins();
     }
 
 private:
@@ -287,6 +288,52 @@ private:
         // Older snapshots without "packs" → none
         g.restorePacks (juce::var());
         expectEquals ((int) g.getPacks().size(), 0);
+    }
+
+    void testPackPins()
+    {
+        beginTest ("pack pins (v0.0.932): save / restore, undo, pruned when a node leaves");
+
+        auto g = makeGraph();
+        const auto a = g.addNode (5, 0.f, 0.f).id;
+        const auto b = g.addNode (5, 200.f, 0.f).id;
+        const auto pId = g.addPack ("P", juce::StringArray { a, b }, {}, 0.f, 0.f).id;
+
+        g.pushSnapshot();
+        g.findPack (pId)->pins = { { a, 0, "Drive" }, { b, 2, "" } };
+
+        // toVar → restorePacks keeps pins, in order, with labels
+        auto v = g.toVar();
+        g.restorePacks (v.getProperty ("packs", {}));
+        auto* p = g.findPack (pId);
+        expect (p != nullptr);
+        if (p == nullptr) return;
+        expectEquals ((int) p->pins.size(), 2);
+        expectEquals (p->pins[0].label, juce::String ("Drive"));
+        expectEquals (p->pins[1].index, 2);
+
+        // Undo goes back to no pins
+        expect (g.undo());
+        expectEquals ((int) g.findPack (pId)->pins.size(), 0, "undo removes the pins");
+        expect (g.redo());
+        expectEquals ((int) g.findPack (pId)->pins.size(), 2, "redo brings them back");
+
+        // A node leaving (removed, or moved to another pack) takes its pins with it
+        g.removeNode (a);
+        expectEquals ((int) g.findPack (pId)->pins.size(), 1);
+        const auto c = g.addNode (5, 400.f, 0.f).id;
+        g.addPack ("Q", juce::StringArray { b, c }, {}, 0.f, 0.f);   // b leaves P → P empty → gone
+        expect (g.findPack (pId) == nullptr);
+
+        // Pins of a node that no longer exists are dropped on restore
+        auto d = g.addNode (5, 0.f, 0.f).id;
+        auto e = g.addNode (5, 0.f, 0.f).id;
+        auto& r = g.addPack ("R", juce::StringArray { d, e }, {}, 0.f, 0.f);
+        r.pins = { { d, 0, "" }, { e, 0, "" } };
+        auto v2 = g.toVar();
+        g.removeNode (e);
+        g.restorePacks (v2.getProperty ("packs", {}));
+        expectEquals ((int) g.getPacks().back().pins.size(), 1, "pin of the missing node dropped");
     }
 };
 

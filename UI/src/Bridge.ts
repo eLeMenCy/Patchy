@@ -17,7 +17,11 @@ export interface RawPack {
   x:       number;
   y:       number;
   open:    boolean;
+  pins?:   RawPackPin[];   // v0.0.932 — Pax controls pinned on the box, in order
 }
+
+// v0.0.932 — parameter `index` of member `nodeId`, shown as `label` ('' = default)
+export interface RawPackPin { nodeId: string; index: number; label: string; }
 
 export interface GraphState {
   nodes:         RawNode[];
@@ -1144,6 +1148,7 @@ export const Bridge = {
   packSetOpen(packId: string, open: boolean, ports?: string[]) {
     sendToJuce({ type: 'packSetOpen', packId, open, ...(ports ? { ports } : {}) });
   },
+  packSetPins(packId: string, pins: RawPackPin[]) { sendToJuce({ type: 'packSetPins', packId, pins }); },   // pin / unpin / rename, undoable
   packMove(packId: string, x: number, y: number) { sendToJuce({ type: 'packMove', packId, x, y }); },
   setViewport(x: number, y: number, zoom: number) {
     sendToJuce({ type: 'setViewport', x, y, zoom });

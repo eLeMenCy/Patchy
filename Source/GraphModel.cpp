@@ -369,7 +369,7 @@ bool GraphModel::removeNode (const juce::String& id)
     nodes.erase (it, nodes.end());
 
     // v0.0.930 — leave its pack; a pack left empty goes away
-    for (auto& p : packs) p.nodeIds.removeString (id);
+    for (auto& p : packs) { p.nodeIds.removeString (id); p.prunePins(); }
     packs.erase (std::remove_if (packs.begin(), packs.end(),
                                  [] (const PackData& p) { return p.nodeIds.isEmpty(); }),
                  packs.end());
@@ -384,7 +384,10 @@ PackData& GraphModel::addPack (const juce::String& name, const juce::StringArray
 {
     // One level only: a node can't be in two packs — take it out of any other
     for (auto& p : packs)
+    {
         for (const auto& id : nodeIds) p.nodeIds.removeString (id);
+        p.prunePins();
+    }
     packs.erase (std::remove_if (packs.begin(), packs.end(),
                                  [] (const PackData& p) { return p.nodeIds.isEmpty(); }),
                  packs.end());
@@ -434,6 +437,13 @@ void GraphModel::restorePacks (const juce::var& packsArray)
         p.x    = (float) (double) o->getProperty ("x");
         p.y    = (float) (double) o->getProperty ("y");
         p.open = (bool) o->getProperty ("open");
+        if (auto* pins = o->getProperty ("pins").getArray())   // v0.0.932 (absent before → none)
+            for (const auto& pv2 : *pins)
+                if (auto* q = pv2.getDynamicObject())
+                    p.pins.push_back ({ q->getProperty ("nodeId").toString(),
+                                        (int) q->getProperty ("index"),
+                                        q->getProperty ("label").toString() });
+        p.prunePins();
         if (p.id.isEmpty()) p.id = juce::Uuid().toString();
         if (! p.nodeIds.isEmpty()) packs.push_back (std::move (p));
     }
@@ -596,6 +606,16 @@ juce::var GraphModel::toVar() const
         o->setProperty ("x",    p.x);
         o->setProperty ("y",    p.y);
         o->setProperty ("open", p.open);
+        juce::Array<juce::var> pinsArr;   // v0.0.932
+        for (const auto& q : p.pins)
+        {
+            auto* po = new juce::DynamicObject();
+            po->setProperty ("nodeId", q.nodeId);
+            po->setProperty ("index",  q.index);
+            po->setProperty ("label",  q.label);
+            pinsArr.add (po);
+        }
+        o->setProperty ("pins", pinsArr);
         packsArr.add (o);
     }
 

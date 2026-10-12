@@ -2,6 +2,7 @@
 #include <juce_core/juce_core.h>
 #include <functional>
 #include <vector>
+#include <algorithm>
 #include <deque>
 
 enum class PortType      { Midi, Audio, OSC, DMX, MQTT, UDP, Value };
@@ -103,6 +104,16 @@ struct NodeData
  *  Purely a UI / project-file concept: the processing graph never looks at
  *  packs (members stay ordinary nodes with ordinary connections), so packing
  *  can't affect audio/MIDI. One level only (no packs inside packs). */
+/** A Pax control pinned onto a folded pack's box (v0.0.932): parameter
+ *  `index` of member node `nodeId`, shown as `label` (empty = default). */
+struct PackPin
+{
+    juce::String nodeId;
+    int          index = 0;
+    juce::String label;
+    bool operator== (const PackPin& o) const { return nodeId == o.nodeId && index == o.index && label == o.label; }
+};
+
 struct PackData
 {
     juce::String      id, name;
@@ -110,6 +121,15 @@ struct PackData
     juce::StringArray ports;     // inner handle ids shown on the folded face (stable list)
     float             x = 0.f, y = 0.f;   // folded box position
     bool              open = false;       // opened in place (members shown in a frame)
+    std::vector<PackPin> pins;            // v0.0.932 — controls pinned on the box, in order
+
+    /** Drops pins whose node is no longer a member. */
+    void prunePins()
+    {
+        pins.erase (std::remove_if (pins.begin(), pins.end(),
+                                    [this] (const PackPin& q) { return ! nodeIds.contains (q.nodeId); }),
+                    pins.end());
+    }
 };
 
 struct Connection

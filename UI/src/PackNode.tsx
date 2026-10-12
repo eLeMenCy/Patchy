@@ -18,9 +18,9 @@
 
 import { useContext, useEffect, useState } from 'react';
 import { NodeProps, useUpdateNodeInternals } from '@xyflow/react';
-import { Package, Maximize2, Minimize2, LogIn, Ungroup, X, Settings } from 'lucide-react';
+import { Package, Maximize2, Minimize2, LogIn, Ungroup, X, Settings, Pin } from 'lucide-react';
 import { Bridge } from './Bridge';
-import type { RawPack, PaxParamInfo } from './Bridge';
+import type { RawPack, RawPackPin, PaxParamInfo } from './Bridge';
 import { HintContext } from './HintPanel';
 import { NodeHandle, NodeHeaderButton, EditableTitle } from './NodeUtils';
 
@@ -45,6 +45,8 @@ export interface PackActions {
   // dragging, commitNodeSettings at the end = one undo step)
   setParam:    (nodeId: string, index: number, value: number) => void;
   commitParam: (nodeId: string) => void;
+  // v0.0.932 — the whole pin list (pin / unpin / rename = one undo step)
+  setPins:     (packId: string, pins: RawPackPin[]) => void;
 }
 
 // v0.0.931 — a generic Pax inside the pack, with its current values
@@ -79,12 +81,13 @@ const fmtValue  = (p: PaxParamInfo, v: number) =>
 // the node's name alone ("● OSC TO VALUE 0.5"). Live values take the colour
 // of the Pax's output wires (what the value IS once sent), settings grey.
 interface SummaryPart { text: string; colour?: string }
-function paxSummary (pax: PackPax[], live: Map<string, number>) {
+function paxSummary (pax: PackPax[], live: Map<string, number>, pinned: Set<string>) {
   const count = new Map<string, number>();
   for (const x of pax) for (const p of x.params) count.set (p.name, (count.get (p.name) ?? 0) + 1);
   const liveParts: SummaryPart[] = [], setParts: SummaryPart[] = [];
   for (const x of pax)
     x.params.forEach ((p, i) => {
+      if (pinned.has (`${x.nodeId}:${i}`)) return;   // already on the box (v0.0.932)
       const v    = p.readOnly ? (live.get (`${x.nodeId}:${i}`) ?? x.values[i] ?? p.defaultValue) : (x.values[i] ?? p.defaultValue);
       const shared   = (count.get (p.name) ?? 0) > 1;
       const onlyLive = p.readOnly && x.params.filter (q => q.readOnly).length === 1;
@@ -97,18 +100,21 @@ function paxSummary (pax: PackPax[], live: Map<string, number>) {
 }
 
 // ── One parameter in the pack's panel (same kinds of control as the node) ───
-function PackParamControl ({ x, p, i, live, actions }: {
+// `labelNode` replaces the parameter name (the pinned controls on the box
+// show their own, renamable label); `big` = a pinned live value, larger.
+function PackParamControl ({ x, p, i, live, actions, labelNode, big = false }: {
   x: PackPax; p: PaxParamInfo; i: number; live: number | undefined; actions: PackActions;
+  labelNode?: React.ReactNode; big?: boolean;
 }) {
   const { setHint } = useContext (HintContext);
   const v = x.values[i] ?? p.defaultValue;
   const row: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 };
-  const label = <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{p.name}</span>;
+  const label = labelNode ?? <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{p.name}</span>;
 
   if (p.readOnly)
     return (
       <div style={row}>{label}
-        <span style={{ fontSize: 9, color: x.liveColour, fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ fontSize: big ? 15 : 9, fontWeight: big ? 700 : 400, color: x.liveColour, fontVariantNumeric: 'tabular-nums' }}>
           {fmtValue (p, live ?? v)}
         </span>
       </div>
@@ -180,7 +186,24 @@ export function PackNode ({ id, data, selected }: NodeProps) {
   const [live, setLive] = useState<Map<string, number>>(new Map());
   const paxKey  = pax.map (x => x.nodeId).join ('|');
   const hasLive = pax.some (x => x.params.some (p => p.readOnly));
-  const summary = paxSummary (pax, live);
+  // v0.0.932 — pinned controls, in pin order (pins of nodes no longer in the
+  // pack, or of parameters that no longer exist, are skipped)
+  const pins: RawPackPin[] = pack.pins ?? [];
+  const pinKey    = (nodeId: string, index: number) => `${nodeId}:${index}`;
+  const pinnedSet = new Set (pins.map (q => pinKey (q.nodeId, q.index)));
+  const pinned = pins.flatMap (q => {
+    const x = pax.find (y => y.nodeId === q.nodeId);
+    const p = x?.params[q.index];
+    return x && p ? [{ q, x, p }] : [];
+  });
+  const togglePin = (nodeId: string, index: number) =>
+    actions.setPins (pack.id, pinnedSet.has (pinKey (nodeId, index))
+      ? pins.filter (q => pinKey (q.nodeId, q.index) !== pinKey (nodeId, index))
+      : [...pins, { nodeId, index, label: '' }]);
+  const renamePin = (nodeId: string, index: number, label: string) =>
+    actions.setPins (pack.id, pins.map (q => q.nodeId === nodeId && q.index === index ? { ...q, label } : q));
+
+  const summary = paxSummary (pax, live, pinnedSet);
 
   // Hovering the summary shows it in full in the hint panel, refreshed with
   // the live values (a native title tooltip is a frozen snapshot)
@@ -291,6 +314,36 @@ export function PackNode ({ id, data, selected }: NodeProps) {
             {portLabel (outs[i], 'right')}
           </div>
         ))}
+        {/* 📌 Pinned controls (v0.0.932): working controls, renamable label,
+            unpin with their own 📌. Hidden while ⚙ is open (like the summary)
+            so pinning there never moves the list under the cursor. */}
+        {pinned.length > 0 && ! showSettings && (
+          <div className="nodrag" onDoubleClick={e => e.stopPropagation()}
+            style={{ marginTop: ports.length > 0 ? 6 : 0, paddingTop: 4, borderTop: '1px dashed var(--border)', minWidth: 220 }}>
+            {pinned.map (({ q, x, p }) => {
+              const def = `${p.name} · ${x.name}`;
+              return (
+                <div key={pinKey (q.nodeId, q.index)} style={{ paddingTop: 4, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                  <span onClick={() => togglePin (q.nodeId, q.index)}
+                    {...hint ('Unpin', 'Takes this control off the box (it stays in the ⚙ panel). Undoable.')}
+                    style={{ cursor: 'pointer', display: 'inline-flex', paddingTop: 1, flexShrink: 0, color: PACK_ACCENT }}>
+                    <Pin size={10} fill="currentColor" />
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                  <PackParamControl x={x} p={p} i={q.index} live={live.get (pinKey (x.nodeId, q.index))} actions={actions}
+                    big={p.readOnly}
+                    labelNode={
+                      <EditableTitle display={q.label || def} value={q.label} placeholder={def}
+                        onCommit={name => renamePin (q.nodeId, q.index, name)}
+                        textStyle={{ fontSize: 9, color: p.readOnly ? x.liveColour : 'var(--text-muted)', letterSpacing: '0.04em' }} />
+                    } />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {/* Value summary (panel closed): live values first, then the
             settings; 2 lines at rest ("…" beyond). Hovering opens the whole
             summary as an overlay at the same place (live, nothing below
@@ -331,11 +384,25 @@ export function PackNode ({ id, data, selected }: NodeProps) {
             <div key={x.nodeId} style={{ paddingTop: 6 }}>
               <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', color: x.accent,
                             textTransform: 'uppercase', marginBottom: 2 }}>{x.name}</div>
-              {x.params.map ((p, i) => (
-                <div key={i} style={{ paddingTop: 4 }}>
-                  <PackParamControl x={x} p={p} i={i} live={live.get (`${x.nodeId}:${i}`)} actions={actions} />
-                </div>
-              ))}
+              {x.params.map ((p, i) => {
+                const on = pinnedSet.has (pinKey (x.nodeId, i));
+                return (
+                  <div key={i} style={{ padding: '2px 4px', margin: '4px -4px 0', display: 'flex', alignItems: 'flex-start', gap: 6,
+                                        borderRadius: 3, background: on ? 'color-mix(in srgb, var(--generic) 10%, transparent)' : 'transparent' }}>
+                    <span onClick={() => togglePin (x.nodeId, i)}
+                      {...hint (on ? 'Unpin' : 'Pin on the box', on
+                        ? 'Takes this control off the folded box (it stays here). Undoable.'
+                        : 'Shows this control on the folded box itself (once ⚙ is closed), ready to use; rename it there with the ✎, unpin it there or here. Undoable.')}
+                      style={{ cursor: 'pointer', display: 'inline-flex', paddingTop: 1, flexShrink: 0,
+                               color: on ? PACK_ACCENT : 'var(--text-muted)', opacity: on ? 1 : 0.45 }}>
+                      <Pin size={10} fill={on ? 'currentColor' : 'none'} />
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <PackParamControl x={x} p={p} i={i} live={live.get (pinKey (x.nodeId, i))} actions={actions} />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ))}
         </div>

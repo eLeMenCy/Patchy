@@ -256,31 +256,94 @@ function toRealConnection (c: Connection): Connection {
   };
 }
 
-// v0.0.931 — a generic Pax's values: settingsJson is a plain array, one value
-// per parameter (missing ones = default), same reading as GenericNode
+// v0.0.931 — a Pax's values: settingsJson is a plain array, one value per
+// parameter (missing ones = default), same reading as GenericNode.
+// v0.0.933 — the bespoke Pax nodes keep their own layouts; this table says
+// where each parameter sits in their array (`slot`), which slots are UI-only
+// and must be kept (`extras`: slot → default), and which parameters apply
+// right now (`shown`). Must match the node components' own restore effects.
+// v0.0.933 (follow-up) — also: `choices` = named buttons for a parameter
+// (the Pax API only gives numbers; names as on the nodes), `pairs` = Low/High
+// parameters drawn as one two-head slider, `zoom` = settings slots holding
+// the node's own display range for those pairs (UI-only; edited on the node).
+interface PaxLayout {
+  slot:     (i: number) => number;
+  extras?:  Record<number, number>;
+  shown?:   (i: number, values: number[]) => boolean;
+  choices?: Record<number, string[]>;
+  pairs?:   (count: number) => [number, number][];
+  zoom?:    [number, number];
+}
+const PAX_LAYOUTS: Record<string, PaxLayout> = {
+  // AudioToDmxNode: params 0-4 at 0-4, Damping (param 5) at 7; 5-6 = zoom
+  'Audio to DMX':      { slot: i => i === 5 ? 7 : i, extras: { 5: 20, 6: 20000 }, zoom: [5, 6],
+                         choices: { 0: ['RMS', 'Freq'] }, pairs: () => [[2, 3]],
+                         shown: (i, v) => (i !== 2 && i !== 3) || Math.round(v[0]) === 1 },
+  // AudioPeakToOscNode: params 0-7 at 0-7; 8-9 = zoom
+  'Audio Peak to OSC': { slot: i => i, extras: { 8: 20, 9: 20000 }, zoom: [8, 9],
+                         choices: { 0: ['Whole', 'Freq'], 1: ['RMS', 'Peak'], 6: ['Change', 'Rate'] }, pairs: () => [[3, 4]],
+                         shown: (i, v) => (i !== 3 && i !== 4) || Math.round(v[0]) === 1 },
+  // SpectrumyserNode: [bandCount, lo0, hi0, lo1, hi1, …] — only active bands
+  'Spectrumyser':      { slot: i => i, shown: (i, v) => i === 0 || Math.floor((i - 1) / 2) < Math.round(v[0] ?? 0),
+                         pairs: count => Array.from({ length: Math.floor((count - 1) / 2) }, (_, b) => [1 + 2 * b, 2 + 2 * b] as [number, number]) },
+  // EnvelopeNode, ChannelFilterPaxNode: one value per parameter, as generic
+  'Envelope':          { slot: i => i, choices: { 0: ['Amp', 'Band'] }, pairs: () => [[6, 7]],
+                         shown: (i, v) => (i !== 6 && i !== 7) || Math.round(v[0]) === 1 },
+  'Channel Filter':    { slot: i => i, choices: { 1: ['Filter', 'Force'] } },
+};
+const layoutOf = (n: Node<any>): PaxLayout => PAX_LAYOUTS[n.data?.paxName as string] ?? { slot: i => i };
+
+function rawSettings (n: Node<any>): unknown[] | null {
+  try { const r = n.data?.settingsJson ? JSON.parse(n.data.settingsJson) : null; return Array.isArray(r) ? r : null; }
+  catch { return null; }
+}
+
 function paxValues (n: Node<any>): number[] {
   const params = (n.data?.paxParams ?? []) as PaxParamInfo[];
-  let raw: number[] | null = null;
-  try { raw = n.data?.settingsJson ? JSON.parse(n.data.settingsJson) : null; } catch { raw = null; }
-  return params.map((p, i) => (Array.isArray(raw) && typeof raw[i] === 'number') ? raw[i] : p.defaultValue);
+  const raw = rawSettings(n);
+  const { slot } = layoutOf(n);
+  return params.map((p, i) => (raw && typeof raw[slot(i)] === 'number') ? raw[slot(i)] as number : p.defaultValue);
+}
+
+// The full settings array to store after one parameter changed — every
+// parameter at its slot, UI-only slots kept (or their default)
+function paxSettingsWith (n: Node<any>, index: number, value: number): number[] {
+  const params = (n.data?.paxParams ?? []) as PaxParamInfo[];
+  const raw = rawSettings(n) ?? [];
+  const { slot, extras = {} } = layoutOf(n);
+  const vals = paxValues(n);
+  vals[index] = value;
+  const out: number[] = [];
+  Object.entries(extras).forEach(([k, d]) => { const v = raw[+k]; out[+k] = typeof v === 'number' ? v : d; });
+  params.forEach((_, i) => { out[slot(i)] = vals[i]; });
+  for (let k = 0; k < out.length; k++) if (typeof out[k] !== 'number') out[k] = typeof raw[k] === 'number' ? raw[k] as number : 0;
+  return out;
 }
 
 // A Pax node's own colour (same detection as GenericNode's header)
 const paxNodeAccent = (n: Node<any>) =>
   detectPaxTheme(n.data.ports ?? [], _paxInfoMap.get(n.data.paxName)?.colourCategory).accent;
 
-// The generic Pax inside a pack (type 'custom' with a paxName — the bespoke
-// Pax nodes keep their own settings layouts and are not listed yet)
+// The Pax inside a pack — generic ones and (v0.0.933) the bespoke ones,
+// through PAX_LAYOUTS
 function packPaxOf (p: RawPack, nodes: Node<any>[]): PackPax[] {
   const ids = new Set(p.nodeIds);
   return nodes
-    .filter(n => ids.has(n.id) && n.type === 'custom' && n.data?.paxName && (n.data?.paxParams ?? []).length > 0)
+    .filter(n => ids.has(n.id) && n.data?.paxName && (n.data?.paxParams ?? []).length > 0)
     .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x)
     .map(n => ({
       nodeId: n.id,
       name:   (n.data.customName as string) || (n.data.paxName as string) || (n.data.label as string) || 'Pax',
       params: n.data.paxParams as PaxParamInfo[],
       values: paxValues(n),
+      shown:  (() => { const v = paxValues(n), f = layoutOf(n).shown;
+                       return (n.data.paxParams as PaxParamInfo[]).map((_, i) => f ? f(i, v) : true); })(),
+      choices: layoutOf(n).choices ?? {},
+      pairs:   layoutOf(n).pairs?.((n.data.paxParams as PaxParamInfo[]).length) ?? [],
+      zoom:    (() => { const z = layoutOf(n).zoom, raw = rawSettings(n);
+                        if (!z) return undefined;
+                        const lo = raw?.[z[0]], hi = raw?.[z[1]];
+                        return [typeof lo === 'number' ? lo : 20, typeof hi === 'number' ? hi : 20000] as [number, number]; })(),
       accent: paxNodeAccent(n),
       // live values = what the Pax sends out: its output wires' colour
       // (same label-based mapping as the edges); several output types →
@@ -1226,8 +1289,7 @@ function FlowCanvas() {
     setParam: (nodeId, index, value) => {
       const n = nodesRef.current.find(m => m.id === nodeId);
       if (!n) return;
-      const vals = paxValues(n);
-      vals[index] = value;
+      const vals = paxSettingsWith(n, index, value);
       const json = JSON.stringify(vals);
       nodesRef.current = nodesRef.current.map(m => m.id === nodeId ? { ...m, data: { ...m.data, settingsJson: json } } : m);
       setNodes(ns => ns.map(m => m.id === nodeId ? { ...m, data: { ...m.data, settingsJson: json } } : m));

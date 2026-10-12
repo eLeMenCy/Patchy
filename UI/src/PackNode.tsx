@@ -22,7 +22,7 @@ import { Package, Maximize2, Minimize2, LogIn, Ungroup, X, Settings, Pin } from 
 import { Bridge } from './Bridge';
 import type { RawPack, RawPackPin, PaxParamInfo } from './Bridge';
 import { HintContext } from './HintPanel';
-import { NodeHandle, NodeHeaderButton, EditableTitle } from './NodeUtils';
+import { NodeHandle, NodeHeaderButton, EditableTitle, freqLabel } from './NodeUtils';
 
 export const PACK_ACCENT = 'var(--generic)';
 
@@ -55,6 +55,10 @@ export interface PackPax {
   name:   string;            // custom name or label
   params: PaxParamInfo[];
   values: number[];          // one per param (settingsJson, else default)
+  shown:  boolean[];         // param applies right now (e.g. Spectrumyser's active bands)
+  choices: Record<number, string[]>;   // named buttons for a param (e.g. Amp / Band)
+  pairs:   [number, number][];         // Low / High params drawn as one two-head slider
+  zoom?:   [number, number];           // the node's own display range for those pairs
   accent: string;            // the Pax's own colour (its node header's)
   liveColour: string;        // its output wires' colour (live values)
 }
@@ -74,6 +78,21 @@ const fmtValue  = (p: PaxParamInfo, v: number) =>
   : p.step >= 1 ? Math.round (v).toString()
   : v.toFixed (Math.abs (p.max - p.min) >= 100 ? 1 : 2);
 
+// v0.0.933 — Low/High pairs: the role of param i, and the pair's label
+// ("Band Low (Hz)" → "Band", "Band 2 Low Hz" → "Band 2")
+function pairRole (x: PackPax, i: number): { role: 'lo' | 'hi'; lo: number; hi: number } | null {
+  for (const [lo, hi] of x.pairs) {
+    if (i === lo) return { role: 'lo', lo, hi };
+    if (i === hi) return { role: 'hi', lo, hi };
+  }
+  return null;
+}
+const pairLabel = (p: PaxParamInfo) => p.name.replace (/\s*Low\b.*$/i, '') || 'Band';
+const isHz      = (p: PaxParamInfo) => /hz/i.test (p.name);
+const fmtPairEnd = (p: PaxParamInfo, v: number) => isHz (p) ? freqLabel (v) : fmtValue (p, v);
+const fmtChoice  = (x: PackPax, i: number, p: PaxParamInfo, v: number) =>
+  x.choices[i]?.[Math.round (v)] ?? fmtValue (p, v);
+
 // Summary for the face: live (read-only) values first, each in its Pax's
 // colour, then the settable ones in grey — "● Current Value 0.786 · Min 0.00
 // · …" (up to 2 lines). A parameter name found in more than one Pax of the
@@ -88,12 +107,20 @@ function paxSummary (pax: PackPax[], live: Map<string, number>, pinned: Set<stri
   for (const x of pax)
     x.params.forEach ((p, i) => {
       if (pinned.has (`${x.nodeId}:${i}`)) return;   // already on the box (v0.0.932)
+      if (x.shown[i] === false) return;               // not in use (v0.0.933)
+      const pr = pairRole (x, i);
+      if (pr?.role === 'hi') return;                  // shown with its Low
+      if (pr) {
+        const hp = x.params[pr.hi];
+        setParts.push ({ text: `${pairLabel (p)} ${fmtPairEnd (p, x.values[pr.lo] ?? p.defaultValue)}–${fmtPairEnd (hp, x.values[pr.hi] ?? hp.defaultValue)}` });
+        return;
+      }
       const v    = p.readOnly ? (live.get (`${x.nodeId}:${i}`) ?? x.values[i] ?? p.defaultValue) : (x.values[i] ?? p.defaultValue);
       const shared   = (count.get (p.name) ?? 0) > 1;
       const onlyLive = p.readOnly && x.params.filter (q => q.readOnly).length === 1;
       const name = ! shared ? p.name : onlyLive ? x.name.toUpperCase() : `${x.name.toUpperCase()} ${p.name}`;
       if (p.readOnly) liveParts.push ({ text: `● ${name} ${fmtValue (p, v)}`, colour: x.liveColour });
-      else            setParts.push  ({ text: `${name} ${fmtValue (p, v)}` });
+      else            setParts.push  ({ text: `${name} ${fmtChoice (x, i, p, v)}` });
     });
   const parts = [...liveParts, ...setParts];
   return { parts, full: parts.map (q => q.text).join (' · ') };
@@ -117,6 +144,71 @@ function PackParamControl ({ x, p, i, live, actions, labelNode, big = false }: {
         <span style={{ fontSize: big ? 15 : 9, fontWeight: big ? 700 : 400, color: x.liveColour, fontVariantNumeric: 'tabular-nums' }}>
           {fmtValue (p, live ?? v)}
         </span>
+      </div>
+    );
+
+  // Low / High pair → one two-head slider (Low pushes High and back, like
+  // the nodes' own band sliders), within the node's display range
+  const pr = pairRole (x, i);
+  if (pr) {
+    const hp = x.params[pr.hi];
+    const lo = x.values[pr.lo] ?? p.defaultValue, hi = x.values[pr.hi] ?? hp.defaultValue;
+    const [zMin, zMax] = x.zoom ?? [p.min, hp.max];
+    const step = Math.max (p.step, 0) || (zMax - zMin) / 1000;
+    const setLo = (v: number) => {
+      const nl = Math.max (zMin, Math.min (v, zMax - step));
+      actions.setParam (x.nodeId, pr.lo, nl);
+      if (nl >= hi - step) actions.setParam (x.nodeId, pr.hi, Math.min (zMax, nl + step));
+    };
+    const setHi = (v: number) => {
+      const nh = Math.min (zMax, Math.max (v, zMin + step));
+      actions.setParam (x.nodeId, pr.hi, nh);
+      if (nh <= lo + step) actions.setParam (x.nodeId, pr.lo, Math.max (zMin, nh - step));
+    };
+    const commit = () => actions.commitParam (x.nodeId);
+    return (
+      <div>
+        <div style={row}>{labelNode ?? <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{pairLabel (p)}</span>}
+          <span style={{ fontSize: 9, color: 'var(--text-dim)', fontVariantNumeric: 'tabular-nums' }}>
+            {fmtPairEnd (p, lo)} – {fmtPairEnd (hp, hi)}{isHz (p) ? ' Hz' : ''}
+          </span>
+        </div>
+        <div className="dual-range nodrag"
+          onMouseEnter={() => setHint ({ title: `${pairLabel (p)} — ${x.name}`, body: `Two heads: Low and High (they push each other). Range shown: the node's own zoom (${fmtPairEnd (p, zMin)}–${fmtPairEnd (hp, zMax)}), changed on the node. Double-click a head to reset it.` })}
+          onMouseLeave={() => setHint (null)}
+          style={{ position: 'relative', height: 16, marginTop: 2 }}>
+          <input type="range" min={zMin} max={zMax} step={step} value={Math.min (zMax, Math.max (zMin, lo))}
+            onChange={e => setLo (Number (e.target.value))} onMouseUp={commit} onKeyUp={commit}
+            onDoubleClick={() => { setLo (p.defaultValue); commit(); }}
+            style={{ width: '100%', top: 5, left: 0, ['--thumb-color' as any]: x.accent }} />
+          <input type="range" min={zMin} max={zMax} step={step} value={Math.min (zMax, Math.max (zMin, hi))}
+            onChange={e => setHi (Number (e.target.value))} onMouseUp={commit} onKeyUp={commit}
+            onDoubleClick={() => { setHi (hp.defaultValue); commit(); }}
+            style={{ width: '100%', top: 5, left: 0, ['--thumb-color' as any]: x.accent }} />
+        </div>
+      </div>
+    );
+  }
+
+  // Named choices (e.g. Amp / Band) — as on the node
+  const names = x.choices[i];
+  if (names)
+    return (
+      <div style={row}>{label}
+        <div style={{ display: 'flex', gap: 4 }}>
+          {names.map ((t, val) => {
+            const on = Math.round (v) === val;
+            return (
+              <div key={val} onClick={() => { actions.setParam (x.nodeId, i, val); actions.commitParam (x.nodeId); }}
+                style={{ fontSize: 9, padding: '2px 6px', borderRadius: 3, cursor: 'pointer',
+                         border: `1px solid ${on ? x.accent : 'var(--border)'}`,
+                         color: on ? x.accent : 'var(--text-muted)',
+                         background: on ? 'color-mix(in srgb, currentColor 15%, transparent)' : 'transparent' }}>
+                {t}
+              </div>
+            );
+          })}
+        </div>
       </div>
     );
 
@@ -194,7 +286,7 @@ export function PackNode ({ id, data, selected }: NodeProps) {
   const pinned = pins.flatMap (q => {
     const x = pax.find (y => y.nodeId === q.nodeId);
     const p = x?.params[q.index];
-    return x && p ? [{ q, x, p }] : [];
+    return x && p && x.shown[q.index] !== false ? [{ q, x, p }] : [];
   });
   const togglePin = (nodeId: string, index: number) =>
     actions.setPins (pack.id, pinnedSet.has (pinKey (nodeId, index))
@@ -321,7 +413,7 @@ export function PackNode ({ id, data, selected }: NodeProps) {
           <div className="nodrag" onDoubleClick={e => e.stopPropagation()}
             style={{ marginTop: ports.length > 0 ? 6 : 0, paddingTop: 4, borderTop: '1px dashed var(--border)', minWidth: 220 }}>
             {pinned.map (({ q, x, p }) => {
-              const def = `${p.name} · ${x.name}`;
+              const def = `${pairRole (x, q.index) ? pairLabel (p) : p.name} · ${x.name}`;
               return (
                 <div key={pinKey (q.nodeId, q.index)} style={{ paddingTop: 4, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
                   <span onClick={() => togglePin (q.nodeId, q.index)}
@@ -385,6 +477,8 @@ export function PackNode ({ id, data, selected }: NodeProps) {
               <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', color: x.accent,
                             textTransform: 'uppercase', marginBottom: 2 }}>{x.name}</div>
               {x.params.map ((p, i) => {
+                if (x.shown[i] === false) return null;   // e.g. a Spectrumyser band not in use
+                if (pairRole (x, i)?.role === 'hi') return null;   // drawn with its Low (two-head slider)
                 const on = pinnedSet.has (pinKey (x.nodeId, i));
                 return (
                   <div key={i} style={{ padding: '2px 4px', margin: '4px -4px 0', display: 'flex', alignItems: 'flex-start', gap: 6,

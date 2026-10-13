@@ -22,7 +22,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import { Bridge, RecentFile, FileMissing, FileState, AudioSettings, GraphState, RawNode, RawConnection, RawPort, PortActivityEntry, PaxParamInfo, PaxInfo, FragmentData, UndoState, AudioPlayerStatus, RawPack } from './Bridge';
-import { PackNode, PackFrame, PackPort, PackPax, PackActions, FRAME_PAD, FRAME_HEAD } from './PackNode';
+import { PackNode, PackFrame, PackRouteEdge, PackPort, PackPax, PackActions, FRAME_PAD, FRAME_HEAD, FRAME_PORT_TOP, FRAME_PORT_GAP } from './PackNode';
 import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
@@ -50,6 +50,7 @@ import AudioPeakToOscNode from './AudioPeakToOscNode';
 import { _paxInfoMap, detectPaxTheme } from './NodeUtils';
 
 // ── Node type registry ────────────────────────────────────────────────────────
+const edgeTypes = { packRoute: PackRouteEdge };   // v0.0.934 — a wire drawn through open-pack frame ports
 const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, audioPlayer: AudioPlayerNode, midiChMatrix: MidiChMatrixNode, midiMorpher: MidiMorpherNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, channelFilterPax: ChannelFilterPaxNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode, pack: PackNode, packFrame: PackFrame };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
@@ -243,16 +244,37 @@ function packFacePorts (p: RawPack, nodes: Node<any>[], edges: Edge[]): PackPort
       colour:   colourForHandleId(h),
     });
   }
-  return res;
+  // v0.0.934 — top to bottom by their inner node (then left to right): the
+  // folded box and the open frame show the ports in the same order
+  const pos = (h: string) => byId.get(realNodeOfHandle(h))?.position ?? { x: 0, y: 0 };
+  return res.sort((a, b) => pos(a.handleId).y - pos(b.handleId).y || pos(a.handleId).x - pos(b.handleId).x);
 }
+
+// v0.0.934 — an edge class / resting colour from a handle id (same mapping
+// as rawToFlowEdge and index.css)
+function edgeClassForHandle (h: string): string {
+  const s = h.toLowerCase();
+  return s.includes('audio') ? 'edge-audio' : s.includes('osc') ? 'edge-osc' : s.includes('artdmx') ? 'edge-artnet'
+       : s.includes('dmx') ? 'edge-dmx' : s.includes('mqtt') ? 'edge-mqtt' : s.includes('udp') ? 'edge-udp'
+       : s.includes('value') ? 'edge-value' : 'edge-midi';
+}
+const EDGE_REST_COLOUR: Record<string, string> = {
+  'edge-audio': 'rgb(20,80,20)', 'edge-osc': 'var(--osc)', 'edge-artnet': 'var(--artnet)', 'edge-dmx': 'var(--dmx)',
+  'edge-mqtt': 'var(--mqtt)', 'edge-udp': 'var(--udp)', 'edge-value': 'var(--value)', 'edge-midi': 'var(--midi)',
+};
+
+// Label gutter of an open frame side: wide enough for its widest port label
+// (8 px mono ≈ 5 px a character) so inner nodes never sit under a label
+const frameGutter = (ports: PackPort[]) =>
+  Math.max(FRAME_PAD, ...ports.map(q => Math.ceil((q.label.length + 3 + q.nodeName.length) * 5) + 22));
 
 // A folded pack's ports are its inner ports (same handle ids), so the real
 // node of a connection end is read from the handle id.
 function toRealConnection (c: Connection): Connection {
   return {
     ...c,
-    source: c.source.startsWith(PACK_PREFIX) && c.sourceHandle ? realNodeOfHandle(c.sourceHandle) : c.source,
-    target: c.target.startsWith(PACK_PREFIX) && c.targetHandle ? realNodeOfHandle(c.targetHandle) : c.target,
+    source: isPackViewId(c.source) && c.sourceHandle ? realNodeOfHandle(c.sourceHandle) : c.source,
+    target: isPackViewId(c.target) && c.targetHandle ? realNodeOfHandle(c.targetHandle) : c.target,
   };
 }
 
@@ -802,6 +824,12 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
       // fully preserving every visual — including the dim floor glow at
       // rest a v<=0 skip here would have removed (see that skip's own
       // revert note further up).
+      // v0.0.934 — prefix match: an open pack draws a border-crossing wire as
+      // two (the real id outside, "<id>~in" inside its frame) and its frame
+      // ports carry "<handle>" and "<handle>~in" — both halves flash with the
+      // signal. Ids are UUIDs / end in _in|_out, so a prefix can't hit
+      // another element.
+      css = css.split('[data-id="').join('[data-id^="').split('[data-handleid="').join('[data-handleid^="');
       if (css !== lastAppliedCss.current)
       {
         style.textContent = css;
@@ -1311,18 +1339,33 @@ function FlowCanvas() {
 
     const frames: Node<any>[] = [];
     const boxes:  Node<any>[] = [];
+    const frameStubs = new Map<string, PackPort[]>();   // open pack → its frame ports
+    const portPos = new Map<string, { x: number; y: number }>();   // "<pack>|<handle>" → frame port centre
     for (const p of packs) {
       if (p.open) {
         const b = packBounds(p.nodeIds, nodes);
         if (!b) continue;
-        const w = b.x1 - b.x0 + 2 * FRAME_PAD, h = b.y1 - b.y0 + 2 * FRAME_PAD + FRAME_HEAD;
+        // v0.0.934 — border ports on the frame, as on the folded box, ordered
+        // top to bottom by their inner node (fewer crossings)
+        const fports = packFacePorts(p, nodes, edges);
+        const rows = Math.max(fports.filter(q => q.dir === 'in').length, fports.filter(q => q.dir === 'out').length);
+        // label gutters left (inputs) / right (outputs)
+        const gl = frameGutter(fports.filter(q => q.dir === 'in')), gr = frameGutter(fports.filter(q => q.dir === 'out'));
+        frameStubs.set(p.id, fports);
+        const w = b.x1 - b.x0 + gl + gr;
+        const h = Math.max(b.y1 - b.y0 + 2 * FRAME_PAD + FRAME_HEAD, FRAME_HEAD + FRAME_PORT_TOP + rows * FRAME_PORT_GAP);
+        const fx = b.x0 - gl, fy = b.y0 - FRAME_PAD - FRAME_HEAD;
+        fports.filter(q => q.dir === 'in').forEach((q, k) =>
+          portPos.set(`${p.id}|${q.handleId}`, { x: fx,     y: fy + FRAME_HEAD + FRAME_PORT_TOP + k * FRAME_PORT_GAP }));
+        fports.filter(q => q.dir === 'out').forEach((q, k) =>
+          portPos.set(`${p.id}|${q.handleId}`, { x: fx + w, y: fy + FRAME_HEAD + FRAME_PORT_TOP + k * FRAME_PORT_GAP }));
         frames.push({
           id: FRAME_PREFIX + p.id, type: 'packFrame',
-          position: { x: b.x0 - FRAME_PAD, y: b.y0 - FRAME_PAD - FRAME_HEAD },
+          position: { x: b.x0 - gl, y: b.y0 - FRAME_PAD - FRAME_HEAD },
           width: w, height: h, zIndex: -1, dragHandle: '.pack-frame-drag',
-          selectable: false, deletable: false, connectable: false, focusable: false,
+          selectable: false, deletable: false, focusable: false,
           style: { width: w, height: h, pointerEvents: 'none' },
-          data: { pack: p, actions: packActions },
+          data: { pack: p, actions: packActions, ports: fports },
         });
       } else {
         boxes.push({
@@ -1336,12 +1379,47 @@ function FlowCanvas() {
     // stale internals for hidden nodes, and a member shown again after being
     // drawn once stayed invisible. Left out, it comes back as a fresh node.
     const shown = nodes.filter(n => !closedOf.has(n.id));
+    // v0.0.934 — open packs: a wire crossing the frame stays ONE wire (its
+    // real id and class: colour, flash, select, delete all as usual), drawn
+    // through the frame port(s) it crosses — edge type "packRoute" with the
+    // port centres as `vias`. (A first version split it into two wires; the
+    // inside halves missed the class colouring / MIDI flash.)
+    const openOf = new Map<string, string>();
+    for (const p of packs) if (p.open) for (const id of p.nodeIds) openOf.set(id, p.id);
     const viewEdges: Edge[] = [];
     for (const e of edges) {
       const sp = closedOf.get(e.source), tp = closedOf.get(e.target);
-      if (!sp && !tp) { viewEdges.push(e); continue; }
       if (sp && sp === tp) continue;                   // internal to a folded pack
-      viewEdges.push({ ...e, source: sp ? PACK_PREFIX + sp : e.source, target: tp ? PACK_PREFIX + tp : e.target });
+      let out: Edge = (sp || tp) ? { ...e, source: sp ? PACK_PREFIX + sp : e.source, target: tp ? PACK_PREFIX + tp : e.target } : e;
+      const so = openOf.get(e.source), to = openOf.get(e.target);
+      if (so !== to) {
+        const vias: { x: number; y: number }[] = [];
+        const vo = so && e.sourceHandle ? portPos.get(`${so}|${e.sourceHandle}`) : undefined;   // leaves a frame (right edge)
+        const vi = to && e.targetHandle ? portPos.get(`${to}|${e.targetHandle}`) : undefined;   // enters a frame (left edge)
+        if (vo) vias.push(vo);
+        if (vi) vias.push(vi);
+        if (vias.length) out = { ...out, type: 'packRoute', data: { ...(out.data ?? {}), vias } };
+      }
+      viewEdges.push(out);
+    }
+    // v0.0.934 — a frame port with no wire crossing right now (it stays on the
+    // frame, as on the folded box) keeps its inside part, drawn as a stub
+    for (const [packId, fports] of frameStubs) {
+      const members = new Set(packs.find(q => q.id === packId)?.nodeIds ?? []);
+      for (const q of fports) {
+        const used = edges.some(e => (q.dir === 'in'  && e.targetHandle === q.handleId && !members.has(e.source))
+                                  || (q.dir === 'out' && e.sourceHandle === q.handleId && !members.has(e.target)));
+        if (used) continue;
+        const cls = edgeClassForHandle(q.handleId), node = realNodeOfHandle(q.handleId);
+        viewEdges.push({
+          id: `stub~in:${packId}:${q.handleId}`, className: cls,
+          style: { strokeWidth: 2, stroke: EDGE_REST_COLOUR[cls], opacity: 0.55 },
+          selectable: false, deletable: false, reconnectable: false, focusable: false,
+          ...(q.dir === 'in'
+            ? { source: FRAME_PREFIX + packId, sourceHandle: `${q.handleId}~in`, target: node, targetHandle: q.handleId }
+            : { source: node, sourceHandle: q.handleId, target: FRAME_PREFIX + packId, targetHandle: `${q.handleId}~in` }),
+        } as Edge);
+      }
     }
     return { nodes: [...frames, ...shown, ...boxes], edges: viewEdges };
   }, [nodes, edges, packs, selectedPacks, packActions, packMeasured]);
@@ -1456,9 +1534,9 @@ function FlowCanvas() {
         let st = frameDrag.current.get(packId);
         if (!st && c.position) {
           const mem = realNodesOfPack(packId);
-          const b   = packBounds(mem.map(n => n.id), mem);
-          if (!b) continue;
-          st = { fx: b.x0 - FRAME_PAD, fy: b.y0 - FRAME_PAD - FRAME_HEAD,
+          const fr  = getNodes().find(n => n.id === id);   // the frame as drawn (its gutters vary)
+          if (!fr) continue;
+          st = { fx: fr.position.x, fy: fr.position.y,
                  members: new Map(mem.map(n => [n.id, { x: n.position.x, y: n.position.y }])) };
           frameDrag.current.set(packId, st);
         }
@@ -1532,9 +1610,13 @@ function FlowCanvas() {
         knownNodeIds.current.add((c as any).id);
       }
     }
-  }, [updateNode, realNodesOfPack, setPacks]);
+  }, [updateNode, realNodesOfPack, setPacks, getNodes]);
 
-  const onEdgesChange = useCallback((changes: EdgeChange[]) => {
+  const onEdgesChange = useCallback((all: EdgeChange[]) => {
+    // v0.0.934 — "<id>~in…" = the inside half of a wire crossing an open
+    // pack's frame: drawn only, never selected / removed on its own
+    const changes = all.filter(c => !('id' in c && String((c as any).id).includes('~in')));
+    if (changes.length === 0) return;
     setEdges(es => applyEdgeChanges(changes, es));
     for (const c of changes) {
       if (c.type === 'remove')
@@ -1542,6 +1624,20 @@ function FlowCanvas() {
     }
   }, []);
 
+
+  // v0.0.934 — keyboard delete (⌫ / Delete) done like ☰ → Edit → Delete:
+  // ReactFlow's own removal is cancelled and the backend does it — a node
+  // goes with its wires (it used to come straight back: only its wires were
+  // removed, each as its own undo step), a wire on its own as before. The
+  // graph push that follows redraws everything. Pack boxes / frames and the
+  // drawn-only stubs are never deleted this way.
+  const onBeforeDelete = useCallback(async ({ nodes: dn, edges: de }: { nodes: Node[]; edges: Edge[] }) => {
+    const nodeIds = new Set(dn.map(n => n.id).filter(id => !isPackViewId(id)));
+    nodeIds.forEach(id => Bridge.removeNode(id));
+    de.filter(e => !String(e.id).includes('~') && !nodeIds.has(e.source) && !nodeIds.has(e.target))
+      .forEach(e => Bridge.removeConnection(e.id));
+    return false;
+  }, []);
 
   // onReconnectEnd fires when the drag ends WITHOUT landing on a valid port —
   // i.e. the user dropped the edge onto empty canvas to disconnect it.
@@ -1786,6 +1882,7 @@ function FlowCanvas() {
         nodes={view.nodes}
         edges={view.edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
@@ -1797,7 +1894,8 @@ function FlowCanvas() {
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         minZoom={0.05}
         maxZoom={2}
-        deleteKeyCode="Delete"
+        deleteKeyCode={['Delete', 'Backspace']}   /* v0.0.934 — a MacBook's ⌫ sends Backspace */
+        onBeforeDelete={onBeforeDelete}
         style={{ background: 'var(--bg)' }}
         connectionLineStyle={{ stroke: connectionLineColour, strokeWidth: 2, strokeDasharray: '6 3' }}
         defaultEdgeOptions={{ style: { strokeWidth: 2 } }}

@@ -96,6 +96,12 @@ html, body, #root {
 .edge-mqtt   { stroke: var(--mqtt)  !important; }
 .edge-udp    { stroke: var(--udp)   !important; }
 .edge-value  { stroke: var(--value) !important; }
+/* v0.0.934 — a selected wire shows it (the colours above override
+   ReactFlow's own selected stroke) */
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke-width: 3.5 !important;
+  filter: drop-shadow(0 0 3px rgba(255,255,255,.9)) drop-shadow(0 0 6px rgba(255,255,255,.45));
+}
 
 /* Connection line while dragging */
 .react-flow__connection-path { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 3; }

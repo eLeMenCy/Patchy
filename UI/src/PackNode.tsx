@@ -17,7 +17,7 @@
 //               dragging the title bar moves the pack's nodes (v0.0.930).
 
 import { useContext, useEffect, useState } from 'react';
-import { NodeProps, useUpdateNodeInternals } from '@xyflow/react';
+import { NodeProps, EdgeProps, useUpdateNodeInternals, Handle, Position, BaseEdge, getBezierPath } from '@xyflow/react';
 import { Package, Maximize2, Minimize2, LogIn, Ungroup, X, Settings, Pin } from 'lucide-react';
 import { Bridge } from './Bridge';
 import type { RawPack, RawPackPin, PaxParamInfo } from './Bridge';
@@ -509,17 +509,60 @@ export function PackNode ({ id, data, selected }: NodeProps) {
 export interface PackFrameData {
   pack:    RawPack;
   actions: PackActions;
+  ports:   PackPort[];   // v0.0.934 — border ports, ordered top to bottom
   [key: string]: unknown;
 }
 
 export const FRAME_PAD  = 18;
 export const FRAME_HEAD = 26;
+// v0.0.934 — border ports on the open frame: first one FRAME_PORT_TOP below
+// the title bar, then every FRAME_PORT_GAP px (App makes the frame tall enough)
+export const FRAME_PORT_TOP = 18;
+export const FRAME_PORT_GAP = 26;
 
-export function PackFrame ({ data }: NodeProps) {
-  const { pack, actions } = data as PackFrameData;
+// One border port: two handles at the same spot — the outer one keeps the
+// inner port's own id (outside wires, connections, activity), the inner one
+// "<id>~in" carries the wire's inside half to the inner node.
+function FramePort ({ q, top }: { q: PackPort; top: number }) {
   const { setHint } = useContext (HintContext);
+  const isIn = q.dir === 'in';
+  const dot: React.CSSProperties = { background: q.colour, width: 10, height: 10, border: '2px solid var(--bg)', top, pointerEvents: 'all' };
+  return (
+    <>
+      {/* outer: inputs take wires from the left, outputs give them to the right */}
+      <Handle type={isIn ? 'target' : 'source'} position={isIn ? Position.Left : Position.Right}
+        id={q.handleId} style={dot}
+        onMouseEnter={() => setHint ({ title: `${q.label} — ${q.nodeName}`, body: `Pack ${isIn ? 'input' : 'output'}: wires from outside connect here; inside, it leads to ${q.nodeName}'s ${q.label}.` })}
+        onMouseLeave={() => setHint (null)} />
+      {/* inner: the inside half starts / ends here (not connectable) */}
+      <Handle type={isIn ? 'source' : 'target'} position={isIn ? Position.Right : Position.Left}
+        id={`${q.handleId}~in`} isConnectable={false}
+        // its class places it on the opposite side: pull it back onto the
+        // border (centre on the edge, like the outer one)
+        style={{ ...dot, opacity: 0, pointerEvents: 'none',
+                 ...(isIn ? { left: -14, right: 'auto' } : { right: -14, left: 'auto' }) } as React.CSSProperties} />
+      {/* small label just inside the frame */}
+      <div style={{ position: 'absolute', top: top - 7, [isIn ? 'left' : 'right']: 10, pointerEvents: 'none',
+                    fontSize: 8, lineHeight: '14px', whiteSpace: 'nowrap', color: 'var(--text-muted)',
+                    fontFamily: "'JetBrains Mono', monospace", textAlign: isIn ? 'left' : 'right' }}>
+        <span style={{ color: 'var(--text-dim)' }}>{q.label}</span> · {q.nodeName}
+      </div>
+    </>
+  );
+}
+
+export function PackFrame ({ id, data }: NodeProps) {
+  const { pack, actions, ports = [] } = data as PackFrameData;
+  const { setHint } = useContext (HintContext);
+  const updateNodeInternals = useUpdateNodeInternals();
+  const ins  = ports.filter (q => q.dir === 'in');
+  const outs = ports.filter (q => q.dir === 'out');
+  const portsKey = ports.map (q => q.handleId).join ('|');
+  useEffect (() => { updateNodeInternals (id); }, [id, portsKey, updateNodeInternals]);
+  const topOf = (k: number) => FRAME_HEAD + FRAME_PORT_TOP + k * FRAME_PORT_GAP;
   return (
     <div style={{
+      position: 'relative',
       width: '100%', height: '100%', pointerEvents: 'none', boxSizing: 'border-box',
       border: `1.5px dashed color-mix(in srgb, var(--generic) 70%, transparent)`, borderRadius: 10,
       background: 'color-mix(in srgb, var(--generic) 4%, transparent)',
@@ -544,6 +587,31 @@ export function PackFrame ({ data }: NodeProps) {
           <Ungroup size={13} />
         </NodeHeaderButton>
       </div>
+      {ins.map  ((q, k) => <FramePort key={q.handleId} q={q} top={topOf (k)} />)}
+      {outs.map ((q, k) => <FramePort key={q.handleId} q={q} top={topOf (k)} />)}
     </div>
   );
 }
+
+// ── A wire crossing open-pack frames (v0.0.934) ──────────────────────────────
+// Still the one real connection (real id + class → resting colour, activity
+// flash, selection, delete all as for any wire), drawn through the frame
+// port(s) it crosses: a bezier into each port from the left, out of it to the
+// right, then on to its end.
+export function PackRouteEdge ({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition,
+                                 style, markerEnd, interactionWidth, data }: EdgeProps) {
+  const vias = ((data as any)?.vias ?? []) as { x: number; y: number }[];
+  const pts = [{ x: sourceX, y: sourceY, pos: sourcePosition },
+               ...vias.map (v => ({ x: v.x, y: v.y, pos: Position.Right })),
+               { x: targetX, y: targetY, pos: targetPosition }];
+  let d = '';
+  for (let k = 0; k + 1 < pts.length; k++) {
+    const a = pts[k], b = pts[k + 1];
+    const [seg] = getBezierPath ({ sourceX: a.x, sourceY: a.y, sourcePosition: a.pos,
+                                   targetX: b.x, targetY: b.y,
+                                   targetPosition: k + 1 < pts.length - 1 ? Position.Left : b.pos });
+    d += (d ? ' ' : '') + seg;
+  }
+  return <BaseEdge id={id} path={d} style={style} markerEnd={markerEnd} interactionWidth={interactionWidth} />;
+}
+

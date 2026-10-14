@@ -21,6 +21,7 @@ public:
         testSerialisationRoundtrip();
         testPacks();
         testPackPins();
+        testPackMembers();
     }
 
 private:
@@ -288,6 +289,54 @@ private:
         // Older snapshots without "packs" → none
         g.restorePacks (juce::var());
         expectEquals ((int) g.getPacks().size(), 0);
+    }
+
+    void testPackMembers()
+    {
+        beginTest ("pack members (v0.0.935): join / leave, one level, pins pruned, empty pack removed");
+
+        auto g = makeGraph();
+        const auto a = g.addNode (5, 0.f, 0.f).id;
+        const auto b = g.addNode (5, 0.f, 0.f).id;
+        const auto c = g.addNode (5, 0.f, 0.f).id;
+        const auto d = g.addNode (5, 0.f, 0.f).id;
+        const auto pId = g.addPack ("P", juce::StringArray { a, b }, {}, 0.f, 0.f).id;
+        const auto qId = g.addPack ("Q", juce::StringArray { c, d }, {}, 0.f, 0.f).id;
+        g.findPack (qId)->pins = { { c, 0, "" }, { d, 0, "" } };
+
+        // c joins P: leaves Q (its pin there goes), Q keeps d
+        expect (g.changePackMembers (pId, { c }, {}, { "x_MIDI In_in" }));
+        expectEquals (g.findPack (pId)->nodeIds.size(), 3);
+        expectEquals (g.findPack (pId)->ports[0], juce::String ("x_MIDI In_in"));
+        expectEquals (g.findPack (qId)->nodeIds.size(), 1);
+        expectEquals ((int) g.findPack (qId)->pins.size(), 1, "c's pin left Q with it");
+        expectEquals ((int) g.findPack (pId)->pins.size(), 1, "... and came along into P");
+        expectEquals (g.findPack (pId)->pins[0].nodeId, c);
+
+        // merging a whole pack: all of Q's nodes join P → Q empty → gone
+        const auto e = g.addNode (5, 0.f, 0.f).id;
+        const auto rId = g.addPack ("R", juce::StringArray { e }, {}, 0.f, 0.f).id;
+        g.findPack (rId)->pins = { { e, 0, "Drive" } };
+        expect (g.changePackMembers (pId, { e }, {}, { "x_MIDI In_in" }));
+        expect (g.findPack (rId) == nullptr, "merged pack removed");
+        expectEquals ((int) g.findPack (pId)->pins.size(), 2);
+        expectEquals (g.findPack (pId)->pins[1].label, juce::String ("Drive"));
+        expect (g.changePackMembers (pId, {}, { e }, { "x_MIDI In_in" }));   // back out (keeps the rest of this test as it was)
+
+        // nothing to do → false, nothing changed
+        expect (! g.changePackMembers (pId, { a }, {}, {}));
+        expectEquals (g.findPack (pId)->ports.size(), 1);
+
+        // a leaves P
+        expect (g.changePackMembers (pId, {}, { a }, {}));
+        expectEquals (g.findPack (pId)->nodeIds.size(), 2);
+
+        // d leaves Q → Q empty → gone
+        expect (g.changePackMembers (qId, {}, { d }, {}));
+        expect (g.findPack (qId) == nullptr);
+
+        // unknown nodes are ignored
+        expect (! g.changePackMembers (pId, { "nope" }, {}, {}));
     }
 
     void testPackPins()

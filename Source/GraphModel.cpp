@@ -408,6 +408,39 @@ PackData* GraphModel::findPack (const juce::String& packId)
     return nullptr;
 }
 
+bool GraphModel::changePackMembers (const juce::String& packId, const juce::StringArray& add,
+                                    const juce::StringArray& remove, const juce::StringArray& ports)
+{
+    auto* p = findPack (packId);
+    if (p == nullptr) return false;
+    bool changed = false;
+    for (const auto& id : add)
+    {
+        if (findNode (id) == nullptr || p->nodeIds.contains (id)) continue;
+        std::vector<PackPin> carried;   // its pins come along (v0.0.935: a pack merged into another)
+        for (auto& o : packs)
+            if (o.id != packId && o.nodeIds.contains (id))
+            {
+                for (const auto& q : o.pins) if (q.nodeId == id) carried.push_back (q);
+                o.nodeIds.removeString (id);
+                o.prunePins();
+            }
+        p = findPack (packId);
+        p->nodeIds.add (id);
+        p->pins.insert (p->pins.end(), carried.begin(), carried.end());
+        changed = true;
+    }
+    for (const auto& id : remove)
+        if (p->nodeIds.contains (id)) { p->nodeIds.removeString (id); changed = true; }
+    if (! changed) return false;
+    p->ports = ports;
+    p->prunePins();
+    packs.erase (std::remove_if (packs.begin(), packs.end(),
+                                 [] (const PackData& q) { return q.nodeIds.isEmpty(); }),
+                 packs.end());
+    return true;
+}
+
 bool GraphModel::removePack (const juce::String& packId)
 {
     const auto before = packs.size();

@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.934
+> Version 0.0.935
 
 ---
 
@@ -498,7 +498,8 @@ Several nodes shown as one box, to tidy a busy canvas. A pack is display and pro
 - **Enter** (the → button) — opening the pack in its own view: coming next, shown disabled for now.
 - **Unpack** — `⌘⇧G`, **☰ → Edit → Unpack**, or the box / frame's unpack button: the pack goes, the nodes stay.
 - **✕** on the box deletes the pack **and** its nodes (undoable).
-- A node belongs to one pack at most; packs don't nest. Packing nodes from an open pack moves them to the new one.
+- **Add / take out nodes** — hold **⌥ Option** while dragging: drop a node inside an open pack's frame to add it (the frame lights up, "drop to add"), drop a member outside its frame to take it out (red, "drop to take out"). Its wires stay as they are. ⌥-drop a **folded pack** into an open one to merge them: its nodes (and their pins) join, it goes. One undo step per drop — ⌘Z puts everything back where the drag began. Without ⌥, dragging works as usual (the frame just grows with its nodes).
+- A node belongs to one pack at most; packs don't nest. Packing nodes from an open pack, or ⌥-dropping them into another, moves them to the new one.
 - Export… of a selected folded pack exports its nodes.
 
 ---
@@ -537,6 +538,7 @@ Patchy maintains a **50-step snapshot history** of the full graph state.
 | MIDI Learn (a learned event) | ✅ |
 | Pack / unpack / rename a pack / delete a pack | ✅ |
 | Pin / unpin / rename a pinned control | ✅ |
+| ⌥-drag a node into / out of a pack | ✅ |
 | A value drag (whole drag = one step) | ✅ |
 | Move a node | ❌ (intentional — keeps history clean) |
 | Move a pack, open / fold it | ❌ (same reason) |
@@ -557,6 +559,7 @@ Undo/Redo is accessible via `⌘Z` / `⌘⇧Z`, or via **☰ → Edit → Undo /
 | `⌘⇧Z` | Redo |
 | `⌘G` | Pack the selected nodes |
 | `⌘⇧G` | Unpack the selected pack |
+| `⌥ Option` + drag a node | Add it to an open pack (drop inside its frame) / take it out (drop outside) |
 | `F` | Fold / unfold all nodes |
 | `Space` | Play / Pause the selected Audio Player node |
 | `Space Space` (within 400ms) | Return the selected Audio Player node to the start |
@@ -818,4 +821,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.934 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.935 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

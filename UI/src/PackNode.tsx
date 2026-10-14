@@ -510,6 +510,7 @@ export interface PackFrameData {
   pack:    RawPack;
   actions: PackActions;
   ports:   PackPort[];   // v0.0.934 — border ports, ordered top to bottom
+  drop?:   'join' | 'leave';   // v0.0.935 — ⌥-drag in progress: what a drop would do
   [key: string]: unknown;
 }
 
@@ -552,7 +553,9 @@ function FramePort ({ q, top }: { q: PackPort; top: number }) {
 }
 
 export function PackFrame ({ id, data }: NodeProps) {
-  const { pack, actions, ports = [] } = data as PackFrameData;
+  const { pack, actions, ports = [], drop } = data as PackFrameData;
+  // ⌥-drag highlight: join = solid, brighter; leave = red dashed
+  const dropCol = drop === 'join' ? 'var(--accent)' : drop === 'leave' ? '#f87171' : null;
   const { setHint } = useContext (HintContext);
   const updateNodeInternals = useUpdateNodeInternals();
   const ins  = ports.filter (q => q.dir === 'in');
@@ -564,8 +567,10 @@ export function PackFrame ({ id, data }: NodeProps) {
     <div style={{
       position: 'relative',
       width: '100%', height: '100%', pointerEvents: 'none', boxSizing: 'border-box',
-      border: `1.5px dashed color-mix(in srgb, var(--generic) 70%, transparent)`, borderRadius: 10,
-      background: 'color-mix(in srgb, var(--generic) 4%, transparent)',
+      border: dropCol ? `2px ${drop === 'join' ? 'solid' : 'dashed'} ${dropCol}`
+                      : `1.5px dashed color-mix(in srgb, var(--generic) 70%, transparent)`, borderRadius: 10,
+      background: dropCol ? `color-mix(in srgb, ${dropCol} 8%, transparent)` : 'color-mix(in srgb, var(--generic) 4%, transparent)',
+      boxShadow: dropCol ? `0 0 18px color-mix(in srgb, ${dropCol} 45%, transparent)` : undefined,
     }}>
       <div className="pack-frame-drag" style={{
         pointerEvents: 'auto', cursor: 'grab', display: 'flex', alignItems: 'center', gap: 6, height: FRAME_HEAD,
@@ -576,7 +581,9 @@ export function PackFrame ({ id, data }: NodeProps) {
         <Package size={12} color={PACK_ACCENT} />
         <EditableTitle display={pack.name || 'PACK'} value={pack.name === 'PACK' ? '' : pack.name} placeholder="Pack"
           onCommit={name => actions.rename (pack.id, name || 'PACK')} textStyle={titleStyle} />
-        <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>open</span>
+        <span style={{ fontSize: 9, color: dropCol ?? 'var(--text-muted)' }}>
+          {drop === 'join' ? 'drop to add' : drop === 'leave' ? 'drop to take out' : 'open'}
+        </span>
         <div style={{ flex: 1 }} />
         <NodeHeaderButton onClick={() => actions.close (pack.id)}
           onHint={{ onMouseEnter: () => setHint ({ title: 'Fold the pack', body: 'Folds these nodes back into one box.' }), onMouseLeave: () => setHint (null) }}>

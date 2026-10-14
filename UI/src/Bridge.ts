@@ -1148,6 +1148,12 @@ export const Bridge = {
   packSetOpen(packId: string, open: boolean, ports?: string[]) {
     sendToJuce({ type: 'packSetOpen', packId, open, ...(ports ? { ports } : {}) });
   },
+  // v0.0.935 — ⌥-drag: nodes join / leave packs (one undo step for the lot)
+  // `moves`: the drag that made the drop (start → end), undone with it
+  packChange(changes: { packId: string; add: string[]; remove: string[]; ports: string[] }[],
+             moves: { id: string; fromX: number; fromY: number; toX: number; toY: number; pack?: boolean }[] = []) {
+    sendToJuce({ type: 'packChange', changes, moves });
+  },
   packSetPins(packId: string, pins: RawPackPin[]) { sendToJuce({ type: 'packSetPins', packId, pins }); },   // pin / unpin / rename, undoable
   packMove(packId: string, x: number, y: number) { sendToJuce({ type: 'packMove', packId, x, y }); },
   setViewport(x: number, y: number, zoom: number) {

@@ -921,6 +921,45 @@ void WebBridge::handlePackMessage (const juce::String& type, const juce::Dynamic
         graph.pushSnapshot();
         p->name = name;
     }
+    else if (type == "packChange")   // v0.0.935 — ⌥-drag: nodes join / leave packs, one undo step
+    {
+        auto* changes = obj->getProperty ("changes").getArray();
+        if (changes == nullptr || changes->isEmpty()) return;
+        pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
+        // The drag that made this drop belongs to the same undo step: the
+        // nodes are put back where the drag started for the "before"
+        // snapshot, then where they were dropped (moves alone aren't undoable)
+        auto applyMoves = [&] (bool toEnd)
+        {
+            if (auto* moves = obj->getProperty ("moves").getArray())
+                for (const auto& m : *moves)
+                    if (auto* mo = m.getDynamicObject())
+                    {
+                        const auto x = (float) (double) mo->getProperty (toEnd ? "toX" : "fromX");
+                        const auto y = (float) (double) mo->getProperty (toEnd ? "toY" : "fromY");
+                        if ((bool) mo->getProperty ("pack"))   // a folded pack's box (merged into another)
+                        {
+                            if (auto* pk = graph.findPack (mo->getProperty ("id").toString())) { pk->x = x; pk->y = y; }
+                        }
+                        else if (auto* n = graph.findNode (mo->getProperty ("id").toString()))
+                        {
+                            n->x = x; n->y = y;
+                        }
+                    }
+        };
+        applyMoves (false);
+        const auto before = graph.toVar();
+        applyMoves (true);
+        bool any = false;
+        for (const auto& c : *changes)
+            if (auto* co = c.getDynamicObject())
+                any = graph.changePackMembers (co->getProperty ("packId").toString(),
+                                               strings (co->getProperty ("add")),
+                                               strings (co->getProperty ("remove")),
+                                               strings (co->getProperty ("ports"))) || any;
+        if (! any) return;
+        graph.pushExistingSnapshot (before);
+    }
     else if (type == "packSetPins")   // v0.0.932 — pin / unpin / rename a pinned control: one undo step
     {
         auto* p = graph.findPack (packId);

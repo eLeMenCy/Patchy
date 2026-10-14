@@ -197,6 +197,13 @@ public:
                              const juce::StringArray& ports, float x, float y);
     PackData*   findPack    (const juce::String& packId);
     bool        removePack  (const juce::String& packId);   // unpack: members stay
+    /** v0.0.935 — nodes join / leave a pack (⌥-drag). Joining takes a node out
+     *  of any other pack (one level) and brings its pins along; `ports`
+     *  replaces the face ports; pins of nodes that left are dropped; a pack
+     *  left empty is removed.
+     *  Returns false when nothing changed. */
+    bool        changePackMembers (const juce::String& packId, const juce::StringArray& add,
+                                   const juce::StringArray& remove, const juce::StringArray& ports);
     /** Rebuild packs from a saved "packs" array (snapshot / file); members
         that no longer exist are dropped, empty packs skipped. */
     void        restorePacks (const juce::var& packsArray);

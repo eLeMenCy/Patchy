@@ -903,6 +903,16 @@ function FlowCanvas() {
   }, []);
   const [selectedPacks, setSelectedPacks] = useState<Set<string>>(new Set());
   const packDragStart = useRef<Map<string, { x: number; y: number }>>(new Map());
+  // v0.0.935 — ⌥-drag into / out of open packs: the frames' outlines frozen
+  // at drag start (a frame grows with its members, so a member could never
+  // be "outside" its live frame), and the join / leave highlight shown
+  const dragFrames = useRef<{ packId: string; x: number; y: number; w: number; h: number }[]>([]);
+  const [dropHint, setDropHint] = useState<Record<string, 'join' | 'leave'>>({});
+  // While ⌥ is held during a drag, the open frames are DRAWN at their frozen
+  // outline too (not just tested against it) — otherwise the frame visibly
+  // grew with the node being taken out
+  const [frozenFrames, setFrozenFrames] = useState<Record<string, { x: number; y: number; w: number; h: number }> | null>(null);
+  const dragStartPos = useRef<Map<string, { x: number; y: number }>>(new Map());
   // Measured size of each folded box: ReactFlow needs it back on every render,
   // or it hides the box until it re-measures it (= flashing while dragging)
   const [packMeasured, setPackMeasured] = useState<Record<string, { width: number; height: number }>>({});
@@ -1352,20 +1362,21 @@ function FlowCanvas() {
         // label gutters left (inputs) / right (outputs)
         const gl = frameGutter(fports.filter(q => q.dir === 'in')), gr = frameGutter(fports.filter(q => q.dir === 'out'));
         frameStubs.set(p.id, fports);
-        const w = b.x1 - b.x0 + gl + gr;
-        const h = Math.max(b.y1 - b.y0 + 2 * FRAME_PAD + FRAME_HEAD, FRAME_HEAD + FRAME_PORT_TOP + rows * FRAME_PORT_GAP);
-        const fx = b.x0 - gl, fy = b.y0 - FRAME_PAD - FRAME_HEAD;
+        const fz = frozenFrames?.[p.id];
+        const w = fz ? fz.w : b.x1 - b.x0 + gl + gr;
+        const h = fz ? fz.h : Math.max(b.y1 - b.y0 + 2 * FRAME_PAD + FRAME_HEAD, FRAME_HEAD + FRAME_PORT_TOP + rows * FRAME_PORT_GAP);
+        const fx = fz ? fz.x : b.x0 - gl, fy = fz ? fz.y : b.y0 - FRAME_PAD - FRAME_HEAD;
         fports.filter(q => q.dir === 'in').forEach((q, k) =>
           portPos.set(`${p.id}|${q.handleId}`, { x: fx,     y: fy + FRAME_HEAD + FRAME_PORT_TOP + k * FRAME_PORT_GAP }));
         fports.filter(q => q.dir === 'out').forEach((q, k) =>
           portPos.set(`${p.id}|${q.handleId}`, { x: fx + w, y: fy + FRAME_HEAD + FRAME_PORT_TOP + k * FRAME_PORT_GAP }));
         frames.push({
           id: FRAME_PREFIX + p.id, type: 'packFrame',
-          position: { x: b.x0 - gl, y: b.y0 - FRAME_PAD - FRAME_HEAD },
+          position: { x: fx, y: fy },
           width: w, height: h, zIndex: -1, dragHandle: '.pack-frame-drag',
           selectable: false, deletable: false, focusable: false,
           style: { width: w, height: h, pointerEvents: 'none' },
-          data: { pack: p, actions: packActions, ports: fports },
+          data: { pack: p, actions: packActions, ports: fports, drop: dropHint[p.id] },
         });
       } else {
         boxes.push({
@@ -1422,7 +1433,106 @@ function FlowCanvas() {
       }
     }
     return { nodes: [...frames, ...shown, ...boxes], edges: viewEdges };
-  }, [nodes, edges, packs, selectedPacks, packActions, packMeasured]);
+  }, [nodes, edges, packs, selectedPacks, packActions, packMeasured, dropHint, frozenFrames]);
+
+  // ── ⌥-drag: nodes join / leave open packs (v0.0.935) ──────────────────────
+  // Plain drags are unchanged. With ⌥ held, a node whose centre is dropped
+  // inside another open pack's frame joins it (leaving its own pack, one
+  // level); a member dropped outside its own frame leaves. Its wires stay as
+  // they are. One undo step for the whole drop.
+  const edgesRef = useRef<Edge[]>(edges);
+  edgesRef.current = edges;
+
+  const onNodeDragStart = useCallback((_ev: unknown, _n: Node, dragged: Node[]) => {
+    dragStartPos.current = new Map(dragged.filter(n => !n.id.startsWith(FRAME_PREFIX)).map(n => [n.id, { ...n.position }]));
+    // a folded pack's members (not drawn) — where they are now
+    for (const n of dragged) if (n.id.startsWith(PACK_PREFIX))
+      for (const m of realNodesOfPack(n.id.slice(PACK_PREFIX.length)))
+        dragStartPos.current.set(m.id, { ...m.position });
+    dragFrames.current = getNodes()
+      .filter(n => n.id.startsWith(FRAME_PREFIX))
+      .map(n => ({ packId: n.id.slice(FRAME_PREFIX.length), x: n.position.x, y: n.position.y,
+                   w: (n.width ?? n.measured?.width ?? 0), h: (n.height ?? n.measured?.height ?? 0) }));
+  }, [getNodes, realNodesOfPack]);
+
+  // The changes an ⌥-drop of these nodes would make
+  const dropChanges = useCallback((dragged: Node[]) => {
+    const memberOf = new Map<string, string>();
+    for (const p of packsRef.current) for (const id of p.nodeIds) memberOf.set(id, p.id);
+    const add = new Map<string, string[]>(), remove = new Map<string, string[]>();
+    const push = (m: Map<string, string[]>, k: string, v: string) => m.set(k, [...(m.get(k) ?? []), v]);
+    for (const n of dragged) {
+      if (n.id.startsWith(FRAME_PREFIX)) continue;
+      if (n.id.startsWith(PACK_PREFIX)) {
+        // a folded pack dropped into an open one: merged (its nodes join; it goes)
+        const packId = n.id.slice(PACK_PREFIX.length);
+        const bx = n.position.x + (n.measured?.width  ?? 220) / 2;
+        const by = n.position.y + (n.measured?.height ?? 80)  / 2;
+        const into = dragFrames.current.find(r => r.packId !== packId && bx >= r.x && bx <= r.x + r.w && by >= r.y && by <= r.y + r.h);
+        if (into) for (const id of packsRef.current.find(q => q.id === packId)?.nodeIds ?? []) push(add, into.packId, id);
+        continue;
+      }
+      const cx = n.position.x + (n.measured?.width  ?? 220) / 2;
+      const cy = n.position.y + (n.measured?.height ?? 120) / 2;
+      const inside = dragFrames.current.find(r => cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h);
+      const own = memberOf.get(n.id);
+      if (inside && inside.packId !== own) push(add, inside.packId, n.id);        // joins (leaves its own, if any)
+      else if (own && dragFrames.current.some(r => r.packId === own) && inside?.packId !== own)
+        push(remove, own, n.id);                                               // leaves its open pack
+    }
+    return { add, remove };
+  }, []);
+
+  const onNodeDrag = useCallback((ev: React.MouseEvent | MouseEvent, _n: Node, dragged: Node[]) => {
+    if (!ev.altKey || dragged.every(n => n.id.startsWith(FRAME_PREFIX))) {   // (dragging a frame itself: nothing to do)
+      setDropHint(h => Object.keys(h).length ? {} : h);
+      setFrozenFrames(f => f ? null : f);
+      return;
+    }
+    setFrozenFrames(f => f ?? Object.fromEntries(dragFrames.current.map(r => [r.packId, { x: r.x, y: r.y, w: r.w, h: r.h }])));
+    const { add, remove } = dropChanges(dragged);
+    const next: Record<string, 'join' | 'leave'> = {};
+    remove.forEach((_, k) => { next[k] = 'leave'; });
+    add.forEach((_, k) => { next[k] = 'join'; });
+    setDropHint(h => JSON.stringify(h) === JSON.stringify(next) ? h : next);
+  }, [dropChanges]);
+
+  const onNodeDragStop = useCallback((ev: React.MouseEvent | MouseEvent, _n: Node, dragged: Node[]) => {
+    setDropHint({});
+    setFrozenFrames(null);
+    if (!ev.altKey) return;
+    const { add, remove } = dropChanges(dragged);
+    if (add.size === 0 && remove.size === 0) return;
+    const allEdges = edgesRef.current;
+    const changes = [...new Set([...add.keys(), ...remove.keys()])].map(packId => {
+      const p = packsRef.current.find(q => q.id === packId)!;
+      const a = add.get(packId) ?? [], r = remove.get(packId) ?? [];
+      const members = new Set([...p.nodeIds.filter(id => !r.includes(id)), ...a]);
+      // face ports: the old ones still on a member and not now fully inside,
+      // plus whatever crosses the new border
+      const internalOnly = (h: string) => {
+        const es = allEdges.filter(e => e.sourceHandle === h || e.targetHandle === h);
+        return es.length > 0 && es.every(e => members.has(e.source) && members.has(e.target));
+      };
+      const ports = [...new Set([...p.ports.filter(h => members.has(realNodeOfHandle(h)) && !internalOnly(h)),
+                                 ...packBoundaryHandles(members, allEdges)])];
+      return { packId, add: a, remove: r, ports };
+    });
+    const moves: { id: string; fromX: number; fromY: number; toX: number; toY: number; pack?: boolean }[] = [];
+    for (const n of dragged) {
+      const s = dragStartPos.current.get(n.id);
+      if (!s) continue;
+      if (n.id.startsWith(PACK_PREFIX)) {
+        const packId = n.id.slice(PACK_PREFIX.length), dx = n.position.x - s.x, dy = n.position.y - s.y;
+        moves.push({ id: packId, pack: true, fromX: s.x, fromY: s.y, toX: n.position.x, toY: n.position.y });
+        for (const id of packsRef.current.find(q => q.id === packId)?.nodeIds ?? []) {
+          const m = dragStartPos.current.get(id);
+          if (m) moves.push({ id, fromX: m.x, fromY: m.y, toX: m.x + dx, toY: m.y + dy });
+        }
+      } else moves.push({ id: n.id, fromX: s.x, fromY: s.y, toX: n.position.x, toY: n.position.y });
+    }
+    Bridge.packChange(changes, moves);
+  }, [dropChanges]);
 
   // ⌘G — pack the selected nodes (2 or more)
   const packSelection = useCallback(() => {
@@ -1903,6 +2013,9 @@ function FlowCanvas() {
         onDrop={onDrop}
         onMoveEnd={(_, vp) => Bridge.setViewport(vp.x, vp.y, vp.zoom)}
         onSelectionChange={onSelectionChange}
+        onNodeDragStart={onNodeDragStart}
+        onNodeDrag={onNodeDrag}
+        onNodeDragStop={onNodeDragStop}
 
       >
         <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="var(--border)" />

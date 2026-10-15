@@ -8,8 +8,8 @@
  * We expose `window.__bridge.onGraphUpdate(json)` for C++→JS.
  */
 
-// v0.0.930 — a pack: several nodes shown as one box (UI / project only)
-export interface RawPack {
+// v0.0.930 — a wrap: several nodes shown as one box (UI / project only)
+export interface RawWrap {
   id:      string;
   name:    string;
   nodeIds: string[];
@@ -17,16 +17,16 @@ export interface RawPack {
   x:       number;
   y:       number;
   open:    boolean;
-  pins?:   RawPackPin[];   // v0.0.932 — Pax controls pinned on the box, in order
+  pins?:   RawWrapPin[];   // v0.0.932 — Pax controls pinned on the box, in order
 }
 
 // v0.0.932 — parameter `index` of member `nodeId`, shown as `label` ('' = default)
-export interface RawPackPin { nodeId: string; index: number; label: string; }
+export interface RawWrapPin { nodeId: string; index: number; label: string; }
 
 export interface GraphState {
   nodes:         RawNode[];
   connections:   RawConnection[];
-  packs?:        RawPack[];   // v0.0.930
+  wraps?:        RawWrap[];   // v0.0.930
   viewportX?:    number;
   viewportY?:    number;
   viewportZoom?: number;
@@ -1138,24 +1138,24 @@ export const Bridge = {
     sendToJuce({ type: 'moveNode', nodeId, x, y });
   },
 
-  // ── Packs (v0.0.930) ────────────────────────────────────────────────────
-  packNodes(nodeIds: string[], name: string, ports: string[], x: number, y: number) {
-    sendToJuce({ type: 'packNodes', nodeIds, name, ports, x, y });   // undoable
+  // ── Wraps (v0.0.930) ────────────────────────────────────────────────────
+  wrapNodes(nodeIds: string[], name: string, ports: string[], x: number, y: number) {
+    sendToJuce({ type: 'wrapNodes', nodeIds, name, ports, x, y });   // undoable
   },
-  packUnpack(packId: string)              { sendToJuce({ type: 'packUnpack', packId }); },          // undoable
-  packRename(packId: string, name: string) { sendToJuce({ type: 'packRename', packId, name }); },   // undoable
-  packRemove(packId: string)              { sendToJuce({ type: 'packRemove', packId }); },          // pack + its nodes, undoable
-  packSetOpen(packId: string, open: boolean, ports?: string[]) {
-    sendToJuce({ type: 'packSetOpen', packId, open, ...(ports ? { ports } : {}) });
+  wrapUnwrap(wrapId: string)              { sendToJuce({ type: 'wrapUnwrap', wrapId }); },          // undoable
+  wrapRename(wrapId: string, name: string) { sendToJuce({ type: 'wrapRename', wrapId, name }); },   // undoable
+  wrapRemove(wrapId: string)              { sendToJuce({ type: 'wrapRemove', wrapId }); },          // wrap + its nodes, undoable
+  wrapSetOpen(wrapId: string, open: boolean, ports?: string[]) {
+    sendToJuce({ type: 'wrapSetOpen', wrapId, open, ...(ports ? { ports } : {}) });
   },
-  // v0.0.935 — ⌥-drag: nodes join / leave packs (one undo step for the lot)
+  // v0.0.935 — ⌥-drag: nodes join / leave wraps (one undo step for the lot)
   // `moves`: the drag that made the drop (start → end), undone with it
-  packChange(changes: { packId: string; add: string[]; remove: string[]; ports: string[] }[],
-             moves: { id: string; fromX: number; fromY: number; toX: number; toY: number; pack?: boolean }[] = []) {
-    sendToJuce({ type: 'packChange', changes, moves });
+  wrapChange(changes: { wrapId: string; add: string[]; remove: string[]; ports: string[] }[],
+             moves: { id: string; fromX: number; fromY: number; toX: number; toY: number; wrap?: boolean }[] = []) {
+    sendToJuce({ type: 'wrapChange', changes, moves });
   },
-  packSetPins(packId: string, pins: RawPackPin[]) { sendToJuce({ type: 'packSetPins', packId, pins }); },   // pin / unpin / rename, undoable
-  packMove(packId: string, x: number, y: number) { sendToJuce({ type: 'packMove', packId, x, y }); },
+  wrapSetPins(wrapId: string, pins: RawWrapPin[]) { sendToJuce({ type: 'wrapSetPins', wrapId, pins }); },   // pin / unpin / rename, undoable
+  wrapMove(wrapId: string, x: number, y: number) { sendToJuce({ type: 'wrapMove', wrapId, x, y }); },
   setViewport(x: number, y: number, zoom: number) {
     sendToJuce({ type: 'setViewport', x, y, zoom });
   },

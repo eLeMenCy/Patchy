@@ -368,64 +368,64 @@ bool GraphModel::removeNode (const juce::String& id)
     if (it == nodes.end()) return false;
     nodes.erase (it, nodes.end());
 
-    // v0.0.930 — leave its pack; a pack left empty goes away
-    for (auto& p : packs) { p.nodeIds.removeString (id); p.prunePins(); }
-    packs.erase (std::remove_if (packs.begin(), packs.end(),
-                                 [] (const PackData& p) { return p.nodeIds.isEmpty(); }),
-                 packs.end());
+    // v0.0.930 — leave its wrap; a wrap left empty goes away
+    for (auto& p : wraps) { p.nodeIds.removeString (id); p.prunePins(); }
+    wraps.erase (std::remove_if (wraps.begin(), wraps.end(),
+                                 [] (const WrapData& p) { return p.nodeIds.isEmpty(); }),
+                 wraps.end());
 
     notifyChange();
     return true;
 }
 
-// ── Packs (v0.0.930) ──────────────────────────────────────────────────────────
-PackData& GraphModel::addPack (const juce::String& name, const juce::StringArray& nodeIds,
+// ── Wraps (v0.0.930) ──────────────────────────────────────────────────────────
+WrapData& GraphModel::addWrap (const juce::String& name, const juce::StringArray& nodeIds,
                                const juce::StringArray& ports, float x, float y)
 {
-    // One level only: a node can't be in two packs — take it out of any other
-    for (auto& p : packs)
+    // One level only: a node can't be in two wraps — take it out of any other
+    for (auto& p : wraps)
     {
         for (const auto& id : nodeIds) p.nodeIds.removeString (id);
         p.prunePins();
     }
-    packs.erase (std::remove_if (packs.begin(), packs.end(),
-                                 [] (const PackData& p) { return p.nodeIds.isEmpty(); }),
-                 packs.end());
+    wraps.erase (std::remove_if (wraps.begin(), wraps.end(),
+                                 [] (const WrapData& p) { return p.nodeIds.isEmpty(); }),
+                 wraps.end());
 
-    PackData p;
+    WrapData p;
     p.id      = juce::Uuid().toString();
     p.name    = name;
     p.nodeIds = nodeIds;
     p.ports   = ports;
     p.x = x;  p.y = y;
-    packs.push_back (std::move (p));
-    return packs.back();
+    wraps.push_back (std::move (p));
+    return wraps.back();
 }
 
-PackData* GraphModel::findPack (const juce::String& packId)
+WrapData* GraphModel::findWrap (const juce::String& wrapId)
 {
-    for (auto& p : packs) if (p.id == packId) return &p;
+    for (auto& p : wraps) if (p.id == wrapId) return &p;
     return nullptr;
 }
 
-bool GraphModel::changePackMembers (const juce::String& packId, const juce::StringArray& add,
+bool GraphModel::changeWrapMembers (const juce::String& wrapId, const juce::StringArray& add,
                                     const juce::StringArray& remove, const juce::StringArray& ports)
 {
-    auto* p = findPack (packId);
+    auto* p = findWrap (wrapId);
     if (p == nullptr) return false;
     bool changed = false;
     for (const auto& id : add)
     {
         if (findNode (id) == nullptr || p->nodeIds.contains (id)) continue;
-        std::vector<PackPin> carried;   // its pins come along (v0.0.935: a pack merged into another)
-        for (auto& o : packs)
-            if (o.id != packId && o.nodeIds.contains (id))
+        std::vector<WrapPin> carried;   // its pins come along (v0.0.935: a wrap merged into another)
+        for (auto& o : wraps)
+            if (o.id != wrapId && o.nodeIds.contains (id))
             {
                 for (const auto& q : o.pins) if (q.nodeId == id) carried.push_back (q);
                 o.nodeIds.removeString (id);
                 o.prunePins();
             }
-        p = findPack (packId);
+        p = findWrap (wrapId);
         p->nodeIds.add (id);
         p->pins.insert (p->pins.end(), carried.begin(), carried.end());
         changed = true;
@@ -435,33 +435,34 @@ bool GraphModel::changePackMembers (const juce::String& packId, const juce::Stri
     if (! changed) return false;
     p->ports = ports;
     p->prunePins();
-    packs.erase (std::remove_if (packs.begin(), packs.end(),
-                                 [] (const PackData& q) { return q.nodeIds.isEmpty(); }),
-                 packs.end());
+    wraps.erase (std::remove_if (wraps.begin(), wraps.end(),
+                                 [] (const WrapData& q) { return q.nodeIds.isEmpty(); }),
+                 wraps.end());
     return true;
 }
 
-bool GraphModel::removePack (const juce::String& packId)
+bool GraphModel::removeWrap (const juce::String& wrapId)
 {
-    const auto before = packs.size();
-    packs.erase (std::remove_if (packs.begin(), packs.end(),
-                                 [&] (const PackData& p) { return p.id == packId; }),
-                 packs.end());
-    return packs.size() != before;
+    const auto before = wraps.size();
+    wraps.erase (std::remove_if (wraps.begin(), wraps.end(),
+                                 [&] (const WrapData& p) { return p.id == wrapId; }),
+                 wraps.end());
+    return wraps.size() != before;
 }
 
-void GraphModel::restorePacks (const juce::var& packsArray)
+void GraphModel::restoreWraps (const juce::var& wrapsArray)
 {
-    packs.clear();
-    auto* arr = packsArray.getArray();
+    wraps.clear();
+    auto* arr = wrapsArray.getArray();
     if (arr == nullptr) return;
     for (const auto& pv : *arr)
     {
         auto* o = pv.getDynamicObject();
         if (o == nullptr) continue;
-        PackData p;
+        WrapData p;
         p.id   = o->getProperty ("id").toString();
         p.name = o->getProperty ("name").toString();
+        if (p.name == "PACK") p.name = "WRAP";   // v0.0.936 — old default name (TEMPORARY, with wrapsOf's fallback)
         if (auto* ids = o->getProperty ("nodeIds").getArray())
             for (const auto& v : *ids)
                 if (findNode (v.toString()) != nullptr) p.nodeIds.add (v.toString());
@@ -478,7 +479,7 @@ void GraphModel::restorePacks (const juce::var& packsArray)
                                         q->getProperty ("label").toString() });
         p.prunePins();
         if (p.id.isEmpty()) p.id = juce::Uuid().toString();
-        if (! p.nodeIds.isEmpty()) packs.push_back (std::move (p));
+        if (! p.nodeIds.isEmpty()) wraps.push_back (std::move (p));
     }
 }
 
@@ -624,9 +625,9 @@ juce::var GraphModel::toVar() const
         connsArr.add (obj);
     }
 
-    // v0.0.930 — packs (UI / project only, see PackData)
-    juce::Array<juce::var> packsArr;
-    for (const auto& p : packs)
+    // v0.0.930 — wraps (UI / project only, see WrapData)
+    juce::Array<juce::var> wrapsArr;
+    for (const auto& p : wraps)
     {
         auto* o = new juce::DynamicObject();
         o->setProperty ("id",   p.id);
@@ -649,13 +650,13 @@ juce::var GraphModel::toVar() const
             pinsArr.add (po);
         }
         o->setProperty ("pins", pinsArr);
-        packsArr.add (o);
+        wrapsArr.add (o);
     }
 
     auto* root = new juce::DynamicObject();
     root->setProperty ("nodes",         nodesArr);
     root->setProperty ("connections",   connsArr);
-    root->setProperty ("packs",         packsArr);
+    root->setProperty ("wraps",         wrapsArr);
     root->setProperty ("viewportX",     viewportX);
     root->setProperty ("viewportY",     viewportY);
     root->setProperty ("viewportZoom",  viewportZoom);
@@ -877,7 +878,7 @@ void GraphModel::restoreSnapshot (const juce::var& snapshot)
         }
     }
 
-    restorePacks (obj->getProperty ("packs"));   // v0.0.930 (absent in older snapshots → none)
+    restoreWraps (wrapsOf (*obj));   // v0.0.930 (absent in older snapshots → none)
 
     // Update device manager selections BEFORE rebuild so applyDeviceSelections
     // inside rebuildProcessingGraph picks up the correct restored values.

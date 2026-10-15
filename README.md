@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.935
+> Version 0.0.936
 
 ---
 
@@ -32,7 +32,7 @@
     * [Export](#export)
     * [Import — Ghost Overlay UX](#import--ghost-overlay-ux)
   * [MIDI Morpher](#midi-morpher)
-  * [Packs](#packs)
+  * [Wraps](#wraps)
   * [Channel Selection](#channel-selection)
   * [Undo / Redo](#undo--redo)
   * [Keyboard Shortcuts](#keyboard-shortcuts)
@@ -104,7 +104,7 @@
 - **Dynamic port counts** — Pax can change their output port count at runtime (e.g. Spectrumyser band count) without audio interruption
 - **Restructured burger menu** — `☰` top-right opens File and Edit flyout submenus with keyboard shortcuts
 - **Hint panel** — hover any node, button, port or edge to see a description in the sidebar hint panel; hovering a Value edge (a Pax adapter/converter's generic value port) shows its current, live numeric value, updating continuously while hovered
-- **Packs** — select a few nodes, `⌘G`, and they fold into one box showing only the connections that cross its border; its ⚙ panel shows every Pax parameter inside; open it in place to work on the nodes, fold it back, unpack (`⌘⇧G`); saved with the project, undoable; nothing changes in the processing. See [Packs](#packs)
+- **Wraps** — select a few nodes, `⌘G`, and they fold into one box showing only the connections that cross its border; its ⚙ panel shows every Pax parameter inside; open it in place to work on the nodes, fold it back, unwrap (`⌘⇧G`); saved with the project, undoable; nothing changes in the processing. See [Wraps](#wraps)
 - **Fold/Unfold** — double-click header to collapse nodes; edges merge gracefully to centre
 - **WebView UI** — React + ReactFlow running inside JUCE's `WebBrowserComponent`; all UI logic is TypeScript, all audio logic is C++
 
@@ -204,7 +204,7 @@ Patchy/
 │       ├── MidiDeviceUI.tsx         MIDI In/Out device summary + MIDI Out channel filter panel
 │       ├── MidiChMatrixNode.tsx     MIDI CH. Matrix node (type 27)
 │       ├── MidiMorpherNode.tsx      MIDI Morpher node (type 28) — Basic/Advanced faces, live feedback, Learn
-│       ├── PackNode.tsx             Packs — the folded box and the open-pack frame (drawn-only, derived in App.tsx)
+│       ├── WrapNode.tsx             Wraps — the folded box and the open-wrap frame (drawn-only, derived in App.tsx)
 │       ├── MorpherCore.ts           MIDI Morpher rule logic (mirrors the C++ engine), no React
 │       ├── MorpherBasic.ts          MIDI Morpher Basic mode: rule ↔ plain-words conversion, sentence, note names
 │       ├── Learn.ts                 Generic MIDI Learn: decodeLearned + useMidiLearn hook
@@ -437,8 +437,8 @@ The menu is organised into two flyout submenus, opening to the left on hover:
 - **Undo** `⌘Z` — step back through 50-step history
 - **Redo** `⌘⇧Z` — step forward
 - **Cut / Copy / Paste** — reserved, coming soon
-- **Pack** `⌘G` — pack the selected nodes (2 or more)
-- **Unpack** `⌘⇧G` — unpack the selected pack (or the open pack holding a selected node)
+- **Wrap** `⌘G` — wrap the selected nodes (2 or more)
+- **Unwrap** `⌘⇧G` — unwrap the selected wrap (or the open wrap holding a selected node)
 - **Delete** `⌫` — remove selected nodes (enabled when nodes are selected)
 
 ---
@@ -485,22 +485,22 @@ One rule per node — the node shows the whole route at a glance; chain several 
 
 ---
 
-## Packs
+## Wraps
 
-Several nodes shown as one box, to tidy a busy canvas. A pack is display and project state only: the nodes inside stay ordinary nodes with ordinary connections, so packing never changes what Patchy does with the signal.
+Several nodes shown as one box, to tidy a busy canvas. A wrap is display and project state only: the nodes inside stay ordinary nodes with ordinary connections, so wrapping never changes what Patchy does with the signal.
 
-- **Pack** — select 2 or more nodes and press `⌘G` (or **☰ → Edit → Pack**). The box takes the place of the nodes, named *PACK* (click the ✎ to rename it).
-- **The box's ports** are the connections crossing its border when it was packed or folded, plus any made since; each shows the port name and the node it belongs to. Connecting to one connects to that inner port. Signal flashes and VU show on the box as on the nodes inside.
+- **Wrap** — select 2 or more nodes and press `⌘G` (or **☰ → Edit → Wrap**). The box takes the place of the nodes, named *WRAP* (click the ✎ to rename it).
+- **The box's ports** are the connections crossing its border when it was wrapped or folded, plus any made since; each shows the port name and the node it belongs to. Connecting to one connects to that inner port. Signal flashes and VU show on the box as on the nodes inside.
 - **Open in place** — the ⤢ button or double-click the box: the nodes come back where they are, inside a dashed frame; fold them back with the frame's ⤡ button. Moving the box moves its nodes; drag the frame by its title bar to move them all.
 - **The open frame's ports** — the frame shows the same ports as the folded box (inputs on its left edge, outputs on its right, labelled, ordered by their node from top to bottom): wires from outside stop at the frame, and continue inside to their node — far less spaghetti. Both halves flash with the signal; connecting to a frame port connects to the inner port; a port with nothing connected outside keeps its inside part (dimmed). The frame's sides leave room for the labels, and the box and the frame list the ports in the same order.
 - **Pax controls** — the box shows a summary of the values of the Pax inside — live read-only values first, in the colour of their Pax's output wires (*● Current Value 0.786*; when several Pax share a name, the node's name is shown instead: *● OSC TO VALUE 0.5*), then the settings (*Min 0.00 · Max 1.00*), up to two lines — hover it to see all of them, live, right there (and in the hint panel); its ⚙ opens a panel with every Pax parameter inside, grouped by node — the same sliders / switches as on the nodes, one undo step per change. Every Pax is listed, the bespoke ones (Spectrumyser, Envelope, Audio→DMX, Audio Peak→OSC, Channel Filter) included — with their mode buttons (Amp / Band, RMS / Freq…) and their Low/High bands as one two-head slider within the node's zoom range (shown only in Band / Freq mode; Spectrumyser: only the bands in use); built-in nodes' controls are not listed (yet).
 - **📌 Pins** — in the ⚙ panel, the pin next to a parameter puts that control on the folded box itself, ready to use (a live value shows as a large readout); hover its label and click the ✎ to rename it (e.g. *Drive* instead of *Level · AMP*), click its 📌 to unpin it. Pinned values leave the summary; while ⚙ is open the pinned controls hide (like the summary), so pinning never moves the list. Pin, unpin and rename are each one undo step and are saved with the project.
-- **Enter** (the → button) — opening the pack in its own view: coming next, shown disabled for now.
-- **Unpack** — `⌘⇧G`, **☰ → Edit → Unpack**, or the box / frame's unpack button: the pack goes, the nodes stay.
-- **✕** on the box deletes the pack **and** its nodes (undoable).
-- **Add / take out nodes** — hold **⌥ Option** while dragging: drop a node inside an open pack's frame to add it (the frame lights up, "drop to add"), drop a member outside its frame to take it out (red, "drop to take out"). Its wires stay as they are. ⌥-drop a **folded pack** into an open one to merge them: its nodes (and their pins) join, it goes. One undo step per drop — ⌘Z puts everything back where the drag began. Without ⌥, dragging works as usual (the frame just grows with its nodes).
-- A node belongs to one pack at most; packs don't nest. Packing nodes from an open pack, or ⌥-dropping them into another, moves them to the new one.
-- Export… of a selected folded pack exports its nodes.
+- **Enter** (the → button) — opening the wrap in its own view: coming next, shown disabled for now.
+- **Unwrap** — `⌘⇧G`, **☰ → Edit → Unwrap**, or the box / frame's unwrap button: the wrap goes, the nodes stay.
+- **✕** on the box deletes the wrap **and** its nodes (undoable).
+- **Add / take out nodes** — hold **⌥ Option** while dragging: drop a node inside an open wrap's frame to add it (the frame lights up, "drop to add"), drop a member outside its frame to take it out (red, "drop to take out"). Its wires stay as they are. ⌥-drop a **folded wrap** into an open one to merge them: its nodes (and their pins) join, it goes. One undo step per drop — ⌘Z puts everything back where the drag began. Without ⌥, dragging works as usual (the frame just grows with its nodes).
+- A node belongs to one wrap at most; wraps don't nest. Wrapping nodes from an open wrap, or ⌥-dropping them into another, moves them to the new one.
+- Export… of a selected folded wrap exports its nodes.
 
 ---
 
@@ -515,7 +515,7 @@ Audio IN and OUT device nodes support per-node channel selection for multi-chann
 - Channel selections are persisted in the patch file and are undo/redo aware
 
 **Routing semantics:**
-- **Audio IN** — selected physical input channels are captured and packed into contiguous graph channels (0, 1, 2…) for downstream nodes
+- **Audio IN** — selected physical input channels are captured and wrapped into contiguous graph channels (0, 1, 2…) for downstream nodes
 - **Audio OUT** — graph channels (0, 1, 2…) from upstream nodes are routed to the selected physical output channels
 
 ---
@@ -536,12 +536,12 @@ Patchy maintains a **50-step snapshot history** of the full graph state.
 | Rename a node | ✅ |
 | Disable / enable a node | ✅ |
 | MIDI Learn (a learned event) | ✅ |
-| Pack / unpack / rename a pack / delete a pack | ✅ |
+| Wrap / unwrap / rename a wrap / delete a wrap | ✅ |
 | Pin / unpin / rename a pinned control | ✅ |
-| ⌥-drag a node into / out of a pack | ✅ |
+| ⌥-drag a node into / out of a wrap | ✅ |
 | A value drag (whole drag = one step) | ✅ |
 | Move a node | ❌ (intentional — keeps history clean) |
-| Move a pack, open / fold it | ❌ (same reason) |
+| Move a wrap, open / fold it | ❌ (same reason) |
 
 Undo/Redo is accessible via `⌘Z` / `⌘⇧Z`, or via **☰ → Edit → Undo / Redo**.
 
@@ -557,9 +557,9 @@ Undo/Redo is accessible via `⌘Z` / `⌘⇧Z`, or via **☰ → Edit → Undo /
 | `⌘⇧S` | Save As |
 | `⌘Z` | Undo |
 | `⌘⇧Z` | Redo |
-| `⌘G` | Pack the selected nodes |
-| `⌘⇧G` | Unpack the selected pack |
-| `⌥ Option` + drag a node | Add it to an open pack (drop inside its frame) / take it out (drop outside) |
+| `⌘G` | Wrap the selected nodes |
+| `⌘⇧G` | Unwrap the selected wrap |
+| `⌥ Option` + drag a node | Add it to an open wrap (drop inside its frame) / take it out (drop outside) |
 | `F` | Fold / unfold all nodes |
 | `Space` | Play / Pause the selected Audio Player node |
 | `Space Space` (within 400ms) | Return the selected Audio Player node to the start |
@@ -821,4 +821,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.935 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.936 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

@@ -1046,7 +1046,7 @@ void PatchyProcessor::setStateInformation (const void* data, int sizeInBytes)
         graphModel.addConnection (srcNodeId, srcPortId, tgtNodeId, tgtPortId);
     }
 
-    graphModel.restorePacks (root->getProperty ("packs"));   // v0.0.930 — absent in older files → none
+    graphModel.restoreWraps (GraphModel::wrapsOf (*root));   // v0.0.930 — absent in older files → none
 
     // Restore viewport
     graphModel.viewportX    = (float) root->getProperty ("viewportX");

@@ -1,32 +1,32 @@
-// Patchy — Packs (v0.0.930): several nodes shown as one box.
+// Patchy — Wraps (v0.0.930): several nodes shown as one box.
 //
-// A pack is UI / project state only (backend: GraphModel::PackData). The
+// A wrap is UI / project state only (backend: GraphModel::WrapData). The
 // processing graph never sees it: members stay ordinary nodes with ordinary
 // connections. App.tsx turns the graph into what ReactFlow draws:
-//   folded pack → members hidden, one "pack" node; edges crossing its border
+//   folded wrap → members hidden, one "wrap" node; edges crossing its border
 //                 redrawn to it with their own ids, and its ports reuse the
 //                 inner ports' ids — so the activity flashes (keyed by edge
-//                 id / handle id) light the pack with no extra code.
-//   open pack   → members shown, a "packFrame" node drawn behind them.
+//                 id / handle id) light the wrap with no extra code.
+//   open wrap   → members shown, a "wrapFrame" node drawn behind them.
 //
-//   PackNode  — the folded box: name, buttons (settings, open in place,
-//               enter — coming next, unpack, delete), one row per face port,
+//   WrapNode  — the folded box: name, buttons (settings, open in place,
+//               enter — coming next, unwrap, delete), one row per face port,
 //               a one-line summary of the Pax values inside and (⚙) a panel
 //               with every Pax parameter inside, grouped by node (v0.0.931).
-//   PackFrame — the open frame: dashed outline + title bar (fold, unpack);
-//               dragging the title bar moves the pack's nodes (v0.0.930).
+//   WrapFrame — the open frame: dashed outline + title bar (fold, unwrap);
+//               dragging the title bar moves the wrap's nodes (v0.0.930).
 
 import { useContext, useEffect, useState } from 'react';
 import { NodeProps, EdgeProps, useUpdateNodeInternals, Handle, Position, BaseEdge, getBezierPath } from '@xyflow/react';
 import { Package, Maximize2, Minimize2, LogIn, Ungroup, X, Settings, Pin } from 'lucide-react';
 import { Bridge } from './Bridge';
-import type { RawPack, RawPackPin, PaxParamInfo } from './Bridge';
+import type { RawWrap, RawWrapPin, PaxParamInfo } from './Bridge';
 import { HintContext } from './HintPanel';
 import { NodeHandle, NodeHeaderButton, EditableTitle, freqLabel } from './NodeUtils';
 
-export const PACK_ACCENT = 'var(--generic)';
+export const WRAP_ACCENT = 'var(--generic)';
 
-export interface PackPort {
+export interface WrapPort {
   handleId: string;          // the inner port's own id
   label:    string;          // "MIDI In"
   nodeName: string;          // the inner node it belongs to
@@ -34,23 +34,23 @@ export interface PackPort {
   colour:   string;
 }
 
-export interface PackActions {
-  open:   (packId: string) => void;
-  close:  (packId: string) => void;
-  unpack: (packId: string) => void;
-  remove: (packId: string) => void;
-  rename: (packId: string, name: string) => void;
-  // v0.0.931 — a Pax parameter edited from the pack's panel: same messages as
+export interface WrapActions {
+  open:   (wrapId: string) => void;
+  close:  (wrapId: string) => void;
+  unwrap: (wrapId: string) => void;
+  remove: (wrapId: string) => void;
+  rename: (wrapId: string, name: string) => void;
+  // v0.0.931 — a Pax parameter edited from the wrap's panel: same messages as
   // the node's own controls (setNodeSettings + setPaxParameter while
   // dragging, commitNodeSettings at the end = one undo step)
   setParam:    (nodeId: string, index: number, value: number) => void;
   commitParam: (nodeId: string) => void;
   // v0.0.932 — the whole pin list (pin / unpin / rename = one undo step)
-  setPins:     (packId: string, pins: RawPackPin[]) => void;
+  setPins:     (wrapId: string, pins: RawWrapPin[]) => void;
 }
 
-// v0.0.931 — a generic Pax inside the pack, with its current values
-export interface PackPax {
+// v0.0.931 — a generic Pax inside the wrap, with its current values
+export interface WrapPax {
   nodeId: string;
   name:   string;            // custom name or label
   params: PaxParamInfo[];
@@ -63,11 +63,11 @@ export interface PackPax {
   liveColour: string;        // its output wires' colour (live values)
 }
 
-export interface PackNodeData {
-  pack:    RawPack;
-  ports:   PackPort[];
-  pax:     PackPax[];
-  actions: PackActions;
+export interface WrapNodeData {
+  wrap:    RawWrap;
+  ports:   WrapPort[];
+  pax:     WrapPax[];
+  actions: WrapActions;
   [key: string]: unknown;
 }
 
@@ -80,7 +80,7 @@ const fmtValue  = (p: PaxParamInfo, v: number) =>
 
 // v0.0.933 — Low/High pairs: the role of param i, and the pair's label
 // ("Band Low (Hz)" → "Band", "Band 2 Low Hz" → "Band 2")
-function pairRole (x: PackPax, i: number): { role: 'lo' | 'hi'; lo: number; hi: number } | null {
+function pairRole (x: WrapPax, i: number): { role: 'lo' | 'hi'; lo: number; hi: number } | null {
   for (const [lo, hi] of x.pairs) {
     if (i === lo) return { role: 'lo', lo, hi };
     if (i === hi) return { role: 'hi', lo, hi };
@@ -90,17 +90,17 @@ function pairRole (x: PackPax, i: number): { role: 'lo' | 'hi'; lo: number; hi: 
 const pairLabel = (p: PaxParamInfo) => p.name.replace (/\s*Low\b.*$/i, '') || 'Band';
 const isHz      = (p: PaxParamInfo) => /hz/i.test (p.name);
 const fmtPairEnd = (p: PaxParamInfo, v: number) => isHz (p) ? freqLabel (v) : fmtValue (p, v);
-const fmtChoice  = (x: PackPax, i: number, p: PaxParamInfo, v: number) =>
+const fmtChoice  = (x: WrapPax, i: number, p: PaxParamInfo, v: number) =>
   x.choices[i]?.[Math.round (v)] ?? fmtValue (p, v);
 
 // Summary for the face: live (read-only) values first, each in its Pax's
 // colour, then the settable ones in grey — "● Current Value 0.786 · Min 0.00
 // · …" (up to 2 lines). A parameter name found in more than one Pax of the
-// pack is prefixed with its node's name; a Pax's only live value then shows
+// wrap is prefixed with its node's name; a Pax's only live value then shows
 // the node's name alone ("● OSC TO VALUE 0.5"). Live values take the colour
 // of the Pax's output wires (what the value IS once sent), settings grey.
 interface SummaryPart { text: string; colour?: string }
-function paxSummary (pax: PackPax[], live: Map<string, number>, pinned: Set<string>) {
+function paxSummary (pax: WrapPax[], live: Map<string, number>, pinned: Set<string>) {
   const count = new Map<string, number>();
   for (const x of pax) for (const p of x.params) count.set (p.name, (count.get (p.name) ?? 0) + 1);
   const liveParts: SummaryPart[] = [], setParts: SummaryPart[] = [];
@@ -126,11 +126,11 @@ function paxSummary (pax: PackPax[], live: Map<string, number>, pinned: Set<stri
   return { parts, full: parts.map (q => q.text).join (' · ') };
 }
 
-// ── One parameter in the pack's panel (same kinds of control as the node) ───
+// ── One parameter in the wrap's panel (same kinds of control as the node) ───
 // `labelNode` replaces the parameter name (the pinned controls on the box
 // show their own, renamable label); `big` = a pinned live value, larger.
-function PackParamControl ({ x, p, i, live, actions, labelNode, big = false }: {
-  x: PackPax; p: PaxParamInfo; i: number; live: number | undefined; actions: PackActions;
+function WrapParamControl ({ x, p, i, live, actions, labelNode, big = false }: {
+  x: WrapPax; p: PaxParamInfo; i: number; live: number | undefined; actions: WrapActions;
   labelNode?: React.ReactNode; big?: boolean;
 }) {
   const { setHint } = useContext (HintContext);
@@ -221,8 +221,8 @@ function PackParamControl ({ x, p, i, live, actions, labelNode, big = false }: {
             return (
               <div key={val} onClick={() => { actions.setParam (x.nodeId, i, val); actions.commitParam (x.nodeId); }}
                 style={{ fontSize: 9, padding: '2px 6px', borderRadius: 3, cursor: 'pointer',
-                         border: `1px solid ${on ? PACK_ACCENT : 'var(--border)'}`,
-                         color: on ? PACK_ACCENT : 'var(--text-muted)',
+                         border: `1px solid ${on ? WRAP_ACCENT : 'var(--border)'}`,
+                         color: on ? WRAP_ACCENT : 'var(--text-muted)',
                          background: on ? 'color-mix(in srgb, var(--generic) 15%, transparent)' : 'transparent' }}>
                 {t}
               </div>
@@ -239,7 +239,7 @@ function PackParamControl ({ x, p, i, live, actions, labelNode, big = false }: {
           onChange={e => { const r = parseInt (e.target.value, 10); if (! isNaN (r)) actions.setParam (x.nodeId, i, Math.min (p.max, Math.max (p.min, r))); }}
           onBlur={() => actions.commitParam (x.nodeId)}
           onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-          style={{ width: 44, fontSize: 9, textAlign: 'right', background: 'var(--surface)', color: PACK_ACCENT,
+          style={{ width: 44, fontSize: 9, textAlign: 'right', background: 'var(--surface)', color: WRAP_ACCENT,
                    border: '1px solid var(--border)', borderRadius: 3, padding: '2px 4px' }} />
       </div>
     );
@@ -254,9 +254,9 @@ function PackParamControl ({ x, p, i, live, actions, labelNode, big = false }: {
         onMouseUp={() => actions.commitParam (x.nodeId)}
         onKeyUp={() => actions.commitParam (x.nodeId)}
         onDoubleClick={() => { actions.setParam (x.nodeId, i, p.defaultValue); actions.commitParam (x.nodeId); }}
-        onMouseEnter={() => setHint ({ title: `${p.name} — ${x.name}`, body: `Range: ${p.min} to ${p.max}${p.step >= 1 ? ' (integer)' : ''}.\nDouble-click to reset to default (${p.defaultValue}). Same control as on the node inside the pack.` })}
+        onMouseEnter={() => setHint ({ title: `${p.name} — ${x.name}`, body: `Range: ${p.min} to ${p.max}${p.step >= 1 ? ' (integer)' : ''}.\nDouble-click to reset to default (${p.defaultValue}). Same control as on the node inside the wrap.` })}
         onMouseLeave={() => setHint (null)}
-        style={{ width: '100%', display: 'block', ['--thumb-color' as any]: PACK_ACCENT }} />
+        style={{ width: '100%', display: 'block', ['--thumb-color' as any]: WRAP_ACCENT }} />
     </div>
   );
 }
@@ -266,21 +266,21 @@ const titleStyle: React.CSSProperties = {
   fontFamily: "'Syne', sans-serif",
 };
 
-// ── Folded pack ──────────────────────────────────────────────────────────────
-export function PackNode ({ id, data, selected }: NodeProps) {
-  const { pack, ports, pax, actions } = data as PackNodeData;
+// ── Folded wrap ──────────────────────────────────────────────────────────────
+export function WrapNode ({ id, data, selected }: NodeProps) {
+  const { wrap, ports, pax, actions } = data as WrapNodeData;
   const { setHint } = useContext (HintContext);
   const updateNodeInternals = useUpdateNodeInternals();
   const [showSettings, setShowSettings] = useState (false);
 
   // Live values of read-only Pax parameters (summary + panel); followed only
-  // when the pack holds at least one
+  // when the wrap holds at least one
   const [live, setLive] = useState<Map<string, number>>(new Map());
   const paxKey  = pax.map (x => x.nodeId).join ('|');
   const hasLive = pax.some (x => x.params.some (p => p.readOnly));
   // v0.0.932 — pinned controls, in pin order (pins of nodes no longer in the
-  // pack, or of parameters that no longer exist, are skipped)
-  const pins: RawPackPin[] = pack.pins ?? [];
+  // wrap, or of parameters that no longer exist, are skipped)
+  const pins: RawWrapPin[] = wrap.pins ?? [];
   const pinKey    = (nodeId: string, index: number) => `${nodeId}:${index}`;
   const pinnedSet = new Set (pins.map (q => pinKey (q.nodeId, q.index)));
   const pinned = pins.flatMap (q => {
@@ -289,11 +289,11 @@ export function PackNode ({ id, data, selected }: NodeProps) {
     return x && p && x.shown[q.index] !== false ? [{ q, x, p }] : [];
   });
   const togglePin = (nodeId: string, index: number) =>
-    actions.setPins (pack.id, pinnedSet.has (pinKey (nodeId, index))
+    actions.setPins (wrap.id, pinnedSet.has (pinKey (nodeId, index))
       ? pins.filter (q => pinKey (q.nodeId, q.index) !== pinKey (nodeId, index))
       : [...pins, { nodeId, index, label: '' }]);
   const renamePin = (nodeId: string, index: number, label: string) =>
-    actions.setPins (pack.id, pins.map (q => q.nodeId === nodeId && q.index === index ? { ...q, label } : q));
+    actions.setPins (wrap.id, pins.map (q => q.nodeId === nodeId && q.index === index ? { ...q, label } : q));
 
   const summary = paxSummary (pax, live, pinnedSet);
 
@@ -301,7 +301,7 @@ export function PackNode ({ id, data, selected }: NodeProps) {
   // the live values (a native title tooltip is a frozen snapshot)
   const [summaryHover, setSummaryHover] = useState (false);
   useEffect (() => {
-    if (summaryHover) setHint ({ title: `${pack.name || 'PACK'} — values`, body: summary.parts.map (q => q.text).join ('\n') });
+    if (summaryHover) setHint ({ title: `${wrap.name || 'WRAP'} — values`, body: summary.parts.map (q => q.text).join ('\n') });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [summaryHover, summary.full]);
   // the summary hides when the panel opens (no mouseleave then)
@@ -335,7 +335,7 @@ export function PackNode ({ id, data, selected }: NodeProps) {
     onMouseEnter: () => setHint ({ title, body }), onMouseLeave: () => setHint (null),
   });
 
-  const portLabel = (p: PackPort | undefined, align: 'left' | 'right') => p ? (
+  const portLabel = (p: WrapPort | undefined, align: 'left' | 'right') => p ? (
     <div style={{ textAlign: align, minWidth: 0 }}>
       <div style={{ fontSize: 10, color: 'var(--text)', whiteSpace: 'nowrap' }}>{p.label}</div>
       <div style={{ fontSize: 8, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden',
@@ -344,11 +344,11 @@ export function PackNode ({ id, data, selected }: NodeProps) {
   ) : <div />;
 
   return (
-    <div onDoubleClick={() => actions.open (pack.id)} style={{
+    <div onDoubleClick={() => actions.open (wrap.id)} style={{
       minWidth: 220, background: 'var(--surface)',
-      border: `1px solid ${selected ? PACK_ACCENT : 'var(--border-hi)'}`, borderTop: `3px solid ${PACK_ACCENT}`,
+      border: `1px solid ${selected ? WRAP_ACCENT : 'var(--border-hi)'}`, borderTop: `3px solid ${WRAP_ACCENT}`,
       borderRadius: 'var(--radius)', position: 'relative', fontFamily: "'JetBrains Mono', monospace",
-      boxShadow: selected ? `0 0 0 1px ${PACK_ACCENT}, 0 8px 32px var(--generic-glow)`
+      boxShadow: selected ? `0 0 0 1px ${WRAP_ACCENT}, 0 8px 32px var(--generic-glow)`
                           : '0 4px 16px rgba(0,0,0,.5), 4px 4px 0 -1px var(--surface2), 4px 4px 0 0 var(--border)',
     }}>
       {ports.map ((p, i) => (
@@ -361,34 +361,34 @@ export function PackNode ({ id, data, selected }: NodeProps) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px',
                     borderBottom: '1px solid var(--border)', userSelect: 'none' }}
         onMouseEnter={e => { if (! e.currentTarget.contains (e.relatedTarget as Node))
-          setHint ({ title: 'Pack', body: 'Several nodes shown as one box. Its ports are the connections that cross its border. Double-click (or ⤢) to open it in place. Nothing changes in the processing: packing only tidies the canvas.' }); }}
+          setHint ({ title: 'Wrap', body: 'Several nodes shown as one box. Its ports are the connections that cross its border. Double-click (or ⤢) to open it in place. Nothing changes in the processing: wrapping only tidies the canvas.' }); }}
         onMouseLeave={e => { if (! e.currentTarget.contains (e.relatedTarget as Node)) setHint (null); }}>
-        <Package size={12} color={PACK_ACCENT} />
-        <EditableTitle display={pack.name || 'PACK'} value={pack.name === 'PACK' ? '' : pack.name} placeholder="Pack"
-          onCommit={name => actions.rename (pack.id, name || 'PACK')} textStyle={titleStyle} />
-        <span style={{ fontSize: 9, color: 'var(--text-muted)', marginLeft: 2 }}>{pack.nodeIds.length} nodes</span>
+        <Package size={12} color={WRAP_ACCENT} />
+        <EditableTitle display={wrap.name || 'WRAP'} value={wrap.name === 'WRAP' ? '' : wrap.name} placeholder="Wrap"
+          onCommit={name => actions.rename (wrap.id, name || 'WRAP')} textStyle={titleStyle} />
+        <span style={{ fontSize: 9, color: 'var(--text-muted)', marginLeft: 2 }}>{wrap.nodeIds.length} nodes</span>
         <div style={{ flex: 1 }} />
         <div style={{ display: 'flex', gap: 4 }} onDoubleClick={e => e.stopPropagation()}>
           {pax.length > 0 && (
-            <NodeHeaderButton onClick={() => setShowSettings (v => ! v)} active={showSettings} activeAccent={PACK_ACCENT}
-              onHint={hint ('Pack settings', 'Every Pax parameter inside this pack, grouped by node — the same controls as on the nodes themselves (one undo step per change).')}>
-              <Settings size={11} color={showSettings ? PACK_ACCENT : 'var(--text-muted)'} />
+            <NodeHeaderButton onClick={() => setShowSettings (v => ! v)} active={showSettings} activeAccent={WRAP_ACCENT}
+              onHint={hint ('Wrap settings', 'Every Pax parameter inside this wrap, grouped by node — the same controls as on the nodes themselves (one undo step per change).')}>
+              <Settings size={11} color={showSettings ? WRAP_ACCENT : 'var(--text-muted)'} />
             </NodeHeaderButton>
           )}
-          <NodeHeaderButton onClick={() => actions.open (pack.id)}
-            onHint={hint ('Open in place', 'Shows the nodes inside this pack, where they are, in a frame. Fold it back with the frame\'s ⤡ button.')}>
+          <NodeHeaderButton onClick={() => actions.open (wrap.id)}
+            onHint={hint ('Open in place', 'Shows the nodes inside this wrap, where they are, in a frame. Fold it back with the frame\'s ⤡ button.')}>
             <Maximize2 size={13} />
           </NodeHeaderButton>
           <span style={{ opacity: 0.35, cursor: 'default' }}
-            {...hint ('Enter (coming next)', 'Will open the pack in its own view, with a way back to the main graph. Not available yet.')}>
+            {...hint ('Enter (coming next)', 'Will open the wrap in its own view, with a way back to the main graph. Not available yet.')}>
             <NodeHeaderButton onClick={() => {}}><LogIn size={13} /></NodeHeaderButton>
           </span>
-          <NodeHeaderButton onClick={() => actions.unpack (pack.id)}
-            onHint={hint ('Unpack', 'Removes the pack and puts its nodes back on the canvas as they are (⌘⇧G). Undoable.')}>
+          <NodeHeaderButton onClick={() => actions.unwrap (wrap.id)}
+            onHint={hint ('Unwrap', 'Removes the wrap and puts its nodes back on the canvas as they are (⌘⇧G). Undoable.')}>
             <Ungroup size={13} />
           </NodeHeaderButton>
-          <NodeHeaderButton onClick={() => actions.remove (pack.id)} danger
-            onHint={hint ('Delete pack', 'Deletes the pack AND the nodes inside it. Undoable (⌘Z).')}>
+          <NodeHeaderButton onClick={() => actions.remove (wrap.id)} danger
+            onHint={hint ('Delete wrap', 'Deletes the wrap AND the nodes inside it. Undoable (⌘Z).')}>
             <X size={13} />
           </NodeHeaderButton>
         </div>
@@ -397,7 +397,7 @@ export function PackNode ({ id, data, selected }: NodeProps) {
       {/* Face ports: inputs left, outputs right */}
       <div style={{ padding: '6px 10px 8px' }}>
         {ports.length === 0 && (
-          <div style={{ fontSize: 9, color: 'var(--text-muted)', padding: '4px 0' }}>no connections across the pack's border</div>
+          <div style={{ fontSize: 9, color: 'var(--text-muted)', padding: '4px 0' }}>no connections across the wrap's border</div>
         )}
         {ports.length > 0 && Array.from ({ length: rows }, (_, i) => (
           <div key={i} data-port-anchor={`row${i}`}
@@ -418,11 +418,11 @@ export function PackNode ({ id, data, selected }: NodeProps) {
                 <div key={pinKey (q.nodeId, q.index)} style={{ paddingTop: 4, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
                   <span onClick={() => togglePin (q.nodeId, q.index)}
                     {...hint ('Unpin', 'Takes this control off the box (it stays in the ⚙ panel). Undoable.')}
-                    style={{ cursor: 'pointer', display: 'inline-flex', paddingTop: 1, flexShrink: 0, color: PACK_ACCENT }}>
+                    style={{ cursor: 'pointer', display: 'inline-flex', paddingTop: 1, flexShrink: 0, color: WRAP_ACCENT }}>
                     <Pin size={10} fill="currentColor" />
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                  <PackParamControl x={x} p={p} i={q.index} live={live.get (pinKey (x.nodeId, q.index))} actions={actions}
+                  <WrapParamControl x={x} p={p} i={q.index} live={live.get (pinKey (x.nodeId, q.index))} actions={actions}
                     big={p.readOnly}
                     labelNode={
                       <EditableTitle display={q.label || def} value={q.label} placeholder={def}
@@ -488,11 +488,11 @@ export function PackNode ({ id, data, selected }: NodeProps) {
                         ? 'Takes this control off the folded box (it stays here). Undoable.'
                         : 'Shows this control on the folded box itself (once ⚙ is closed), ready to use; rename it there with the ✎, unpin it there or here. Undoable.')}
                       style={{ cursor: 'pointer', display: 'inline-flex', paddingTop: 1, flexShrink: 0,
-                               color: on ? PACK_ACCENT : 'var(--text-muted)', opacity: on ? 1 : 0.45 }}>
+                               color: on ? WRAP_ACCENT : 'var(--text-muted)', opacity: on ? 1 : 0.45 }}>
                       <Pin size={10} fill={on ? 'currentColor' : 'none'} />
                     </span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <PackParamControl x={x} p={p} i={i} live={live.get (pinKey (x.nodeId, i))} actions={actions} />
+                      <WrapParamControl x={x} p={p} i={i} live={live.get (pinKey (x.nodeId, i))} actions={actions} />
                     </div>
                   </div>
                 );
@@ -505,11 +505,11 @@ export function PackNode ({ id, data, selected }: NodeProps) {
   );
 }
 
-// ── Open pack: frame drawn behind its members ────────────────────────────────
-export interface PackFrameData {
-  pack:    RawPack;
-  actions: PackActions;
-  ports:   PackPort[];   // v0.0.934 — border ports, ordered top to bottom
+// ── Open wrap: frame drawn behind its members ────────────────────────────────
+export interface WrapFrameData {
+  wrap:    RawWrap;
+  actions: WrapActions;
+  ports:   WrapPort[];   // v0.0.934 — border ports, ordered top to bottom
   drop?:   'join' | 'leave';   // v0.0.935 — ⌥-drag in progress: what a drop would do
   [key: string]: unknown;
 }
@@ -524,7 +524,7 @@ export const FRAME_PORT_GAP = 26;
 // One border port: two handles at the same spot — the outer one keeps the
 // inner port's own id (outside wires, connections, activity), the inner one
 // "<id>~in" carries the wire's inside half to the inner node.
-function FramePort ({ q, top }: { q: PackPort; top: number }) {
+function FramePort ({ q, top }: { q: WrapPort; top: number }) {
   const { setHint } = useContext (HintContext);
   const isIn = q.dir === 'in';
   const dot: React.CSSProperties = { background: q.colour, width: 10, height: 10, border: '2px solid var(--bg)', top, pointerEvents: 'all' };
@@ -533,7 +533,7 @@ function FramePort ({ q, top }: { q: PackPort; top: number }) {
       {/* outer: inputs take wires from the left, outputs give them to the right */}
       <Handle type={isIn ? 'target' : 'source'} position={isIn ? Position.Left : Position.Right}
         id={q.handleId} style={dot}
-        onMouseEnter={() => setHint ({ title: `${q.label} — ${q.nodeName}`, body: `Pack ${isIn ? 'input' : 'output'}: wires from outside connect here; inside, it leads to ${q.nodeName}'s ${q.label}.` })}
+        onMouseEnter={() => setHint ({ title: `${q.label} — ${q.nodeName}`, body: `Wrap ${isIn ? 'input' : 'output'}: wires from outside connect here; inside, it leads to ${q.nodeName}'s ${q.label}.` })}
         onMouseLeave={() => setHint (null)} />
       {/* inner: the inside half starts / ends here (not connectable) */}
       <Handle type={isIn ? 'source' : 'target'} position={isIn ? Position.Right : Position.Left}
@@ -552,8 +552,8 @@ function FramePort ({ q, top }: { q: PackPort; top: number }) {
   );
 }
 
-export function PackFrame ({ id, data }: NodeProps) {
-  const { pack, actions, ports = [], drop } = data as PackFrameData;
+export function WrapFrame ({ id, data }: NodeProps) {
+  const { wrap, actions, ports = [], drop } = data as WrapFrameData;
   // ⌥-drag highlight: join = solid, brighter; leave = red dashed
   const dropCol = drop === 'join' ? 'var(--accent)' : drop === 'leave' ? '#f87171' : null;
   const { setHint } = useContext (HintContext);
@@ -572,25 +572,25 @@ export function PackFrame ({ id, data }: NodeProps) {
       background: dropCol ? `color-mix(in srgb, ${dropCol} 8%, transparent)` : 'color-mix(in srgb, var(--generic) 4%, transparent)',
       boxShadow: dropCol ? `0 0 18px color-mix(in srgb, ${dropCol} 45%, transparent)` : undefined,
     }}>
-      <div className="pack-frame-drag" style={{
+      <div className="wrap-frame-drag" style={{
         pointerEvents: 'auto', cursor: 'grab', display: 'flex', alignItems: 'center', gap: 6, height: FRAME_HEAD,
         padding: '0 8px', borderBottom: `1px dashed color-mix(in srgb, var(--generic) 45%, transparent)`,
         background: 'color-mix(in srgb, var(--generic) 10%, var(--bg))', borderRadius: '9px 9px 0 0',
         fontFamily: "'JetBrains Mono', monospace", userSelect: 'none',
       }}>
-        <Package size={12} color={PACK_ACCENT} />
-        <EditableTitle display={pack.name || 'PACK'} value={pack.name === 'PACK' ? '' : pack.name} placeholder="Pack"
-          onCommit={name => actions.rename (pack.id, name || 'PACK')} textStyle={titleStyle} />
+        <Package size={12} color={WRAP_ACCENT} />
+        <EditableTitle display={wrap.name || 'WRAP'} value={wrap.name === 'WRAP' ? '' : wrap.name} placeholder="Wrap"
+          onCommit={name => actions.rename (wrap.id, name || 'WRAP')} textStyle={titleStyle} />
         <span style={{ fontSize: 9, color: dropCol ?? 'var(--text-muted)' }}>
           {drop === 'join' ? 'drop to add' : drop === 'leave' ? 'drop to take out' : 'open'}
         </span>
         <div style={{ flex: 1 }} />
-        <NodeHeaderButton onClick={() => actions.close (pack.id)}
-          onHint={{ onMouseEnter: () => setHint ({ title: 'Fold the pack', body: 'Folds these nodes back into one box.' }), onMouseLeave: () => setHint (null) }}>
+        <NodeHeaderButton onClick={() => actions.close (wrap.id)}
+          onHint={{ onMouseEnter: () => setHint ({ title: 'Fold the wrap', body: 'Folds these nodes back into one box.' }), onMouseLeave: () => setHint (null) }}>
           <Minimize2 size={13} />
         </NodeHeaderButton>
-        <NodeHeaderButton onClick={() => actions.unpack (pack.id)}
-          onHint={{ onMouseEnter: () => setHint ({ title: 'Unpack', body: 'Removes the pack; its nodes stay where they are. Undoable.' }), onMouseLeave: () => setHint (null) }}>
+        <NodeHeaderButton onClick={() => actions.unwrap (wrap.id)}
+          onHint={{ onMouseEnter: () => setHint ({ title: 'Unwrap', body: 'Removes the wrap; its nodes stay where they are. Undoable.' }), onMouseLeave: () => setHint (null) }}>
           <Ungroup size={13} />
         </NodeHeaderButton>
       </div>
@@ -600,12 +600,12 @@ export function PackFrame ({ id, data }: NodeProps) {
   );
 }
 
-// ── A wire crossing open-pack frames (v0.0.934) ──────────────────────────────
+// ── A wire crossing open-wrap frames (v0.0.934) ──────────────────────────────
 // Still the one real connection (real id + class → resting colour, activity
 // flash, selection, delete all as for any wire), drawn through the frame
 // port(s) it crosses: a bezier into each port from the left, out of it to the
 // right, then on to its end.
-export function PackRouteEdge ({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition,
+export function WrapRouteEdge ({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition,
                                  style, markerEnd, interactionWidth, data }: EdgeProps) {
   const vias = ((data as any)?.vias ?? []) as { x: number; y: number }[];
   const pts = [{ x: sourceX, y: sourceY, pos: sourcePosition },

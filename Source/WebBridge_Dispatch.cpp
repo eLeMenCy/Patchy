@@ -81,8 +81,8 @@ void WebBridge::handleMessage (const juce::String& json)
         handleMidiKeyEvent (obj);
     else if (type == "removeNode")
         handleRemoveNode (obj);
-    else if (type.startsWith ("pack"))   // v0.0.930 — packNodes, packUnpack, packSetOpen, packMove, packRename, packRemove (+ packSetPins v0.0.932)
-        handlePackMessage (type, obj);
+    else if (type.startsWith ("wrap"))   // v0.0.930 — wrapNodes, wrapUnwrap, wrapSetOpen, wrapMove, wrapRename, wrapRemove (+ wrapSetPins v0.0.932)
+        handleWrapMessage (type, obj);
     else if (type == "addConnection")
         handleAddConnection (obj);
     else if (type == "removeConnection")
@@ -879,13 +879,13 @@ void WebBridge::handleSetAudioEngineSettings (const juce::DynamicObject* obj)
         onSetAudioEngineSettings (sr, buf, mute);
 }
 
-// ── Packs (v0.0.930) ──────────────────────────────────────────────────────────
-// A pack is UI / project state only (GraphModel::PackData): none of these
+// ── Wraps (v0.0.930) ──────────────────────────────────────────────────────────
+// A wrap is UI / project state only (GraphModel::WrapData): none of these
 // touch the processing graph. Undoable ones push a snapshot first; moving a
-// folded pack and opening/closing it are not undoable (like moving a node).
-void WebBridge::handlePackMessage (const juce::String& type, const juce::DynamicObject* obj)
+// folded wrap and opening/closing it are not undoable (like moving a node).
+void WebBridge::handleWrapMessage (const juce::String& type, const juce::DynamicObject* obj)
 {
-    const juce::String packId = obj->getProperty ("packId").toString();
+    const juce::String wrapId = obj->getProperty ("wrapId").toString();
     auto strings = [] (const juce::var& v)
     {
         juce::StringArray out;
@@ -893,7 +893,7 @@ void WebBridge::handlePackMessage (const juce::String& type, const juce::Dynamic
         return out;
     };
 
-    if (type == "packNodes")
+    if (type == "wrapNodes")
     {
         auto ids = strings (obj->getProperty ("nodeIds"));
         juce::StringArray existing;
@@ -901,27 +901,27 @@ void WebBridge::handlePackMessage (const juce::String& type, const juce::Dynamic
         if (existing.isEmpty()) return;
         pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
         graph.pushSnapshot();
-        graph.addPack (obj->getProperty ("name").toString(), existing,
+        graph.addWrap (obj->getProperty ("name").toString(), existing,
                        strings (obj->getProperty ("ports")),
                        (float) (double) obj->getProperty ("x"), (float) (double) obj->getProperty ("y"));
     }
-    else if (type == "packUnpack")
+    else if (type == "wrapUnwrap")
     {
-        if (graph.findPack (packId) == nullptr) return;
+        if (graph.findWrap (wrapId) == nullptr) return;
         pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
         graph.pushSnapshot();
-        graph.removePack (packId);
+        graph.removeWrap (wrapId);
     }
-    else if (type == "packRename")
+    else if (type == "wrapRename")
     {
-        auto* p = graph.findPack (packId);
+        auto* p = graph.findWrap (wrapId);
         const auto name = obj->getProperty ("name").toString();
         if (p == nullptr || p->name == name) return;
         pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
         graph.pushSnapshot();
         p->name = name;
     }
-    else if (type == "packChange")   // v0.0.935 — ⌥-drag: nodes join / leave packs, one undo step
+    else if (type == "wrapChange")   // v0.0.935 — ⌥-drag: nodes join / leave wraps, one undo step
     {
         auto* changes = obj->getProperty ("changes").getArray();
         if (changes == nullptr || changes->isEmpty()) return;
@@ -937,9 +937,9 @@ void WebBridge::handlePackMessage (const juce::String& type, const juce::Dynamic
                     {
                         const auto x = (float) (double) mo->getProperty (toEnd ? "toX" : "fromX");
                         const auto y = (float) (double) mo->getProperty (toEnd ? "toY" : "fromY");
-                        if ((bool) mo->getProperty ("pack"))   // a folded pack's box (merged into another)
+                        if ((bool) mo->getProperty ("wrap"))   // a folded wrap's box (merged into another)
                         {
-                            if (auto* pk = graph.findPack (mo->getProperty ("id").toString())) { pk->x = x; pk->y = y; }
+                            if (auto* pk = graph.findWrap (mo->getProperty ("id").toString())) { pk->x = x; pk->y = y; }
                         }
                         else if (auto* n = graph.findNode (mo->getProperty ("id").toString()))
                         {
@@ -953,23 +953,23 @@ void WebBridge::handlePackMessage (const juce::String& type, const juce::Dynamic
         bool any = false;
         for (const auto& c : *changes)
             if (auto* co = c.getDynamicObject())
-                any = graph.changePackMembers (co->getProperty ("packId").toString(),
+                any = graph.changeWrapMembers (co->getProperty ("wrapId").toString(),
                                                strings (co->getProperty ("add")),
                                                strings (co->getProperty ("remove")),
                                                strings (co->getProperty ("ports"))) || any;
         if (! any) return;
         graph.pushExistingSnapshot (before);
     }
-    else if (type == "packSetPins")   // v0.0.932 — pin / unpin / rename a pinned control: one undo step
+    else if (type == "wrapSetPins")   // v0.0.932 — pin / unpin / rename a pinned control: one undo step
     {
-        auto* p = graph.findPack (packId);
+        auto* p = graph.findWrap (wrapId);
         if (p == nullptr) return;
-        std::vector<PackPin> pins;
+        std::vector<WrapPin> pins;
         if (auto* arr = obj->getProperty ("pins").getArray())
             for (const auto& v : *arr)
                 if (auto* q = v.getDynamicObject())
                 {
-                    PackPin pin { q->getProperty ("nodeId").toString(), (int) q->getProperty ("index"),
+                    WrapPin pin { q->getProperty ("nodeId").toString(), (int) q->getProperty ("index"),
                                   q->getProperty ("label").toString() };
                     if (p->nodeIds.contains (pin.nodeId)) pins.push_back (pin);
                 }
@@ -978,32 +978,32 @@ void WebBridge::handlePackMessage (const juce::String& type, const juce::Dynamic
         graph.pushSnapshot();
         p->pins = std::move (pins);
     }
-    else if (type == "packRemove")   // delete the pack AND its nodes — one undo step
+    else if (type == "wrapRemove")   // delete the wrap AND its nodes — one undo step
     {
-        auto* p = graph.findPack (packId);
+        auto* p = graph.findWrap (wrapId);
         if (p == nullptr) return;
         const auto members = p->nodeIds;
         pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
         graph.pushSnapshot();
         graph.suspendNotifications();
-        for (const auto& id : members) graph.removeNode (id);   // also drops the emptied pack
-        graph.removePack (packId);
+        for (const auto& id : members) graph.removeNode (id);   // also drops the emptied wrap
+        graph.removeWrap (wrapId);
         graph.resumeNotifications();   // one rebuild, pushes the graph
         pushUndoState();
         return;
     }
-    else if (type == "packSetOpen")   // not undoable; the UI already shows it
+    else if (type == "wrapSetOpen")   // not undoable; the UI already shows it
     {
-        if (auto* p = graph.findPack (packId))
+        if (auto* p = graph.findWrap (wrapId))
         {
             p->open = (bool) obj->getProperty ("open");
             if (obj->hasProperty ("ports")) p->ports = strings (obj->getProperty ("ports"));
         }
         return;
     }
-    else if (type == "packMove")   // not undoable, like moving a node
+    else if (type == "wrapMove")   // not undoable, like moving a node
     {
-        if (auto* p = graph.findPack (packId))
+        if (auto* p = graph.findWrap (wrapId))
         {
             p->x = (float) (double) obj->getProperty ("x");
             p->y = (float) (double) obj->getProperty ("y");

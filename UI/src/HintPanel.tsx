@@ -75,7 +75,7 @@ export function HintPanel () {
     };
     start();
     return () => { cancelAnimationFrame(raf); clearTimeout(timer); };
-  // v0.0.931 — keyed on the TITLE, not the hint object: a live hint (pack
+  // v0.0.931 — keyed on the TITLE, not the hint object: a live hint (wrap
   // summary, Value-edge readout) is re-sent many times a second with new
   // values; restarting on each one kept it at the top for ever.
   }, [hint?.title, hint == null]);

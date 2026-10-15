@@ -349,9 +349,9 @@ bool PatchyEditor::keyPressed (const juce::KeyPress& key, juce::Component*)
     else if (key.getKeyCode() == 'S' &&   shift)   { bridge.handleFileSaveAs(); return true; }
     else if (key.getKeyCode() == 'Z' && ! shift)   { bridge.handleUndo(); return true; }
     else if (key.getKeyCode() == 'Z' &&   shift)   { bridge.handleRedo(); return true; }
-    // v0.0.930 — ⌘G pack the selected nodes, ⌘⇧G unpack (the UI knows the selection)
-    else if (key.getKeyCode() == 'G' && ! shift)   { bridge.pushToUI ("onKeyEvent", "\"Pack\"");   return true; }
-    else if (key.getKeyCode() == 'G' &&   shift)   { bridge.pushToUI ("onKeyEvent", "\"Unpack\""); return true; }
+    // v0.0.930 — ⌘G wrap the selected nodes, ⌘⇧G unwrap (the UI knows the selection)
+    else if (key.getKeyCode() == 'G' && ! shift)   { bridge.pushToUI ("onKeyEvent", "\"Wrap\"");   return true; }
+    else if (key.getKeyCode() == 'G' &&   shift)   { bridge.pushToUI ("onKeyEvent", "\"Unwrap\""); return true; }
 
     return false;
 }

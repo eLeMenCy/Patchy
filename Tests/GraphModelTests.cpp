@@ -19,9 +19,9 @@ public:
         testPortsForType();
         testCycleDetection();
         testSerialisationRoundtrip();
-        testPacks();
-        testPackPins();
-        testPackMembers();
+        testWraps();
+        testWrapPins();
+        testWrapMembers();
     }
 
 private:
@@ -236,34 +236,34 @@ private:
         expectEquals (g2.getNodes()[1].nodeType, g.getNodes()[1].nodeType);
     }
 
-    // v0.0.930 — packs: UI/project state kept in GraphModel
-    void testPacks()
+    // v0.0.930 — wraps: UI/project state kept in GraphModel
+    void testWraps()
     {
-        beginTest ("packs: add, one-level membership, node removal, undo snapshot round trip");
+        beginTest ("wraps: add, one-level membership, node removal, undo snapshot round trip");
 
         auto g = makeGraph();
         const auto a = g.addNode (5, 0.f, 0.f).id;     // MIDI Monitor
         const auto b = g.addNode (28, 200.f, 0.f).id;  // MIDI Morpher
         const auto c = g.addNode (5, 400.f, 0.f).id;
 
-        auto& p1 = g.addPack ("FIRST", juce::StringArray { a, b }, juce::StringArray { "x_MIDI In_in" }, 10.f, 20.f);
+        auto& p1 = g.addWrap ("FIRST", juce::StringArray { a, b }, juce::StringArray { "x_MIDI In_in" }, 10.f, 20.f);
         const auto p1Id = p1.id;
-        expectEquals ((int) g.getPacks().size(), 1);
-        expectEquals (g.findPack (p1Id)->nodeIds.size(), 2);
+        expectEquals ((int) g.getWraps().size(), 1);
+        expectEquals (g.findWrap (p1Id)->nodeIds.size(), 2);
 
-        // A node joining another pack leaves the first one (one level, one pack per node)
-        const auto p2Id = g.addPack ("SECOND", juce::StringArray { b, c }, {}, 0.f, 0.f).id;
-        expectEquals (g.findPack (p1Id)->nodeIds.size(), 1, "b moved out of FIRST");
-        expectEquals (g.findPack (p2Id)->nodeIds.size(), 2);
+        // A node joining another wrap leaves the first one (one level, one wrap per node)
+        const auto p2Id = g.addWrap ("SECOND", juce::StringArray { b, c }, {}, 0.f, 0.f).id;
+        expectEquals (g.findWrap (p1Id)->nodeIds.size(), 1, "b moved out of FIRST");
+        expectEquals (g.findWrap (p2Id)->nodeIds.size(), 2);
 
-        // Undo snapshot round trip keeps packs (name, members, ports, position, open)
-        g.findPack (p1Id)->open = true;
+        // Undo snapshot round trip keeps wraps (name, members, ports, position, open)
+        g.findWrap (p1Id)->open = true;
         g.pushSnapshot();
-        g.removePack (p2Id);
-        expectEquals ((int) g.getPacks().size(), 1);
+        g.removeWrap (p2Id);
+        expectEquals ((int) g.getWraps().size(), 1);
         expect (g.undo());
-        expectEquals ((int) g.getPacks().size(), 2, "undo brings the pack back");
-        auto* r1 = g.findPack (p1Id);
+        expectEquals ((int) g.getWraps().size(), 2, "undo brings the wrap back");
+        auto* r1 = g.findWrap (p1Id);
         expect (r1 != nullptr);
         if (r1 != nullptr)
         {
@@ -273,88 +273,115 @@ private:
             expect (r1->open);
         }
 
-        // Removing the last member removes the pack
+        // Removing the last member removes the wrap
         g.removeNode (a);
-        expect (g.findPack (p1Id) == nullptr, "empty pack removed");
-        expectEquals ((int) g.getPacks().size(), 1);
+        expect (g.findWrap (p1Id) == nullptr, "empty wrap removed");
+        expectEquals ((int) g.getWraps().size(), 1);
 
-        // toVar carries packs; restorePacks drops members that no longer exist
+        // toVar carries wraps; restoreWraps drops members that no longer exist
         auto v = g.toVar();
-        expect (v.getProperty ("packs", {}).isArray());
+        expect (v.getProperty ("wraps", {}).isArray());
         g.removeNode (c);
-        g.restorePacks (v.getProperty ("packs", {}));
-        expectEquals ((int) g.getPacks().size(), 1);
-        expectEquals (g.getPacks()[0].nodeIds.size(), 1, "c dropped, b kept");
+        g.restoreWraps (v.getProperty ("wraps", {}));
+        expectEquals ((int) g.getWraps().size(), 1);
+        expectEquals (g.getWraps()[0].nodeIds.size(), 1, "c dropped, b kept");
 
-        // Older snapshots without "packs" → none
-        g.restorePacks (juce::var());
-        expectEquals ((int) g.getPacks().size(), 0);
+        // v0.0.936 — files saved before the rename keep their wraps under "packs"
+        {
+            auto* old = new juce::DynamicObject();
+            old->setProperty ("packs", v.getProperty ("wraps", {}));
+            juce::var oldVar (old);
+            expect (GraphModel::wrapsOf (*old).isArray(), "\"packs\" read as wraps");
+            g.restoreWraps (GraphModel::wrapsOf (*old));
+            expectEquals ((int) g.getWraps().size(), 1, "old file: wrap restored");
+
+            // the old default name follows the rename; a chosen name doesn't
+            auto* o2 = new juce::DynamicObject();
+            juce::var o2v (o2);
+            juce::Array<juce::var> arr;
+            for (const auto* nm : { "PACK", "Drums" })
+            {
+                auto* w = new juce::DynamicObject();
+                w->setProperty ("id", juce::Uuid().toString());
+                w->setProperty ("name", nm);
+                w->setProperty ("nodeIds", juce::Array<juce::var> { g.getWraps()[0].nodeIds[0] });
+                arr.add (juce::var (w));
+            }
+            o2->setProperty ("packs", arr);
+            g.restoreWraps (GraphModel::wrapsOf (*o2));
+            expectEquals (g.getWraps()[0].name, juce::String ("WRAP"));
+            expectEquals (g.getWraps()[1].name, juce::String ("Drums"));
+        }
+
+        // Older snapshots without "wraps" → none
+        g.restoreWraps (juce::var());
+        expectEquals ((int) g.getWraps().size(), 0);
     }
 
-    void testPackMembers()
+    void testWrapMembers()
     {
-        beginTest ("pack members (v0.0.935): join / leave, one level, pins pruned, empty pack removed");
+        beginTest ("wrap members (v0.0.935): join / leave, one level, pins pruned, empty wrap removed");
 
         auto g = makeGraph();
         const auto a = g.addNode (5, 0.f, 0.f).id;
         const auto b = g.addNode (5, 0.f, 0.f).id;
         const auto c = g.addNode (5, 0.f, 0.f).id;
         const auto d = g.addNode (5, 0.f, 0.f).id;
-        const auto pId = g.addPack ("P", juce::StringArray { a, b }, {}, 0.f, 0.f).id;
-        const auto qId = g.addPack ("Q", juce::StringArray { c, d }, {}, 0.f, 0.f).id;
-        g.findPack (qId)->pins = { { c, 0, "" }, { d, 0, "" } };
+        const auto pId = g.addWrap ("P", juce::StringArray { a, b }, {}, 0.f, 0.f).id;
+        const auto qId = g.addWrap ("Q", juce::StringArray { c, d }, {}, 0.f, 0.f).id;
+        g.findWrap (qId)->pins = { { c, 0, "" }, { d, 0, "" } };
 
         // c joins P: leaves Q (its pin there goes), Q keeps d
-        expect (g.changePackMembers (pId, { c }, {}, { "x_MIDI In_in" }));
-        expectEquals (g.findPack (pId)->nodeIds.size(), 3);
-        expectEquals (g.findPack (pId)->ports[0], juce::String ("x_MIDI In_in"));
-        expectEquals (g.findPack (qId)->nodeIds.size(), 1);
-        expectEquals ((int) g.findPack (qId)->pins.size(), 1, "c's pin left Q with it");
-        expectEquals ((int) g.findPack (pId)->pins.size(), 1, "... and came along into P");
-        expectEquals (g.findPack (pId)->pins[0].nodeId, c);
+        expect (g.changeWrapMembers (pId, { c }, {}, { "x_MIDI In_in" }));
+        expectEquals (g.findWrap (pId)->nodeIds.size(), 3);
+        expectEquals (g.findWrap (pId)->ports[0], juce::String ("x_MIDI In_in"));
+        expectEquals (g.findWrap (qId)->nodeIds.size(), 1);
+        expectEquals ((int) g.findWrap (qId)->pins.size(), 1, "c's pin left Q with it");
+        expectEquals ((int) g.findWrap (pId)->pins.size(), 1, "... and came along into P");
+        expectEquals (g.findWrap (pId)->pins[0].nodeId, c);
 
-        // merging a whole pack: all of Q's nodes join P → Q empty → gone
+        // merging a whole wrap: all of Q's nodes join P → Q empty → gone
         const auto e = g.addNode (5, 0.f, 0.f).id;
-        const auto rId = g.addPack ("R", juce::StringArray { e }, {}, 0.f, 0.f).id;
-        g.findPack (rId)->pins = { { e, 0, "Drive" } };
-        expect (g.changePackMembers (pId, { e }, {}, { "x_MIDI In_in" }));
-        expect (g.findPack (rId) == nullptr, "merged pack removed");
-        expectEquals ((int) g.findPack (pId)->pins.size(), 2);
-        expectEquals (g.findPack (pId)->pins[1].label, juce::String ("Drive"));
-        expect (g.changePackMembers (pId, {}, { e }, { "x_MIDI In_in" }));   // back out (keeps the rest of this test as it was)
+        const auto rId = g.addWrap ("R", juce::StringArray { e }, {}, 0.f, 0.f).id;
+        g.findWrap (rId)->pins = { { e, 0, "Drive" } };
+        expect (g.changeWrapMembers (pId, { e }, {}, { "x_MIDI In_in" }));
+        expect (g.findWrap (rId) == nullptr, "merged wrap removed");
+        expectEquals ((int) g.findWrap (pId)->pins.size(), 2);
+        expectEquals (g.findWrap (pId)->pins[1].label, juce::String ("Drive"));
+        expect (g.changeWrapMembers (pId, {}, { e }, { "x_MIDI In_in" }));   // back out (keeps the rest of this test as it was)
 
         // nothing to do → false, nothing changed
-        expect (! g.changePackMembers (pId, { a }, {}, {}));
-        expectEquals (g.findPack (pId)->ports.size(), 1);
+        expect (! g.changeWrapMembers (pId, { a }, {}, {}));
+        expectEquals (g.findWrap (pId)->ports.size(), 1);
 
         // a leaves P
-        expect (g.changePackMembers (pId, {}, { a }, {}));
-        expectEquals (g.findPack (pId)->nodeIds.size(), 2);
+        expect (g.changeWrapMembers (pId, {}, { a }, {}));
+        expectEquals (g.findWrap (pId)->nodeIds.size(), 2);
 
         // d leaves Q → Q empty → gone
-        expect (g.changePackMembers (qId, {}, { d }, {}));
-        expect (g.findPack (qId) == nullptr);
+        expect (g.changeWrapMembers (qId, {}, { d }, {}));
+        expect (g.findWrap (qId) == nullptr);
 
         // unknown nodes are ignored
-        expect (! g.changePackMembers (pId, { "nope" }, {}, {}));
+        expect (! g.changeWrapMembers (pId, { "nope" }, {}, {}));
     }
 
-    void testPackPins()
+    void testWrapPins()
     {
-        beginTest ("pack pins (v0.0.932): save / restore, undo, pruned when a node leaves");
+        beginTest ("wrap pins (v0.0.932): save / restore, undo, pruned when a node leaves");
 
         auto g = makeGraph();
         const auto a = g.addNode (5, 0.f, 0.f).id;
         const auto b = g.addNode (5, 200.f, 0.f).id;
-        const auto pId = g.addPack ("P", juce::StringArray { a, b }, {}, 0.f, 0.f).id;
+        const auto pId = g.addWrap ("P", juce::StringArray { a, b }, {}, 0.f, 0.f).id;
 
         g.pushSnapshot();
-        g.findPack (pId)->pins = { { a, 0, "Drive" }, { b, 2, "" } };
+        g.findWrap (pId)->pins = { { a, 0, "Drive" }, { b, 2, "" } };
 
-        // toVar → restorePacks keeps pins, in order, with labels
+        // toVar → restoreWraps keeps pins, in order, with labels
         auto v = g.toVar();
-        g.restorePacks (v.getProperty ("packs", {}));
-        auto* p = g.findPack (pId);
+        g.restoreWraps (v.getProperty ("wraps", {}));
+        auto* p = g.findWrap (pId);
         expect (p != nullptr);
         if (p == nullptr) return;
         expectEquals ((int) p->pins.size(), 2);
@@ -363,26 +390,26 @@ private:
 
         // Undo goes back to no pins
         expect (g.undo());
-        expectEquals ((int) g.findPack (pId)->pins.size(), 0, "undo removes the pins");
+        expectEquals ((int) g.findWrap (pId)->pins.size(), 0, "undo removes the pins");
         expect (g.redo());
-        expectEquals ((int) g.findPack (pId)->pins.size(), 2, "redo brings them back");
+        expectEquals ((int) g.findWrap (pId)->pins.size(), 2, "redo brings them back");
 
-        // A node leaving (removed, or moved to another pack) takes its pins with it
+        // A node leaving (removed, or moved to another wrap) takes its pins with it
         g.removeNode (a);
-        expectEquals ((int) g.findPack (pId)->pins.size(), 1);
+        expectEquals ((int) g.findWrap (pId)->pins.size(), 1);
         const auto c = g.addNode (5, 400.f, 0.f).id;
-        g.addPack ("Q", juce::StringArray { b, c }, {}, 0.f, 0.f);   // b leaves P → P empty → gone
-        expect (g.findPack (pId) == nullptr);
+        g.addWrap ("Q", juce::StringArray { b, c }, {}, 0.f, 0.f);   // b leaves P → P empty → gone
+        expect (g.findWrap (pId) == nullptr);
 
         // Pins of a node that no longer exists are dropped on restore
         auto d = g.addNode (5, 0.f, 0.f).id;
         auto e = g.addNode (5, 0.f, 0.f).id;
-        auto& r = g.addPack ("R", juce::StringArray { d, e }, {}, 0.f, 0.f);
+        auto& r = g.addWrap ("R", juce::StringArray { d, e }, {}, 0.f, 0.f);
         r.pins = { { d, 0, "" }, { e, 0, "" } };
         auto v2 = g.toVar();
         g.removeNode (e);
-        g.restorePacks (v2.getProperty ("packs", {}));
-        expectEquals ((int) g.getPacks().back().pins.size(), 1, "pin of the missing node dropped");
+        g.restoreWraps (v2.getProperty ("wraps", {}));
+        expectEquals ((int) g.getWraps().back().pins.size(), 1, "pin of the missing node dropped");
     }
 };
 

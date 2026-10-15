@@ -100,34 +100,34 @@ struct NodeData
     std::vector<Port> ports;
 };
 
-/** A pack (v0.0.930) — several nodes shown as one box on the canvas.
+/** A wrap (v0.0.930) — several nodes shown as one box on the canvas.
  *  Purely a UI / project-file concept: the processing graph never looks at
- *  packs (members stay ordinary nodes with ordinary connections), so packing
- *  can't affect audio/MIDI. One level only (no packs inside packs). */
-/** A Pax control pinned onto a folded pack's box (v0.0.932): parameter
+ *  wraps (members stay ordinary nodes with ordinary connections), so wrapping
+ *  can't affect audio/MIDI. One level only (no wraps inside wraps). */
+/** A Pax control pinned onto a folded wrap's box (v0.0.932): parameter
  *  `index` of member node `nodeId`, shown as `label` (empty = default). */
-struct PackPin
+struct WrapPin
 {
     juce::String nodeId;
     int          index = 0;
     juce::String label;
-    bool operator== (const PackPin& o) const { return nodeId == o.nodeId && index == o.index && label == o.label; }
+    bool operator== (const WrapPin& o) const { return nodeId == o.nodeId && index == o.index && label == o.label; }
 };
 
-struct PackData
+struct WrapData
 {
     juce::String      id, name;
     juce::StringArray nodeIds;   // members
     juce::StringArray ports;     // inner handle ids shown on the folded face (stable list)
     float             x = 0.f, y = 0.f;   // folded box position
     bool              open = false;       // opened in place (members shown in a frame)
-    std::vector<PackPin> pins;            // v0.0.932 — controls pinned on the box, in order
+    std::vector<WrapPin> pins;            // v0.0.932 — controls pinned on the box, in order
 
     /** Drops pins whose node is no longer a member. */
     void prunePins()
     {
         pins.erase (std::remove_if (pins.begin(), pins.end(),
-                                    [this] (const PackPin& q) { return ! nodeIds.contains (q.nodeId); }),
+                                    [this] (const WrapPin& q) { return ! nodeIds.contains (q.nodeId); }),
                     pins.end());
     }
 };
@@ -169,7 +169,7 @@ public:
     {
         nodes.clear();
         connections.clear();
-        packs.clear();
+        wraps.clear();
         viewportX = viewportY = 0.0f;
         viewportZoom = 1.0f;
     }
@@ -190,24 +190,31 @@ public:
 
     juce::var   toVar() const;
 
-    // ── Packs (v0.0.930) — see PackData ───────────────────────────────────────
-    // No onChange from these: packs don't touch processing. Callers push the
+    // ── Wraps (v0.0.930) — see WrapData ───────────────────────────────────────
+    // No onChange from these: wraps don't touch processing. Callers push the
     // graph to the UI (and an undo snapshot where it's an undoable action).
-    PackData&   addPack     (const juce::String& name, const juce::StringArray& nodeIds,
+    WrapData&   addWrap     (const juce::String& name, const juce::StringArray& nodeIds,
                              const juce::StringArray& ports, float x, float y);
-    PackData*   findPack    (const juce::String& packId);
-    bool        removePack  (const juce::String& packId);   // unpack: members stay
-    /** v0.0.935 — nodes join / leave a pack (⌥-drag). Joining takes a node out
-     *  of any other pack (one level) and brings its pins along; `ports`
-     *  replaces the face ports; pins of nodes that left are dropped; a pack
+    WrapData*   findWrap    (const juce::String& wrapId);
+    bool        removeWrap  (const juce::String& wrapId);   // unwrap: members stay
+    /** v0.0.935 — nodes join / leave a wrap (⌥-drag). Joining takes a node out
+     *  of any other wrap (one level) and brings its pins along; `ports`
+     *  replaces the face ports; pins of nodes that left are dropped; a wrap
      *  left empty is removed.
      *  Returns false when nothing changed. */
-    bool        changePackMembers (const juce::String& packId, const juce::StringArray& add,
+    bool        changeWrapMembers (const juce::String& wrapId, const juce::StringArray& add,
                                    const juce::StringArray& remove, const juce::StringArray& ports);
-    /** Rebuild packs from a saved "packs" array (snapshot / file); members
-        that no longer exist are dropped, empty packs skipped. */
-    void        restorePacks (const juce::var& packsArray);
-    const std::vector<PackData>& getPacks() const { return packs; }
+    /** Rebuild wraps from a saved "wraps" array (snapshot / file); members
+        that no longer exist are dropped, empty wraps skipped. */
+    void        restoreWraps (const juce::var& wrapsArray);
+    /** v0.0.936 — the wraps array of a saved graph: "wraps", or "packs" in
+     *  files / snapshots saved before the Packs → Wraps rename (TEMPORARY
+     *  fallback — drop once old projects have been re-saved). */
+    static juce::var wrapsOf (const juce::DynamicObject& o)
+    {
+        return o.hasProperty ("wraps") ? o.getProperty ("wraps") : o.getProperty ("packs");
+    }
+    const std::vector<WrapData>& getWraps() const { return wraps; }
 
     // ── Undo / Redo ───────────────────────────────────────────────────────────
     static constexpr int kMaxUndoSteps = 50;
@@ -251,7 +258,7 @@ private:
 
     std::vector<NodeData>   nodes;
     std::vector<Connection> connections;
-    std::vector<PackData>   packs;   // v0.0.930
+    std::vector<WrapData>   wraps;   // v0.0.930
 
     bool notificationsSuspended  = false;
 

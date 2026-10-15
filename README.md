@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.936
+> Version 0.0.937
 
 ---
 
@@ -495,7 +495,7 @@ Several nodes shown as one box, to tidy a busy canvas. A wrap is display and pro
 - **The open frame's ports** — the frame shows the same ports as the folded box (inputs on its left edge, outputs on its right, labelled, ordered by their node from top to bottom): wires from outside stop at the frame, and continue inside to their node — far less spaghetti. Both halves flash with the signal; connecting to a frame port connects to the inner port; a port with nothing connected outside keeps its inside part (dimmed). The frame's sides leave room for the labels, and the box and the frame list the ports in the same order.
 - **Pax controls** — the box shows a summary of the values of the Pax inside — live read-only values first, in the colour of their Pax's output wires (*● Current Value 0.786*; when several Pax share a name, the node's name is shown instead: *● OSC TO VALUE 0.5*), then the settings (*Min 0.00 · Max 1.00*), up to two lines — hover it to see all of them, live, right there (and in the hint panel); its ⚙ opens a panel with every Pax parameter inside, grouped by node — the same sliders / switches as on the nodes, one undo step per change. Every Pax is listed, the bespoke ones (Spectrumyser, Envelope, Audio→DMX, Audio Peak→OSC, Channel Filter) included — with their mode buttons (Amp / Band, RMS / Freq…) and their Low/High bands as one two-head slider within the node's zoom range (shown only in Band / Freq mode; Spectrumyser: only the bands in use); built-in nodes' controls are not listed (yet).
 - **📌 Pins** — in the ⚙ panel, the pin next to a parameter puts that control on the folded box itself, ready to use (a live value shows as a large readout); hover its label and click the ✎ to rename it (e.g. *Drive* instead of *Level · AMP*), click its 📌 to unpin it. Pinned values leave the summary; while ⚙ is open the pinned controls hide (like the summary), so pinning never moves the list. Pin, unpin and rename are each one undo step and are saved with the project.
-- **Enter** (the → button) — opening the wrap in its own view: coming next, shown disabled for now.
+- **Enter** — the → button on the folded box or the open frame, or `⌘↑` with a wrap (or a node in an open wrap) selected: the canvas shows **only this wrap's nodes**, its outside connections on two rails (left: from outside, right: to outside, labelled, flashing with the signal). Work as usual inside — a node dropped from the sidebar is created in the wrap. Back with **Main** in the breadcrumb at the top-left, `⌘↓` or `Esc`; the wrap stays folded or open as it was, and each view keeps its own zoom / position.
 - **Unwrap** — `⌘⇧G`, **☰ → Edit → Unwrap**, or the box / frame's unwrap button: the wrap goes, the nodes stay.
 - **✕** on the box deletes the wrap **and** its nodes (undoable).
 - **Add / take out nodes** — hold **⌥ Option** while dragging: drop a node inside an open wrap's frame to add it (the frame lights up, "drop to add"), drop a member outside its frame to take it out (red, "drop to take out"). Its wires stay as they are. ⌥-drop a **folded wrap** into an open one to merge them: its nodes (and their pins) join, it goes. One undo step per drop — ⌘Z puts everything back where the drag began. Without ⌥, dragging works as usual (the frame just grows with its nodes).
@@ -559,6 +559,7 @@ Undo/Redo is accessible via `⌘Z` / `⌘⇧Z`, or via **☰ → Edit → Undo /
 | `⌘⇧Z` | Redo |
 | `⌘G` | Wrap the selected nodes |
 | `⌘⇧G` | Unwrap the selected wrap |
+| `⌘↑` / `⌘↓` (or `Esc`) | Enter the selected wrap / back to the main graph |
 | `⌥ Option` + drag a node | Add it to an open wrap (drop inside its frame) / take it out (drop outside) |
 | `F` | Fold / unfold all nodes |
 | `Space` | Play / Pause the selected Audio Player node |
@@ -821,4 +822,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.936 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.937 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

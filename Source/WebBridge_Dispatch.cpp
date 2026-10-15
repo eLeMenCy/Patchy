@@ -175,11 +175,19 @@ void WebBridge::handleAddNode (const juce::DynamicObject* obj)
         }
     }
 
+    // v0.0.937 — dropped while inside a wrap ("Enter" view): it joins it, in
+    // the same undo step and the same graph push
+    const juce::String wrapId = obj->getProperty ("wrapId").toString();
+    graph.suspendNotifications();
     graph.addNode (
         (int)   obj->getProperty ("nodeType"),
         (float) obj->getProperty ("x"),
         (float) obj->getProperty ("y"),
         paxName, portSpec);
+    if (wrapId.isNotEmpty() && ! graph.getNodes().empty())
+        if (auto* w = graph.findWrap (wrapId))
+            w->nodeIds.add (graph.getNodes().back().id);
+    graph.resumeNotifications();
 
     // Initialize DMX Monitor/Console with default settingsJson so undo doesn't wipe settings
     int nodeType = (int) obj->getProperty ("nodeType");

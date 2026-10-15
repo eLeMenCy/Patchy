@@ -47,6 +47,7 @@ export interface WrapActions {
   commitParam: (nodeId: string) => void;
   // v0.0.932 — the whole pin list (pin / unpin / rename = one undo step)
   setPins:     (wrapId: string, pins: RawWrapPin[]) => void;
+  enter:       (wrapId: string) => void;   // v0.0.937 — the wrap on its own (⌘↑)
 }
 
 // v0.0.931 — a generic Pax inside the wrap, with its current values
@@ -379,10 +380,10 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
             onHint={hint ('Open in place', 'Shows the nodes inside this wrap, where they are, in a frame. Fold it back with the frame\'s ⤡ button.')}>
             <Maximize2 size={13} />
           </NodeHeaderButton>
-          <span style={{ opacity: 0.35, cursor: 'default' }}
-            {...hint ('Enter (coming next)', 'Will open the wrap in its own view, with a way back to the main graph. Not available yet.')}>
-            <NodeHeaderButton onClick={() => {}}><LogIn size={13} /></NodeHeaderButton>
-          </span>
+          <NodeHeaderButton onClick={() => actions.enter (wrap.id)}
+            onHint={hint ('Enter', 'Shows only this wrap\'s nodes, its outside connections on rails at the sides (⌘↑). Back with "Main" at the top, ⌘↓ or Esc.')}>
+            <LogIn size={13} />
+          </NodeHeaderButton>
           <NodeHeaderButton onClick={() => actions.unwrap (wrap.id)}
             onHint={hint ('Unwrap', 'Removes the wrap and puts its nodes back on the canvas as they are (⌘⇧G). Undoable.')}>
             <Ungroup size={13} />
@@ -585,6 +586,10 @@ export function WrapFrame ({ id, data }: NodeProps) {
           {drop === 'join' ? 'drop to add' : drop === 'leave' ? 'drop to take out' : 'open'}
         </span>
         <div style={{ flex: 1 }} />
+        <NodeHeaderButton onClick={() => actions.enter (wrap.id)}
+          onHint={{ onMouseEnter: () => setHint ({ title: 'Enter', body: 'Shows only this wrap\'s nodes (⌘↑). Back with "Main" at the top, ⌘↓ or Esc.' }), onMouseLeave: () => setHint (null) }}>
+          <LogIn size={13} />
+        </NodeHeaderButton>
         <NodeHeaderButton onClick={() => actions.close (wrap.id)}
           onHint={{ onMouseEnter: () => setHint ({ title: 'Fold the wrap', body: 'Folds these nodes back into one box.' }), onMouseLeave: () => setHint (null) }}>
           <Minimize2 size={13} />
@@ -620,5 +625,45 @@ export function WrapRouteEdge ({ id, sourceX, sourceY, targetX, targetY, sourceP
     d += (d ? ' ' : '') + seg;
   }
   return <BaseEdge id={id} path={d} style={style} markerEnd={markerEnd} interactionWidth={interactionWidth} />;
+}
+
+// ── Enter view: the outside connections as a rail (v0.0.937) ─────────────────
+// Left rail = what comes in from outside, right rail = what goes out. Each
+// port's handle reuses the inner port's id (wires keep their ids → colour and
+// flashes as usual). Display only: nothing outside to wire from in here.
+export const RAIL_GAP = 30;
+export function WrapRail ({ id, data }: NodeProps) {
+  const { side, ports } = data as { side: 'in' | 'out'; ports: WrapPort[] };
+  const { setHint } = useContext (HintContext);
+  const updateNodeInternals = useUpdateNodeInternals();
+  const key = ports.map (q => q.handleId).join ('|');
+  useEffect (() => { updateNodeInternals (id); }, [id, key, updateNodeInternals]);
+  const isIn = side === 'in';
+  if (ports.length === 0) return <div style={{ width: 1, height: 1 }} />;
+  return (
+    <div style={{ position: 'relative', width: 170, height: 24 + ports.length * RAIL_GAP,
+                  borderRadius: 8, border: '1px dashed color-mix(in srgb, var(--generic) 55%, transparent)',
+                  background: 'color-mix(in srgb, var(--generic) 6%, var(--bg))',
+                  fontFamily: "'JetBrains Mono', monospace", userSelect: 'none' }}>
+      <div style={{ fontSize: 8, letterSpacing: '0.1em', color: 'var(--text-muted)', padding: '5px 8px',
+                    textAlign: isIn ? 'left' : 'right' }}>{isIn ? 'FROM OUTSIDE' : 'TO OUTSIDE'}</div>
+      {ports.map ((q, k) => {
+        const top = 24 + k * RAIL_GAP + RAIL_GAP / 2 - 4;
+        return (
+          <div key={q.handleId}>
+            <Handle type={isIn ? 'source' : 'target'} position={isIn ? Position.Right : Position.Left}
+              id={q.handleId} isConnectable={false}
+              style={{ background: q.colour, width: 10, height: 10, border: '2px solid var(--bg)', top }}
+              onMouseEnter={() => setHint ({ title: `${q.label} — ${q.nodeName}`, body: `Wrap ${isIn ? 'input' : 'output'}: ${isIn ? 'comes from outside into' : 'goes from'} ${q.nodeName}'s ${q.label}${isIn ? '' : ' to outside'}.` })}
+              onMouseLeave={() => setHint (null)} />
+            <div style={{ position: 'absolute', top: top - 7, [isIn ? 'right' : 'left']: 12, fontSize: 9, lineHeight: '14px',
+                          whiteSpace: 'nowrap', color: 'var(--text-muted)', textAlign: isIn ? 'right' : 'left', pointerEvents: 'none' }}>
+              <span style={{ color: 'var(--text-dim)' }}>{q.label}</span> · {q.nodeName}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 

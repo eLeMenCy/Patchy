@@ -22,7 +22,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import { Bridge, RecentFile, FileMissing, FileState, AudioSettings, GraphState, RawNode, RawConnection, RawPort, PortActivityEntry, PaxParamInfo, PaxInfo, FragmentData, UndoState, AudioPlayerStatus, RawWrap } from './Bridge';
-import { WrapNode, WrapFrame, WrapRouteEdge, WrapPort, WrapPax, WrapActions, FRAME_PAD, FRAME_HEAD, FRAME_PORT_TOP, FRAME_PORT_GAP } from './WrapNode';
+import { WrapNode, WrapFrame, WrapRail, WrapRouteEdge, WrapPort, WrapPax, WrapActions, FRAME_PAD, FRAME_HEAD, FRAME_PORT_TOP, FRAME_PORT_GAP } from './WrapNode';
 import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
@@ -51,7 +51,7 @@ import { _paxInfoMap, detectPaxTheme } from './NodeUtils';
 
 // ── Node type registry ────────────────────────────────────────────────────────
 const edgeTypes = { wrapRoute: WrapRouteEdge };   // v0.0.934 — a wire drawn through open-wrap frame ports
-const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, audioPlayer: AudioPlayerNode, midiChMatrix: MidiChMatrixNode, midiMorpher: MidiMorpherNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, channelFilterPax: ChannelFilterPaxNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode, wrap: WrapNode, wrapFrame: WrapFrame };
+const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, audioPlayer: AudioPlayerNode, midiChMatrix: MidiChMatrixNode, midiMorpher: MidiMorpherNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, channelFilterPax: ChannelFilterPaxNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode, wrap: WrapNode, wrapFrame: WrapFrame, wrapRail: WrapRail };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 // _paxInfoMap lives in NodeUtils.tsx (not declared here) — GenericNode.tsx
@@ -207,7 +207,8 @@ function colourForHandleId (handleId: string): string {
 // nodes carry a prefix so every handler can tell them from real nodes.
 const WRAP_PREFIX  = 'wrap:';
 const FRAME_PREFIX = 'wrapframe:';
-const isWrapViewId = (id: string) => id.startsWith(WRAP_PREFIX) || id.startsWith(FRAME_PREFIX);
+const RAIL_PREFIX  = 'wraprail:';   // v0.0.937 — the Enter view's port rails
+const isWrapViewId = (id: string) => id.startsWith(WRAP_PREFIX) || id.startsWith(FRAME_PREFIX) || id.startsWith(RAIL_PREFIX);
 // Handle id = {nodeId}_{Label}_{in|out}; node ids are 32-hex, no underscore
 const realNodeOfHandle = (handle: string) => handle.split('_')[0];
 
@@ -902,6 +903,16 @@ function FlowCanvas() {
     setWrapsState(wrapsRef.current);
   }, []);
   const [selectedWraps, setSelectedWraps] = useState<Set<string>>(new Set());
+  // v0.0.937 — "Enter" view: the canvas shows only this wrap's nodes, its
+  // outside connections as port rails at the sides. Viewports remembered per
+  // wrap (and the main one) for the session.
+  const [entered, setEntered] = useState<string | null>(null);
+  const enteredRef = useRef<string | null>(null);
+  enteredRef.current = entered;
+  const viewports = useRef<Map<string, { x: number; y: number; zoom: number }>>(new Map());
+  // the rails' measured size, given back on every render (else ReactFlow
+  // re-measures them each frame of a drag and their wires flicker)
+  const [railMeasured, setRailMeasured] = useState<Record<string, { width: number; height: number }>>({});
   const wrapDragStart = useRef<Map<string, { x: number; y: number }>>(new Map());
   // v0.0.935 — ⌥-drag into / out of open wraps: the frames' outlines frozen
   // at drag start (a frame grows with its members, so a member could never
@@ -962,7 +973,7 @@ function FlowCanvas() {
   };
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { setHint } = useContext(HintContext);
-  const { screenToFlowPosition, setViewport, updateNode, getNodes, getEdges, deleteElements } = useReactFlow();
+  const { screenToFlowPosition, setViewport, getViewport, fitView, updateNode, getNodes, getEdges, deleteElements } = useReactFlow();
   const pendingDrop     = useRef<{ dropX: number; dropY: number } | null>(null);
   const knownNodeIds    = useRef<Set<string>>(new Set());
   const burgerBtnRef    = useRef<HTMLButtonElement>(null);
@@ -1289,7 +1300,31 @@ function FlowCanvas() {
     return nodesRef.current.filter(n => ids.has(n.id));
   }, []);
 
+  // ── Enter view (v0.0.937) ────────────────────────────────────────────────
+  // The wrap's folded / open state is left as it is; the main viewport comes
+  // back on leaving, each wrap's own one on entering it again.
+  const enterWrap = useCallback((wrapId: string) => {
+    if (!wrapsRef.current.some(w => w.id === wrapId)) return;
+    viewports.current.set(enteredRef.current ?? '', getViewport());
+    setSelectedWraps(new Set());
+    setEntered(wrapId);
+    setTimeout(() => {
+      const vp = viewports.current.get(wrapId);
+      if (vp) setViewport(vp);
+      else fitView({ padding: 0.25, maxZoom: 1.2, duration: 200 });
+    }, 60);
+  }, [getViewport, setViewport, fitView]);
+
+  const exitWrap = useCallback(() => {
+    const id = enteredRef.current;
+    if (!id) return;
+    viewports.current.set(id, getViewport());
+    setEntered(null);
+    setTimeout(() => { const vp = viewports.current.get(''); if (vp) setViewport(vp); }, 60);
+  }, [getViewport, setViewport]);
+
   const wrapActions = useMemo<WrapActions>(() => ({
+    enter: (wrapId) => enterWrap(wrapId),
     open: (wrapId) => {
       // Members come back measured from scratch (as after a file load):
       // sizes / handle positions kept from before they were hidden are stale
@@ -1340,9 +1375,57 @@ function FlowCanvas() {
       setWraps(ps => ps.map(p => p.id === wrapId ? { ...p, pins } : p));
       Bridge.wrapSetPins(wrapId, pins);
     },
-  }), [getNodes, getEdges, setWraps, updateNodeInternals]);
+  }), [getNodes, getEdges, setWraps, updateNodeInternals, enterWrap]);
+
+  // Left automatically if the wrap goes (unwrapped, deleted, undone)
+  useEffect(() => {
+    if (entered && !wraps.some(w => w.id === entered)) exitWrap();
+  }, [wraps, entered, exitWrap]);
+
+  // ⌘↑ enter (the selected folded wrap, or the open wrap of a selected node),
+  // ⌘↓ / Esc back to the main graph — not while typing (user's choice)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT' || ae.isContentEditable)) return;
+      if (enteredRef.current && (e.key === 'Escape' || (e.metaKey && e.key === 'ArrowDown'))) {
+        e.preventDefault(); exitWrap(); return;
+      }
+      if (!enteredRef.current && e.metaKey && e.key === 'ArrowUp') {
+        const sel = new Set(getNodes().filter(n => n.selected && !isWrapViewId(n.id)).map(n => n.id));
+        const target = wrapsRef.current.find(w => selectedWraps.has(w.id))
+                    ?? wrapsRef.current.find(w => w.open && w.nodeIds.some(id => sel.has(id)));
+        if (target) { e.preventDefault(); enterWrap(target.id); }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [enterWrap, exitWrap, getNodes, selectedWraps]);
 
   const view = useMemo(() => {
+    // v0.0.937 — Enter view: only the wrap's nodes; wires to / from outside
+    // end on two port rails (left: from outside, right: to outside) whose
+    // handles reuse the inner ports' ids, so wires keep their ids and flash
+    const ew = entered ? wraps.find(q => q.id === entered) : undefined;
+    if (ew) {
+      const members = new Set(ew.nodeIds);
+      const inner   = nodes.filter(n => members.has(n.id));
+      const ports   = wrapFacePorts(ew, nodes, edges);
+      const b = wrapBounds(ew.nodeIds, nodes) ?? { x0: 0, y0: 0, x1: 400, y1: 200 };
+      const rail = (side: 'in' | 'out', x: number): Node<any> => ({
+        id: RAIL_PREFIX + side, type: 'wrapRail', position: { x, y: b.y0 },
+        draggable: false, selectable: false, deletable: false, focusable: false, measured: railMeasured[side],
+        data: { side, ports: ports.filter(q => q.dir === side) },
+      });
+      const vEdges: Edge[] = [];
+      for (const e of edges) {
+        const s = members.has(e.source), t = members.has(e.target);
+        if (s && t) vEdges.push(e);
+        else if (t) vEdges.push({ ...e, source: RAIL_PREFIX + 'in',  sourceHandle: e.targetHandle });
+        else if (s) vEdges.push({ ...e, target: RAIL_PREFIX + 'out', targetHandle: e.sourceHandle });
+      }
+      return { nodes: [...inner, rail('in', b.x0 - 300), rail('out', b.x1 + 140)], edges: vEdges };
+    }
     if (wraps.length === 0) return { nodes, edges };
     const closedOf = new Map<string, string>();       // member → its folded wrap
     for (const p of wraps) if (!p.open) for (const id of p.nodeIds) closedOf.set(id, p.id);
@@ -1433,7 +1516,7 @@ function FlowCanvas() {
       }
     }
     return { nodes: [...frames, ...shown, ...boxes], edges: viewEdges };
-  }, [nodes, edges, wraps, selectedWraps, wrapActions, wrapMeasured, dropHint, frozenFrames]);
+  }, [nodes, edges, wraps, selectedWraps, wrapActions, wrapMeasured, dropHint, frozenFrames, entered, railMeasured]);
 
   // ── ⌥-drag: nodes join / leave open wraps (v0.0.935) ──────────────────────
   // Plain drags are unchanged. With ⌥ held, a node whose centre is dropped
@@ -1575,6 +1658,7 @@ function FlowCanvas() {
       const now = Date.now();
       if (now - lastWrapKey.current < 200) return;
       lastWrapKey.current = now;
+      if (enteredRef.current) return;   // not inside the Enter view (one level)
       if (wrap) wrapSelection(); else unwrapSelection();
     };
     window.addEventListener('keydown', handler);
@@ -1604,8 +1688,9 @@ function FlowCanvas() {
         state.nodes.forEach(n => updateNodeInternals(n.id));
       }, 50);
 
-      // Restore saved viewport if present
-      if (state.viewportZoom && state.viewportZoom > 0) {
+      // Restore saved viewport if present (not while inside a wrap: the saved
+      // one is the main graph's)
+      if (state.viewportZoom && state.viewportZoom > 0 && !enteredRef.current) {
         setViewport({
           x:    state.viewportX    ?? 0,
           y:    state.viewportY    ?? 0,
@@ -1632,6 +1717,14 @@ function FlowCanvas() {
     const changes: NodeChange[] = [];
     for (const c of all) {
       const id = (c as { id?: string }).id;
+      if (id && id.startsWith(RAIL_PREFIX)) {           // Enter-view rails: drawn only — keep their size
+        const d = c.type === 'dimensions' ? c.dimensions : undefined;
+        if (d && d.width && d.height) {
+          const side = id.slice(RAIL_PREFIX.length);
+          setRailMeasured(rm => rm[side]?.width === d.width && rm[side]?.height === d.height ? rm : { ...rm, [side]: { width: d.width, height: d.height } });
+        }
+        continue;
+      }
       if (!id || !isWrapViewId(id)) {
         // a folded member is hidden: any size reported for it is meaningless
         if (id && c.type === 'dimensions' && wrapsRef.current.some(p => !p.open && p.nodeIds.includes(id))) continue;
@@ -1916,7 +2009,7 @@ function FlowCanvas() {
 
     const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
     pendingDrop.current = { dropX: position.x, dropY: position.y };
-    Bridge.addNode(cppNodeType, position.x, position.y, paxName);
+    Bridge.addNode(cppNodeType, position.x, position.y, paxName, enteredRef.current ?? '');
   }, [screenToFlowPosition]);
 
   // ── Ghost overlay: track mouse while fragment pending ──────────────────
@@ -2011,7 +2104,7 @@ function FlowCanvas() {
         defaultEdgeOptions={{ style: { strokeWidth: 2 } }}
         onDragOver={onDragOver}
         onDrop={onDrop}
-        onMoveEnd={(_, vp) => Bridge.setViewport(vp.x, vp.y, vp.zoom)}
+        onMoveEnd={(_, vp) => { if (!enteredRef.current) Bridge.setViewport(vp.x, vp.y, vp.zoom); }}
         onSelectionChange={onSelectionChange}
         onNodeDragStart={onNodeDragStart}
         onNodeDrag={onNodeDrag}
@@ -2087,6 +2180,24 @@ function FlowCanvas() {
             </svg>
           </div>
         )}
+
+        {/* v0.0.937 — Enter view breadcrumb: "Main ‹ WRAP" (⌘↓ / Esc) */}
+        {entered && (() => {
+          const w = wraps.find(q => q.id === entered);
+          return (
+            <div style={{ position: 'absolute', top: 12, left: 16, zIndex: 10, display: 'flex', alignItems: 'center', gap: 8,
+                          padding: '5px 10px', borderRadius: 'var(--radius)', background: 'var(--surface2)',
+                          border: '1px solid var(--border-hi)', fontFamily: "'JetBrains Mono', monospace", fontSize: 11,
+                          boxShadow: '0 4px 16px rgba(0,0,0,.4)', userSelect: 'none' }}>
+              <span onClick={exitWrap} style={{ cursor: 'pointer', color: 'var(--accent)' }}
+                onMouseEnter={() => setHint({ title: 'Back to the main graph', body: 'Leaves this wrap (⌘↓ or Esc). The wrap stays folded or open as it was.' })}
+                onMouseLeave={() => setHint(null)}>Main</span>
+              <span style={{ color: 'var(--text-muted)' }}>‹</span>
+              <span style={{ color: 'var(--text)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{w?.name || 'WRAP'}</span>
+              <span style={{ color: 'var(--text-muted)', fontSize: 9 }}>{w?.nodeIds.length ?? 0} nodes · ⌘↓ back</span>
+            </div>
+          );
+        })()}
 
         {/* v0.0.919 — shown while the host (e.g. Logic) has stopped calling
             Patchy's audio engine and Patchy drives its graph itself. Fades

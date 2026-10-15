@@ -1110,8 +1110,9 @@ export const Bridge = {
     sendToJuce({ type: 'ready' });
   },
 
-  addNode(nodeType: number, x: number, y: number, paxName = '') {
-    sendToJuce({ type: 'addNode', nodeType, x, y, paxName });
+  // wrapId (v0.0.937): created inside that wrap (dropped in its Enter view)
+  addNode(nodeType: number, x: number, y: number, paxName = '', wrapId = '') {
+    sendToJuce({ type: 'addNode', nodeType, x, y, paxName, wrapId });
   },
 
   removeNode(nodeId: string) {

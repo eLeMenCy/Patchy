@@ -1325,6 +1325,7 @@ function FlowCanvas() {
 
   const wrapActions = useMemo<WrapActions>(() => ({
     enter: (wrapId) => enterWrap(wrapId),
+    saveToLibrary: (wrapId) => Bridge.wrapSaveToLibrary(wrapId),
     open: (wrapId) => {
       // Members come back measured from scratch (as after a file load):
       // sizes / handle positions kept from before they were hidden are stale
@@ -1423,6 +1424,23 @@ function FlowCanvas() {
         if (s && t) vEdges.push(e);
         else if (t) vEdges.push({ ...e, source: RAIL_PREFIX + 'in',  sourceHandle: e.targetHandle });
         else if (s) vEdges.push({ ...e, target: RAIL_PREFIX + 'out', targetHandle: e.sourceHandle });
+      }
+      // v0.0.938 — a port with nothing connected outside (e.g. a wrap just
+      // dropped from the library) still shows its link to the inner node:
+      // a dimmed drawn-only stub, as on the open frame
+      for (const q of ports) {
+        const used = edges.some(e => (q.dir === 'in'  && e.targetHandle === q.handleId && !members.has(e.source))
+                                  || (q.dir === 'out' && e.sourceHandle === q.handleId && !members.has(e.target)));
+        if (used) continue;
+        const cls = edgeClassForHandle(q.handleId), node = realNodeOfHandle(q.handleId);
+        vEdges.push({
+          id: `stub~in:enter:${q.handleId}`, className: cls,
+          style: { strokeWidth: 2, stroke: EDGE_REST_COLOUR[cls], opacity: 0.55 },
+          selectable: false, deletable: false, reconnectable: false, focusable: false,
+          ...(q.dir === 'in'
+            ? { source: RAIL_PREFIX + 'in', sourceHandle: q.handleId, target: node, targetHandle: q.handleId }
+            : { source: node, sourceHandle: q.handleId, target: RAIL_PREFIX + 'out', targetHandle: q.handleId }),
+        } as Edge);
       }
       return { nodes: [...inner, rail('in', b.x0 - 300), rail('out', b.x1 + 140)], edges: vEdges };
     }
@@ -1987,6 +2005,18 @@ function FlowCanvas() {
     const raw = e.dataTransfer.getData('text/plain');
     if (!raw) return;
 
+    // v0.0.938 — a wrap from the library: placed folded at the drop point
+    // (not inside the Enter view: wraps are one level)
+    try {
+      const d = JSON.parse(raw);
+      if (d && typeof d.wrapFile === 'string') {
+        if (enteredRef.current) return;
+        const p = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+        Bridge.wrapLibraryLoad(d.wrapFile, p.x, p.y);
+        return;
+      }
+    } catch {}
+
     // Data is JSON { nodeType, paxName, paxType? }
     // For Pax: nodeType=0 (sentinel), paxType=1/2/3/4 (PAX MIDI/Audio/AV/Value)
     // For built-ins: nodeType=1-4, paxName=''
@@ -2063,7 +2093,9 @@ function FlowCanvas() {
     // Tell C++ to add the nodes + connections to the audio graph
     Bridge.importFragmentNodes(
       pendingFragment.nodes.map(n => ({ ...n, x: flowPos.x + n.x, y: flowPos.y + n.y })),
-      pendingFragment.connections
+      pendingFragment.connections,
+      // v0.0.938 — whole wraps in the fragment come back as wraps
+      (pendingFragment.wraps ?? []).map(w => ({ ...w, x: flowPos.x + w.x, y: flowPos.y + w.y })),
     );
 
     setPendingFragment(null);

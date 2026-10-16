@@ -246,7 +246,15 @@ export interface FragmentData {
   /** Bounding box size of the fragment (flow units) — used for ghost sizing */
   width:  number;
   height: number;
+  /** v0.0.938 — the wraps whose nodes are all in the fragment (positions relative too) */
+  wraps?: RawWrap[];
 }
+
+// v0.0.938 — one saved wrap in the library (~/Documents/Patchy/Wraps)
+export interface WrapLibraryItem { file: string; name: string; nodes?: number; }
+type WrapLibraryCallback = (items: WrapLibraryItem[]) => void;
+const _wrapLibrarySubscribers: WrapLibraryCallback[] = [];
+let _wrapLibraryLast: WrapLibraryItem[] = [];
 
 export interface PaxInfo {
   name:         string;
@@ -658,6 +666,13 @@ function _dispatchClaimed() {
     } catch {}
   },
 
+  onWrapLibrary: (json: string) => {   // v0.0.938
+    try {
+      _wrapLibraryLast = JSON.parse(json) as WrapLibraryItem[];
+      _wrapLibrarySubscribers.forEach(cb => cb(_wrapLibraryLast));
+    } catch (e) { console.error('Bridge wrap library parse error', e); }
+  },
+
   onPaxList: (json: string) => {
     try {
       const data = JSON.parse(json);
@@ -774,8 +789,21 @@ export const Bridge = {
   /** Called after the user drops a fragment on the canvas.
    *  Sends the remapped nodes + connections (with final positions) to C++
    *  so the audio graph is rebuilt to match the React state. */
-  importFragmentNodes(nodes: RawNode[], connections: RawConnection[]) {
-    sendToJuce({ type: 'importFragmentNodes', nodes, connections });
+  importFragmentNodes(nodes: RawNode[], connections: RawConnection[], wraps: RawWrap[] = []) {
+    sendToJuce({ type: 'importFragmentNodes', nodes, connections, wraps });
+  },
+
+  // ── Wrap library (v0.0.938) ──
+  wrapSaveToLibrary(wrapId: string)                 { sendToJuce({ type: 'wrapSaveToLibrary', wrapId }); },
+  wrapLibraryLoad(file: string, x: number, y: number) { sendToJuce({ type: 'wrapLibraryLoad', file, x, y }); },
+  wrapLibraryList()                                  { sendToJuce({ type: 'wrapLibraryList' }); },
+  onWrapLibrary(cb: WrapLibraryCallback) {
+    _wrapLibrarySubscribers.push(cb);
+    cb(_wrapLibraryLast);
+    return () => {
+      const idx = _wrapLibrarySubscribers.indexOf(cb);
+      if (idx >= 0) _wrapLibrarySubscribers.splice(idx, 1);
+    };
   },
 
   onPaxList(cb: PaxListCallback) {

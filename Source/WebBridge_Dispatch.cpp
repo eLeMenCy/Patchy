@@ -81,6 +81,8 @@ void WebBridge::handleMessage (const juce::String& json)
         handleMidiKeyEvent (obj);
     else if (type == "removeNode")
         handleRemoveNode (obj);
+    else if (type == "wrapSaveToLibrary" || type.startsWith ("wrapLibrary"))   // v0.0.938
+        handleWrapLibrary (type, obj);
     else if (type.startsWith ("wrap"))   // v0.0.930 — wrapNodes, wrapUnwrap, wrapSetOpen, wrapMove, wrapRename, wrapRemove (+ wrapSetPins v0.0.932)
         handleWrapMessage (type, obj);
     else if (type == "addConnection")
@@ -129,6 +131,7 @@ void WebBridge::handleReady ()
     lastPushedHostPaused = -1;   // v0.0.919 — re-send the host-paused state to a freshly loaded page
     juce::Logger::writeToLog ("WebBridge: UI ready.");
     pushPaxList();
+    pushWrapLibrary();   // v0.0.938
     pushToUI ("onFileState", buildFileStateJson());
     pushMidiDevices();
     pushAudioDevices();
@@ -815,67 +818,9 @@ void WebBridge::handleExportSelection (const juce::DynamicObject* obj)
 
 void WebBridge::handleImportFragmentNodes (const juce::DynamicObject* obj)
 {
-    graph.pushSnapshot();
-    // React has placed the nodes on canvas — now commit them to C++ graph model.
-    // We reuse the existing loadGraph path: merge fragment into current graph JSON.
-    auto* nodesArr = obj->getProperty ("nodes").getArray();
-    auto* connsArr = obj->getProperty ("connections").getArray();
-    if (nodesArr == nullptr) return;
-
-    graph.suspendNotifications();
-
-    for (auto& n : *nodesArr)
-    {
-        auto* nObj = n.getDynamicObject();
-        if (! nObj) continue;
-
-        juce::String savedId  = nObj->getProperty ("id").toString();
-        int          nodeType = (int) nObj->getProperty ("nodeType");
-        float        x        = (float) (double) nObj->getProperty ("x");
-        float        y        = (float) (double) nObj->getProperty ("y");
-        juce::String paxName= nObj->getProperty ("paxName").toString();
-        PaxPortSpec spec;
-        spec.audioIn  = (int) nObj->getProperty ("audioInputs");
-        spec.audioOut = (int) nObj->getProperty ("audioOutputs");
-        spec.midiIn   = (int) nObj->getProperty ("midiInputs");
-        spec.midiOut  = (int) nObj->getProperty ("midiOutputs");
-        spec.valueIn  = (int) nObj->getProperty ("valueInputs");
-        spec.valueOut = (int) nObj->getProperty ("valueOutputs");
-        if (auto* arr = nObj->getProperty ("valueInputTypes").getArray())
-            for (auto& tag : *arr) spec.valueInTypes.push_back (parseValueTypeTag (tag.toString()));
-        if (auto* arr = nObj->getProperty ("valueOutputTypes").getArray())
-            for (auto& tag : *arr) spec.valueOutTypes.push_back (parseValueTypeTag (tag.toString()));
-
-        auto& nd = graph.restoreNode (savedId, nodeType, x, y, paxName, spec);
-        // Restore device selection if present
-        juce::String devId = nObj->getProperty ("selectedDeviceId").toString();
-        if (devId.isNotEmpty()) nd.selectedDeviceId = devId;
-        // Restore settings blob if present
-        juce::String settings = nObj->getProperty ("settingsJson").toString();
-        if (settings.isNotEmpty()) nd.settingsJson = settings;
-        // Restore custom label if present
-        juce::String label = nObj->getProperty ("label").toString();
-        if (label.isNotEmpty()) nd.label = label;
-        // Phase 6 rename, 2026-09-25 — absent in older files -> empty.
-        nd.customName = nObj->getProperty ("customName").toString();
-        // Restore Disable/Enable state
-        nd.disabled = (bool) nObj->getProperty ("disabled");
-    }
-
-    if (connsArr)
-        for (auto& c : *connsArr)
-        {
-            auto* cObj = c.getDynamicObject();
-            if (! cObj) continue;
-            graph.addConnection (
-                cObj->getProperty ("sourceNodeId").toString(),
-                cObj->getProperty ("sourcePortId").toString(),
-                cObj->getProperty ("targetNodeId").toString(),
-                cObj->getProperty ("targetPortId").toString()
-            );
-        }
-
-    graph.resumeNotifications();   // fires onChange → rebuild
+    // React has placed the ghost (positions already absolute): commit the
+    // nodes, their wires and (v0.0.938) their wraps — see commitFragment()
+    if (obj != nullptr) commitFragment (*obj, 0.f, 0.f);
 }
 
 void WebBridge::handleSetAudioEngineSettings (const juce::DynamicObject* obj)

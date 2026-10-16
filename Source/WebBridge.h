@@ -414,6 +414,12 @@ private:
     void showImportDialog ();
     /** Remap all node/connection/port IDs to fresh UUIDs and strip
      *  connections that cross the fragment boundary. */
+    // v0.0.938 — fragments carry wraps; the wrap library
+    juce::var  buildFragment    (const juce::StringArray& selectedNodeIds, const juce::String& originWrapId = {});
+    void       commitFragment   (const juce::DynamicObject& frag, float dx, float dy);
+    juce::File wrapLibraryDir   () const;
+    void       pushWrapLibrary  ();
+    void       handleWrapLibrary (const juce::String& type, const juce::DynamicObject* obj);
     static juce::var remapFragmentIds (const juce::var& fragment,
                                        const juce::StringArray& selectedNodeIds);
 

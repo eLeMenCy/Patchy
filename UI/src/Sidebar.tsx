@@ -2,7 +2,7 @@ import { DragEvent, useEffect, useState, useContext, useRef } from 'react';
 import { Pin, PinOff } from 'lucide-react';
 import { DawContext } from './DawContext';
 import { HintPanel, NODE_HINTS, HintContext } from './HintPanel';
-import { Bridge, PaxInfo } from './Bridge';
+import { Bridge, PaxInfo, WrapLibraryItem } from './Bridge';
 import { detectPaxTheme, detectPaxCategoryKey, resolveCssColor } from './NodeUtils';
 
 const BUILTIN_GROUPS = [
@@ -126,6 +126,32 @@ const PLUGIN_GROUPS = [
   { label: 'UDP',       category: 'udp',       accent: 'var(--udp)',     dim: 'var(--udp-dim)'     },
   { label: 'Generic',   category: 'generic',   accent: 'var(--generic)', dim: 'var(--generic-dim)' },
 ];
+
+// v0.0.938 — a saved wrap: drag it onto the canvas (lands folded there)
+function WrapItem({ item }: { item: WrapLibraryItem }) {
+  const { setHint } = useContext(HintContext);
+  return (
+    <div draggable
+      onDragStart={e => { e.dataTransfer.setData('text/plain', JSON.stringify({ wrapFile: item.file })); e.dataTransfer.effectAllowed = 'copy'; }}
+      onMouseEnter={e => {
+        const el = e.currentTarget as HTMLDivElement;
+        el.style.borderColor = 'var(--generic)';
+        setHint({ title: item.name, body: `A saved wrap${item.nodes ? ` (${item.nodes} nodes)` : ''}. Drag it onto the canvas: an independent copy lands there, folded — its nodes, inner wires, settings and pins.` });
+      }}
+      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border)'; setHint(null); }}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 'var(--radius)',
+        border: '1px solid var(--border)', background: 'var(--surface)', cursor: 'grab', userSelect: 'none',
+        transition: 'border-color .15s',
+      }}>
+      <span style={{ color: 'var(--generic)', fontSize: 12, width: 14, textAlign: 'center' }}>▣</span>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 11, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
+        <div style={{ fontSize: 9, color: 'var(--text-muted)' }}>{item.nodes ? `${item.nodes} nodes` : 'Wrap'}</div>
+      </div>
+    </div>
+  );
+}
 
 function DragItem({ nodeType, label, desc, accent, dim, icon, paxName = '', paxInfo }: {
   nodeType:   number;
@@ -276,6 +302,9 @@ export default function Sidebar() {
   const { hint, setHint } = useContext(HintContext);
   const [paxItems, setPaxItems] = useState<PaxInfo[]>([]);
   useEffect(() => { Bridge.onPaxList(list => setPaxItems(list)); }, []);
+  // v0.0.938 — the wrap library
+  const [wrapLib, setWrapLib] = useState<WrapLibraryItem[]>([]);
+  useEffect(() => Bridge.onWrapLibrary(setWrapLib), []);
   const hasPax = paxItems.length > 0;
 
   const [pinned, setPinned] = useState<boolean>(loadPinned);
@@ -446,6 +475,23 @@ export default function Sidebar() {
           No Pax found.<br />
           Drop <span style={{ color: 'var(--text-dim)' }}>.dylib / .so / .dll</span><br />
           into the Pax folder.
+        </div>
+      )}
+
+      {/* Wrap library (v0.0.938) */}
+      <div style={{ padding: '10px 12px 0', borderTop: '1px solid var(--border)', marginTop: 4 }}>
+        <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+          Wraps
+        </div>
+      </div>
+      {wrapLib.length > 0 ? (
+        <Section label="Library" accent="var(--generic)">
+          {wrapLib.map(w => <WrapItem key={w.file} item={w} />)}
+        </Section>
+      ) : (
+        <div style={{ padding: '6px 14px 8px', fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+          No saved wraps yet.<br />
+          Save one with its <span style={{ color: 'var(--text-dim)' }}>🔖 Save to library</span> button.
         </div>
       )}
 

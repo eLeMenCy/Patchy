@@ -18,7 +18,7 @@
 
 import { useContext, useEffect, useState } from 'react';
 import { NodeProps, EdgeProps, useUpdateNodeInternals, Handle, Position, BaseEdge, getBezierPath } from '@xyflow/react';
-import { Package, Maximize2, Minimize2, LogIn, Ungroup, X, Settings, Pin } from 'lucide-react';
+import { Package, Maximize2, Minimize2, LogIn, Ungroup, X, Settings, Pin, BookmarkPlus } from 'lucide-react';
 import { Bridge } from './Bridge';
 import type { RawWrap, RawWrapPin, PaxParamInfo } from './Bridge';
 import { HintContext } from './HintPanel';
@@ -48,6 +48,7 @@ export interface WrapActions {
   // v0.0.932 — the whole pin list (pin / unpin / rename = one undo step)
   setPins:     (wrapId: string, pins: RawWrapPin[]) => void;
   enter:       (wrapId: string) => void;   // v0.0.937 — the wrap on its own (⌘↑)
+  saveToLibrary: (wrapId: string) => void; // v0.0.938 — into ~/Documents/Patchy/Wraps
 }
 
 // v0.0.931 — a generic Pax inside the wrap, with its current values
@@ -380,6 +381,10 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
             onHint={hint ('Open in place', 'Shows the nodes inside this wrap, where they are, in a frame. Fold it back with the frame\'s ⤡ button.')}>
             <Maximize2 size={13} />
           </NodeHeaderButton>
+          <NodeHeaderButton onClick={() => actions.saveToLibrary (wrap.id)}
+            onHint={hint ('Save to library', 'Saves this wrap (its nodes, inner wires, settings, pins) to your wrap library under its name — then drag it from the sidebar\'s Wraps section into any project. Asks before replacing one of the same name.')}>
+            <BookmarkPlus size={13} />
+          </NodeHeaderButton>
           <NodeHeaderButton onClick={() => actions.enter (wrap.id)}
             onHint={hint ('Enter', 'Shows only this wrap\'s nodes, its outside connections on rails at the sides (⌘↑). Back with "Main" at the top, ⌘↓ or Esc.')}>
             <LogIn size={13} />
@@ -586,6 +591,10 @@ export function WrapFrame ({ id, data }: NodeProps) {
           {drop === 'join' ? 'drop to add' : drop === 'leave' ? 'drop to take out' : 'open'}
         </span>
         <div style={{ flex: 1 }} />
+        <NodeHeaderButton onClick={() => actions.saveToLibrary (wrap.id)}
+          onHint={{ onMouseEnter: () => setHint ({ title: 'Save to library', body: 'Saves this wrap to your wrap library under its name (sidebar → Wraps).' }), onMouseLeave: () => setHint (null) }}>
+          <BookmarkPlus size={13} />
+        </NodeHeaderButton>
         <NodeHeaderButton onClick={() => actions.enter (wrap.id)}
           onHint={{ onMouseEnter: () => setHint ({ title: 'Enter', body: 'Shows only this wrap\'s nodes (⌘↑). Back with "Main" at the top, ⌘↓ or Esc.' }), onMouseLeave: () => setHint (null) }}>
           <LogIn size={13} />

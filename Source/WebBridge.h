@@ -418,6 +418,7 @@ private:
     juce::var  buildFragment    (const juce::StringArray& selectedNodeIds, const juce::String& originWrapId = {});
     void       commitFragment   (const juce::DynamicObject& frag, float dx, float dy);
     juce::File wrapLibraryDir   () const;
+    static juce::File defaultWrapLibraryDir ();
     void       pushWrapLibrary  ();
     void       handleWrapLibrary (const juce::String& type, const juce::DynamicObject* obj);
     static juce::var remapFragmentIds (const juce::var& fragment,

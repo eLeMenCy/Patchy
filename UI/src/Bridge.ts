@@ -252,9 +252,11 @@ export interface FragmentData {
 
 // v0.0.938 — one saved wrap in the library (~/Documents/Patchy/Wraps)
 export interface WrapLibraryItem { file: string; name: string; nodes?: number; }
-type WrapLibraryCallback = (items: WrapLibraryItem[]) => void;
+// v0.0.939 — + the folder it comes from (Preferences)
+export interface WrapLibraryState { folder: string; isDefault: boolean; items: WrapLibraryItem[]; unreachable?: string; }
+type WrapLibraryCallback = (lib: WrapLibraryState) => void;
 const _wrapLibrarySubscribers: WrapLibraryCallback[] = [];
-let _wrapLibraryLast: WrapLibraryItem[] = [];
+let _wrapLibraryLast: WrapLibraryState = { folder: '', isDefault: true, items: [] };
 
 export interface PaxInfo {
   name:         string;
@@ -668,7 +670,9 @@ function _dispatchClaimed() {
 
   onWrapLibrary: (json: string) => {   // v0.0.938
     try {
-      _wrapLibraryLast = JSON.parse(json) as WrapLibraryItem[];
+      const d = JSON.parse(json);
+      _wrapLibraryLast = Array.isArray(d) ? { folder: '', isDefault: true, items: d }
+                                          : { folder: d.folder ?? '', isDefault: !!d.isDefault, items: d.items ?? [], unreachable: d.unreachable || '' };
       _wrapLibrarySubscribers.forEach(cb => cb(_wrapLibraryLast));
     } catch (e) { console.error('Bridge wrap library parse error', e); }
   },
@@ -797,6 +801,11 @@ export const Bridge = {
   wrapSaveToLibrary(wrapId: string)                 { sendToJuce({ type: 'wrapSaveToLibrary', wrapId }); },
   wrapLibraryLoad(file: string, x: number, y: number) { sendToJuce({ type: 'wrapLibraryLoad', file, x, y }); },
   wrapLibraryList()                                  { sendToJuce({ type: 'wrapLibraryList' }); },
+  // v0.0.939
+  wrapLibraryRename(file: string, name: string)      { sendToJuce({ type: 'wrapLibraryRename', file, name }); },
+  wrapLibraryDelete(file: string)                    { sendToJuce({ type: 'wrapLibraryDelete', file }); },   // asks first
+  wrapLibraryChooseFolder()                          { sendToJuce({ type: 'wrapLibraryChooseFolder' }); },
+  wrapLibraryDefaultFolder()                         { sendToJuce({ type: 'wrapLibraryDefaultFolder' }); },
   onWrapLibrary(cb: WrapLibraryCallback) {
     _wrapLibrarySubscribers.push(cb);
     cb(_wrapLibraryLast);

@@ -1,4 +1,5 @@
 #include "WebBridge.h"
+#include "AppSettings.h"
 #include "MidiDeviceNodes.h"
 #include "AudioDeviceNodes.h"
 #include "ProcessingGraph.h"
@@ -222,10 +223,21 @@ void WebBridge::commitFragment (const juce::DynamicObject& frag, float dx, float
 // One small .patchy per saved wrap (a fragment holding exactly that wrap) in
 // ~/Documents/Patchy/Wraps. The sidebar lists them; dropping one places an
 // independent copy, folded, at the drop point.
+juce::File WebBridge::defaultWrapLibraryDir()
+{
+    return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+               .getChildFile ("Patchy").getChildFile ("Wraps");
+}
+
+// v0.0.939 — the folder chosen in Preferences, else the default. A chosen
+// folder that isn't there (unplugged drive, renamed…) is NOT re-created: the
+// default is used meanwhile, and the setting kept for when it's back.
 juce::File WebBridge::wrapLibraryDir() const
 {
-    auto dir = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
-                   .getChildFile ("Patchy").getChildFile ("Wraps");
+    const auto chosen = AppSettings::getWrapLibraryDir();
+    if (chosen.isNotEmpty() && juce::File::isAbsolutePath (chosen) && juce::File (chosen).isDirectory())
+        return juce::File (chosen);
+    auto dir = defaultWrapLibraryDir();
     dir.createDirectory();
     return dir;
 }
@@ -245,7 +257,15 @@ void WebBridge::pushWrapLibrary()
             if (auto* nodes = parsed.getProperty ("nodes", {}).getArray()) o->setProperty ("nodes", nodes->size());
         items.add (o);
     }
-    pushToUI ("onWrapLibrary", juce::JSON::toString (juce::var (items), true));
+    auto* payload = new juce::DynamicObject();   // v0.0.939 — + the folder (Preferences)
+    payload->setProperty ("folder",    wrapLibraryDir().getFullPathName());
+    payload->setProperty ("isDefault", wrapLibraryDir() == defaultWrapLibraryDir());
+    // a chosen folder that can't be reached right now (the default is in use)
+    const auto chosen = AppSettings::getWrapLibraryDir();
+    payload->setProperty ("unreachable", chosen.isNotEmpty() && ! (juce::File::isAbsolutePath (chosen) && juce::File (chosen).isDirectory())
+                                         ? chosen : juce::String());
+    payload->setProperty ("items",     items);
+    pushToUI ("onWrapLibrary", juce::JSON::toString (juce::var (payload), true));
 }
 
 void WebBridge::handleWrapLibrary (const juce::String& type, const juce::DynamicObject* obj)
@@ -272,6 +292,76 @@ void WebBridge::handleWrapLibrary (const juce::String& type, const juce::Dynamic
             .withMessage ("\"" + file.getFileNameWithoutExtension() + "\" is already in the library. Replace it?")
             .withButton ("Replace").withButton ("Cancel"),
             [write] (int result) { if (result == 1) write(); });
+        return;
+    }
+
+    // ── v0.0.939: rename / delete library items, choose the folder ──
+    if (type == "wrapLibraryRename")
+    {
+        const juce::File file (obj->getProperty ("file").toString());
+        const auto name = obj->getProperty ("name").toString().trim();
+        if (name.isEmpty() || ! file.isAChildOf (wrapLibraryDir()) || ! file.existsAsFile()) return;
+        const auto target = wrapLibraryDir().getChildFile (juce::File::createLegalFileName (name) + ".patchy");
+        if (target != file && target.existsAsFile())
+        {
+            juce::AlertWindow::showAsync (juce::MessageBoxOptions()
+                .withIconType (juce::MessageBoxIconType::WarningIcon)
+                .withTitle ("Rename")
+                .withMessage ("\"" + target.getFileNameWithoutExtension() + "\" is already in the library.")
+                .withButton ("OK"), nullptr);
+            return;
+        }
+        // the name stored in the file follows, so a dropped copy is named the same
+        juce::var parsed;
+        if (juce::JSON::parse (file.loadFileAsString(), parsed).wasOk())
+            if (auto* ws = GraphModel::wrapsOf (*parsed.getDynamicObject()).getArray())
+                if (! ws->isEmpty())
+                    if (auto* w0 = (*ws)[0].getDynamicObject())
+                    {
+                        w0->setProperty ("name", name);
+                        file.replaceWithText (juce::JSON::toString (parsed, true));
+                    }
+        if (target != file) file.moveFileTo (target);
+        pushWrapLibrary();
+        return;
+    }
+
+    if (type == "wrapLibraryDelete")
+    {
+        const juce::File file (obj->getProperty ("file").toString());
+        if (! file.isAChildOf (wrapLibraryDir()) || ! file.existsAsFile()) return;
+        juce::AlertWindow::showAsync (juce::MessageBoxOptions()
+            .withIconType (juce::MessageBoxIconType::QuestionIcon)
+            .withTitle ("Delete from the library")
+            .withMessage ("Move \"" + file.getFileNameWithoutExtension() + "\" to the Trash?\n\nWraps already placed in projects are not affected.")
+            .withButton ("Move to Trash").withButton ("Cancel"),
+            [this, file] (int result)
+            {
+                if (result != 1) return;
+                if (! file.moveToTrash()) file.deleteFile();
+                pushWrapLibrary();
+            });
+        return;
+    }
+
+    if (type == "wrapLibraryChooseFolder")
+    {
+        auto chooser = std::make_shared<juce::FileChooser> ("Wrap library folder", wrapLibraryDir());
+        chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+            [this, chooser] (const juce::FileChooser& fc)
+            {
+                const auto dir = fc.getResult();
+                if (dir == juce::File{} || ! dir.isDirectory()) return;
+                AppSettings::setWrapLibraryDir (dir == defaultWrapLibraryDir() ? juce::String() : dir.getFullPathName());
+                pushWrapLibrary();
+            });
+        return;
+    }
+
+    if (type == "wrapLibraryDefaultFolder")
+    {
+        AppSettings::setWrapLibraryDir ({});
+        pushWrapLibrary();
         return;
     }
 

@@ -34,6 +34,7 @@ namespace AppSettings
             juce::StringArray recent;
             int               reopen = -1;
             juce::String      lastSession;
+            juce::String      wrapLibrary;   // v0.0.939 — "" = default (~/Documents/Patchy/Wraps)
             bool              loaded = false;
         };
         inline State& state() { static State s; return s; }
@@ -59,6 +60,7 @@ namespace AppSettings
             const auto r = v["reopenLastProject"];
             s.reopen = r.isVoid() || r.isUndefined() ? -1 : ((bool) r ? 1 : 0);
             s.lastSession = v["lastSessionFile"].toString();
+            s.wrapLibrary = v["wrapLibraryDir"].toString();
         }
 
         // Caller holds the lock.
@@ -70,6 +72,7 @@ namespace AppSettings
             obj->setProperty ("recentFiles", arr);
             if (s.reopen >= 0) obj->setProperty ("reopenLastProject", s.reopen == 1);
             obj->setProperty ("lastSessionFile", s.lastSession);
+            if (s.wrapLibrary.isNotEmpty()) obj->setProperty ("wrapLibraryDir", s.wrapLibrary);
             const auto f = file();
             f.getParentDirectory().createDirectory();
             f.replaceWithText (juce::JSON::toString (juce::var (obj), true));
@@ -108,6 +111,23 @@ namespace AppSettings
         auto& s = detail::state(); std::lock_guard<std::mutex> g (s.lock);
         detail::loadIfNeeded (s);
         s.recent.clear();
+        detail::save (s);
+    }
+
+    /** v0.0.939 — the wrap library folder chosen in Preferences ("" = default). */
+    inline juce::String getWrapLibraryDir()
+    {
+        auto& s = detail::state(); std::lock_guard<std::mutex> g (s.lock);
+        detail::loadIfNeeded (s);
+        return s.wrapLibrary;
+    }
+
+    inline void setWrapLibraryDir (const juce::String& path)
+    {
+        auto& s = detail::state(); std::lock_guard<std::mutex> g (s.lock);
+        detail::loadIfNeeded (s);
+        if (s.wrapLibrary == path) return;
+        s.wrapLibrary = path;
         detail::save (s);
     }
 

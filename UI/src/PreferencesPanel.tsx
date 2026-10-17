@@ -213,6 +213,15 @@ function GraphTab ({ prefs, onChange }: {
   // v0.0.923 — Standalone "reopen last project" (app-wide, AppSettings.h).
   const [reopenLast, setReopenLast] = useState(false);
   useEffect(() => Bridge.onAppSettings(st => setReopenLast(st.reopenLastProject === 1)), []);
+  // v0.0.939 — wrap library folder
+  const [wrapFolder, setWrapFolder]       = useState('');
+  const [wrapIsDefault, setWrapIsDefault] = useState(true);
+  const [wrapUnreachable, setWrapUnreachable] = useState('');
+  useEffect(() => Bridge.onWrapLibrary(lib => { setWrapFolder(lib.folder); setWrapIsDefault(lib.isDefault); setWrapUnreachable(lib.unreachable ?? ''); }), []);
+  const prefBtn: React.CSSProperties = {
+    fontSize: 10, padding: '3px 10px', borderRadius: 'var(--radius)', cursor: 'pointer',
+    background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border-hi)',
+  };
 
   return (
     <>
@@ -251,6 +260,28 @@ function GraphTab ({ prefs, onChange }: {
           />
         </>
       )}
+      {/* v0.0.939 — where the wrap library lives */}
+      <SectionHeader label="Wrap library" />
+      <div style={{ marginBottom: 10 }}>
+        <div title={wrapFolder} style={{ fontSize: 10, color: 'var(--text-dim)', fontFamily: "'JetBrains Mono', monospace",
+                                         whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', direction: 'rtl', textAlign: 'left' }}>
+          {wrapFolder || '…'}
+        </div>
+        <div style={{ fontSize: 9, color: 'var(--text-muted)', margin: '3px 0 6px' }}>
+          {wrapIsDefault ? 'Default folder (Documents › Patchy › Wraps)' : 'Your folder — e.g. a shared drive or a synced folder'}
+        </div>
+        {wrapUnreachable && (
+          <div title={wrapUnreachable} style={{ fontSize: 9, color: '#f59e0b', margin: '0 0 6px', lineHeight: 1.5 }}>
+            Your folder can't be reached ({wrapUnreachable.split('/').filter(Boolean).pop()}) — using the default until it's back. <i>Default</i> forgets it.
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={() => Bridge.wrapLibraryChooseFolder()} style={prefBtn}>Change…</button>
+          <button onClick={() => Bridge.wrapLibraryDefaultFolder()} disabled={wrapIsDefault && !wrapUnreachable}
+            style={{ ...prefBtn, opacity: wrapIsDefault && !wrapUnreachable ? 0.4 : 1, cursor: wrapIsDefault && !wrapUnreachable ? 'default' : 'pointer' }}>Default</button>
+        </div>
+      </div>
+
       <SectionHeader label="Navigation" />
       {/* Genuinely unimplemented, not just this toggle disabled — invertZoom
           is declared in GraphPreferences and stored via localStorage, but

@@ -1,5 +1,5 @@
 import { DragEvent, useEffect, useState, useContext, useRef } from 'react';
-import { Pin, PinOff } from 'lucide-react';
+import { Pin, PinOff, Pencil, Trash2 } from 'lucide-react';
 import { DawContext } from './DawContext';
 import { HintPanel, NODE_HINTS, HintContext } from './HintPanel';
 import { Bridge, PaxInfo, WrapLibraryItem } from './Bridge';
@@ -128,27 +128,59 @@ const PLUGIN_GROUPS = [
 ];
 
 // v0.0.938 — a saved wrap: drag it onto the canvas (lands folded there)
+// v0.0.939 — hover: ✎ rename (inline, Enter keeps, Esc cancels), 🗑 delete
+// (asks, moves the file to the Trash)
 function WrapItem({ item }: { item: WrapLibraryItem }) {
   const { setHint } = useContext(HintContext);
+  const [hover, setHover]     = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft]     = useState(item.name);
+  const commit = () => {
+    setEditing(false);
+    const v = draft.trim();
+    if (v && v !== item.name) Bridge.wrapLibraryRename(item.file, v);
+  };
+  const iconBtn: React.CSSProperties = { display: 'inline-flex', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, borderRadius: 3 };
   return (
-    <div draggable
+    <div draggable={!editing}
       onDragStart={e => { e.dataTransfer.setData('text/plain', JSON.stringify({ wrapFile: item.file })); e.dataTransfer.effectAllowed = 'copy'; }}
       onMouseEnter={e => {
         const el = e.currentTarget as HTMLDivElement;
         el.style.borderColor = 'var(--generic)';
-        setHint({ title: item.name, body: `A saved wrap${item.nodes ? ` (${item.nodes} nodes)` : ''}. Drag it onto the canvas: an independent copy lands there, folded — its nodes, inner wires, settings and pins.` });
+        setHover(true);
+        setHint({ title: item.name, body: `A saved wrap${item.nodes ? ` (${item.nodes} nodes)` : ''}. Drag it onto the canvas: an independent copy lands there, folded — its nodes, inner wires, settings and pins. ✎ renames it, 🗑 moves it to the Trash.` });
       }}
-      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border)'; setHint(null); }}
+      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border)'; setHover(false); setHint(null); }}
       style={{
         display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 'var(--radius)',
         border: '1px solid var(--border)', background: 'var(--surface)', cursor: 'grab', userSelect: 'none',
         transition: 'border-color .15s',
       }}>
       <span style={{ color: 'var(--generic)', fontSize: 12, width: 14, textAlign: 'center' }}>▣</span>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 11, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        {editing ? (
+          <input autoFocus value={draft} spellCheck={false} autoComplete="off"
+            onChange={e => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); }
+              if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setDraft(item.name); setEditing(false); }
+            }}
+            style={{ width: '100%', fontSize: 11, background: 'var(--surface2)', color: 'var(--text)',
+                     border: '1px solid var(--border-hi)', borderRadius: 3, padding: '1px 4px', outline: 'none' }} />
+        ) : (
+          <div style={{ fontSize: 11, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
+        )}
         <div style={{ fontSize: 9, color: 'var(--text-muted)' }}>{item.nodes ? `${item.nodes} nodes` : 'Wrap'}</div>
       </div>
+      {hover && !editing && (
+        <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+          <span style={iconBtn} title="Rename"
+            onClick={e => { e.stopPropagation(); setDraft(item.name); setEditing(true); }}><Pencil size={11} /></span>
+          <span style={iconBtn} title="Move to Trash"
+            onClick={e => { e.stopPropagation(); Bridge.wrapLibraryDelete(item.file); }}><Trash2 size={11} /></span>
+        </div>
+      )}
     </div>
   );
 }
@@ -304,7 +336,7 @@ export default function Sidebar() {
   useEffect(() => { Bridge.onPaxList(list => setPaxItems(list)); }, []);
   // v0.0.938 — the wrap library
   const [wrapLib, setWrapLib] = useState<WrapLibraryItem[]>([]);
-  useEffect(() => Bridge.onWrapLibrary(setWrapLib), []);
+  useEffect(() => Bridge.onWrapLibrary(lib => setWrapLib(lib.items)), []);
   const hasPax = paxItems.length > 0;
 
   const [pinned, setPinned] = useState<boolean>(loadPinned);

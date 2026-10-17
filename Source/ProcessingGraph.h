@@ -158,6 +158,8 @@ public:
     // ── Monitor ───────────────────────────────────────────────────────────
     void closeAllAudioDevices();
     void closeAllTransferredAudioDevices();
+    /** v0.0.940 — same, for the given node ids only. */
+    void closeTransferredAudioDevices (const juce::StringArray& nodeIds);
 
 
     /** Transfer open audio device callbacks from an existing graph to this one.

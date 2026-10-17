@@ -504,7 +504,9 @@ void PatchyProcessor::rebuildProcessingGraph()
     // This ensures undo/redo restores correctly — the model has already been
     // updated before rebuildProcessingGraph runs, so we always apply the
     // right selections including empty ones (which trigger closeDevice).
-    bool selectionsChanged = false;
+    // v0.0.940 — the nodes whose audio device really changed (only those
+    // are closed below; a newly added node isn't transferred anyway).
+    juce::StringArray changedAudioNodes;
     struct ChannelRestore { juce::String nodeId, settingsJson; int nodeType = 17; };
     std::vector<ChannelRestore> channelRestores;
     for (const auto& n : graphModel.getNodes())
@@ -527,7 +529,7 @@ void PatchyProcessor::rebuildProcessingGraph()
             if (prev != devName)
             {
                 audioDeviceManager.storeSelection (n.id, devName);
-                selectionsChanged = true;
+                changedAudioNodes.add (n.id);
             }
 
             // Restore selectedChannels from settingsJson (undo/redo safe)
@@ -717,10 +719,14 @@ void PatchyProcessor::rebuildProcessingGraph()
         }
     }
 
-    // If selections changed (e.g. after undo), close all transferred devices
-    // so applyDeviceSelections can open the correct ones freely.
-    if (selectionsChanged)
-        newGraph->closeAllTransferredAudioDevices();
+    // If a node's selection changed (e.g. after undo), close that node's
+    // transferred device so applyDeviceSelections can open the right one.
+    // Fix, v0.0.940 (2026-10-17) — this used to close ALL transferred audio
+    // devices whenever any selection changed, so dropping a wrap / fragment
+    // holding an Audio In or Out node (a new selection) reopened every
+    // device in the graph: ~0.5-1 s of silence on audio already playing.
+    if (! changedAudioNodes.isEmpty())
+        newGraph->closeTransferredAudioDevices (changedAudioNodes);
 
     // Apply selections to new graph (opens/closes devices as needed)
     midiDeviceManager.applyDeviceSelections  (*newGraph, pendingGraph ? pendingGraph.get() : &processingGraph);

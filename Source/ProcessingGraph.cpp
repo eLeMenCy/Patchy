@@ -911,6 +911,18 @@ void ProcessingGraph::closeAllTransferredAudioDevices()
     }
 }
 
+void ProcessingGraph::closeTransferredAudioDevices (const juce::StringArray& nodeIds)
+{
+    for (auto& node : nodes)
+    {
+        if (! nodeIds.contains (node->id)) continue;
+        if (auto* out = dynamic_cast<AudioOutDeviceNode*> (node.get()))
+            if (out->wasTransferred()) out->closeDevice();
+        if (auto* in  = dynamic_cast<AudioInDeviceNode*>  (node.get()))
+            if (in->wasTransferred()) in->closeDevice();
+    }
+}
+
 void ProcessingGraph::transferAudioDevicesFrom (ProcessingGraph& source)
 {
     for (auto& newNode : nodes)

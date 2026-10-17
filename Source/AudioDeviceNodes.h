@@ -878,7 +878,16 @@ private:
         auto it = managers.find (nodeId);
         if (it != managers.end()) return *it->second;
         auto newManager = std::make_unique<juce::AudioDeviceManager>();
-        newManager->initialiseWithDefaultDevices (numInputChannels, numOutputChannels);
+        // Fix, v0.0.940 (2026-10-17) — initialise with NO channels needed so
+        // no device is opened here: (2, 0) / (0, 2) used to open and start the
+        // system's DEFAULT input / output at JUCE's default config the moment
+        // a new Audio node arrived, before openDevice() switched it to the
+        // node's own device — disturbing that default device (often the very
+        // one already playing, e.g. BlackHole). Same lesson as v0.0.922's
+        // device listing. openDevice() sets explicit channels, which JUCE
+        // takes as the channel need (setAudioDeviceSetup).
+        juce::ignoreUnused (numInputChannels, numOutputChannels);
+        newManager->initialiseWithDefaultDevices (0, 0);
         auto& ref = *newManager;
         managers[nodeId] = std::move (newManager);
         return ref;

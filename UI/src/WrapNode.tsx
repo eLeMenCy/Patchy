@@ -607,6 +607,11 @@ export function WrapFrame ({ id, data }: NodeProps) {
           onHint={{ onMouseEnter: () => setHint ({ title: 'Unwrap', body: 'Removes the wrap; its nodes stay where they are. Undoable.' }), onMouseLeave: () => setHint (null) }}>
           <Ungroup size={13} />
         </NodeHeaderButton>
+        {/* v0.0.940 — same ✕ as the folded box (user, 2026-10-17) */}
+        <NodeHeaderButton onClick={() => actions.remove (wrap.id)} danger
+          onHint={{ onMouseEnter: () => setHint ({ title: 'Delete wrap', body: 'Deletes the wrap AND the nodes inside it. Undoable (⌘Z).' }), onMouseLeave: () => setHint (null) }}>
+          <X size={13} />
+        </NodeHeaderButton>
       </div>
       {ins.map  ((q, k) => <FramePort key={q.handleId} q={q} top={topOf (k)} />)}
       {outs.map ((q, k) => <FramePort key={q.handleId} q={q} top={topOf (k)} />)}

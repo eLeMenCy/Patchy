@@ -49,6 +49,9 @@ export interface WrapActions {
   setPins:     (wrapId: string, pins: RawWrapPin[]) => void;
   enter:       (wrapId: string) => void;   // v0.0.937 — the wrap on its own (⌘↑)
   saveToLibrary: (wrapId: string) => void; // v0.0.938 — into ~/Documents/Patchy/Wraps
+  // v0.0.941 — open frame folded straight to its header (the box, header
+  // only); unfolding that header goes back to the open frame
+  foldHeader:  (wrapId: string) => void;
 }
 
 // v0.0.931 — a generic Pax inside the wrap, with its current values
@@ -275,6 +278,23 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
   const updateNodeInternals = useUpdateNodeInternals();
   const [showSettings, setShowSettings] = useState (false);
 
+  // v0.0.941 — fold to the header like any node (double-click the header, or
+  // the global ⇕ fold), not saved — same as nodes. Ports then sit on the header.
+  // fromOpen: folded to the header straight from the open frame — starts
+  // folded, and unfolding it reopens the frame (where it came from)
+  // (derived, not state: nothing can unfold it but its own header / ⤢)
+  const fromOpen = !! (data as { fromOpen?: boolean }).fromOpen;
+  const [ownCollapsed, setCollapsed] = useState (false);
+  const forceCollapsed = (data as { _forceCollapsed?: boolean })._forceCollapsed;
+  useEffect (() => { if (forceCollapsed !== undefined) setCollapsed (forceCollapsed); }, [forceCollapsed]);
+  const collapsed = fromOpen || ownCollapsed;
+  const toggleHeader = () => {
+    if (fromOpen) { actions.open (wrap.id); return; }   // back to the open frame
+    setCollapsed (c => ! c);
+  };
+  useEffect (() => { const t = setTimeout (() => updateNodeInternals (id), 1); return () => clearTimeout (t); },
+             [collapsed, id, updateNodeInternals]);
+
   // Live values of read-only Pax parameters (summary + panel); followed only
   // when the wrap holds at least one
   const [live, setLive] = useState<Map<string, number>>(new Map());
@@ -359,19 +379,22 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
           anchor={`row${(p.dir === 'in' ? ins : outs).indexOf (p)}`} />
       ))}
 
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px',
-                    borderBottom: '1px solid var(--border)', userSelect: 'none' }}
+      {/* Header — double-click folds it to the header (v0.0.941); the body's
+          double-click still opens the wrap in place */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px', cursor: 'pointer',
+                    borderBottom: collapsed ? 'none' : '1px solid var(--border)', userSelect: 'none' }}
+        onDoubleClick={e => { e.stopPropagation(); toggleHeader(); }}
         onMouseEnter={e => { if (! e.currentTarget.contains (e.relatedTarget as Node))
           setHint ({ title: 'Wrap', body: 'Several nodes shown as one box. Its ports are the connections that cross its border. Double-click (or ⤢) to open it in place. Nothing changes in the processing: wrapping only tidies the canvas.' }); }}
         onMouseLeave={e => { if (! e.currentTarget.contains (e.relatedTarget as Node)) setHint (null); }}>
+        <FoldTriangle collapsed={collapsed} colour={WRAP_ACCENT} />
         <Package size={12} color={WRAP_ACCENT} />
         <EditableTitle display={wrap.name || 'WRAP'} value={wrap.name === 'WRAP' ? '' : wrap.name} placeholder="Wrap"
           onCommit={name => actions.rename (wrap.id, name || 'WRAP')} textStyle={titleStyle} />
         <span style={{ fontSize: 9, color: 'var(--text-muted)', marginLeft: 2 }}>{wrap.nodeIds.length} nodes</span>
         <div style={{ flex: 1 }} />
         <div style={{ display: 'flex', gap: 4 }} onDoubleClick={e => e.stopPropagation()}>
-          {pax.length > 0 && (
+          {pax.length > 0 && ! collapsed && (
             <NodeHeaderButton onClick={() => setShowSettings (v => ! v)} active={showSettings} activeAccent={WRAP_ACCENT}
               onHint={hint ('Wrap settings', 'Every Pax parameter inside this wrap, grouped by node — the same controls as on the nodes themselves (one undo step per change).')}>
               <Settings size={11} color={showSettings ? WRAP_ACCENT : 'var(--text-muted)'} />
@@ -401,6 +424,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
       </div>
 
       {/* Face ports: inputs left, outputs right */}
+      {! collapsed && <>
       <div style={{ padding: '6px 10px 8px' }}>
         {ports.length === 0 && (
           <div style={{ fontSize: 9, color: 'var(--text-muted)', padding: '4px 0' }}>no connections across the wrap's border</div>
@@ -507,7 +531,20 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
           ))}
         </div>
       )}
+      </>}
     </div>
+  );
+}
+
+// v0.0.941 — the same fold indicator as on the nodes' headers
+export function FoldTriangle ({ collapsed, colour }: { collapsed: boolean; colour: string }) {
+  return (
+    <span style={{ fontSize: 12, color: colour, opacity: 0.7, display: 'inline-block',
+                   transform: collapsed ? 'rotate(0deg)' : 'rotate(90deg)', transition: 'transform 0.2s' }}>
+      <svg width="8" height="10" viewBox="0 0 8 10" style={{ display: 'block' }}>
+        <polygon points="0,0 8,5 0,10" fill="currentColor" />
+      </svg>
+    </span>
   );
 }
 
@@ -583,7 +620,9 @@ export function WrapFrame ({ id, data }: NodeProps) {
         padding: '0 8px', borderBottom: `1px dashed color-mix(in srgb, var(--generic) 45%, transparent)`,
         background: 'color-mix(in srgb, var(--generic) 10%, var(--bg))', borderRadius: '9px 9px 0 0',
         fontFamily: "'JetBrains Mono', monospace", userSelect: 'none',
-      }}>
+      }}
+        onDoubleClick={e => { e.stopPropagation(); actions.foldHeader (wrap.id); }}>
+        <FoldTriangle collapsed={false} colour={WRAP_ACCENT} />
         <Package size={12} color={WRAP_ACCENT} />
         <EditableTitle display={wrap.name || 'WRAP'} value={wrap.name === 'WRAP' ? '' : wrap.name} placeholder="Wrap"
           onCommit={name => actions.rename (wrap.id, name || 'WRAP')} textStyle={titleStyle} />

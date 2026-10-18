@@ -417,6 +417,10 @@ private:
     // v0.0.938 — fragments carry wraps; the wrap library
     juce::var  buildFragment    (const juce::StringArray& selectedNodeIds, const juce::String& originWrapId = {});
     void       commitFragment   (const juce::DynamicObject& frag, float dx, float dy);
+    // v0.0.941 — ghost nodes (a Pax that isn't installed)
+    bool       isPaxInstalled   (const juce::String& name) const;
+    void       warnMissingPax   (const juce::StringArray& missing);
+    void       warnMissingPaxInGraph();
     juce::File wrapLibraryDir   () const;
     static juce::File defaultWrapLibraryDir ();
     void       pushWrapLibrary  ();

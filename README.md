@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.940
+> Version 0.0.941
 
 ---
 
@@ -500,7 +500,8 @@ Several nodes shown as one box, to tidy a busy canvas. A wrap is display and pro
 - **✕** on the box deletes the wrap **and** its nodes (undoable).
 - **Add / take out nodes** — hold **⌥ Option** while dragging: drop a node inside an open wrap's frame to add it (the frame lights up, "drop to add"), drop a member outside its frame to take it out (red, "drop to take out"). Its wires stay as they are. ⌥-drop a **folded wrap** into an open one to merge them: its nodes (and their pins) join, it goes. One undo step per drop — ⌘Z puts everything back where the drag began. Without ⌥, dragging works as usual (the frame just grows with its nodes).
 - A node belongs to one wrap at most; wraps don't nest. Wrapping nodes from an open wrap, or ⌥-dropping them into another, moves them to the new one.
-- **Wrap library** — the 🔖 button on a wrap (folded box or open frame) saves it to `~/Documents/Patchy/Wraps` under its name (asks before replacing one of the same name): its nodes, inner wires, settings, pins and pin labels — not its outside wires. The sidebar's **Wraps** section lists the library; drag one onto the canvas and an independent copy lands there, folded. Hover an item for ✎ rename and 🗑 delete (asks, moves the file to the Trash; wraps already placed aren't affected). The library folder can be changed in **Preferences → Wrap library** (e.g. a shared or synced folder; *Default* goes back to Documents › Patchy › Wraps). If it uses a Pax that isn't installed, the rest is placed and a warning names what's missing. Device nodes keep their device (pick another if it's busy or absent).
+- **Wrap library** — the 🔖 button on a wrap (folded box or open frame) saves it to `~/Documents/Patchy/Wraps` under its name (asks before replacing one of the same name): its nodes, inner wires, settings, pins and pin labels — not its outside wires. The sidebar's **Wraps** section lists the library; drag one onto the canvas and an independent copy lands there, folded. Hover an item for ✎ rename and 🗑 delete (asks, moves the file to the Trash; wraps already placed aren't affected). The library folder can be changed in **Preferences → Wrap library** (e.g. a shared or synced folder; *Default* goes back to Documents › Patchy › Wraps). If it uses a Pax that isn't installed, that node is placed as a **ghost** (see below) and a warning names what's missing. Device nodes keep their device (pick another if it's busy or absent).
+- **Ghost nodes** — a node whose Pax isn't installed (a project, fragment or library wrap made on another machine) shows as a greyed, dashed **MISSING: NAME** node. It keeps its place, ports and wires and passes nothing; its settings are kept and saved with the project. Install the Pax and restart Patchy to bring the real node back. Wraps and ghosts fold to their header like any node (double-click the header, or the global fold button); an open wrap folds straight to its header, and unfolding it opens it again. A warning lists the missing Pax when the project opens or the fragment / wrap is dropped.
 - Export… of a selected folded wrap exports its nodes — and any wrap whose nodes are all exported goes into the file with them; Import… brings it back as a wrap.
 
 ---
@@ -823,4 +824,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.940 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.941 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

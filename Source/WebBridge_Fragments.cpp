@@ -118,20 +118,15 @@ juce::var WebBridge::buildFragment (const juce::StringArray& selectedNodeIds, co
 // ── Placing a fragment in the graph (v0.0.938) ───────────────────────────────
 // Shared by fragment import and the wrap library: nodes (shifted by dx/dy),
 // the wires between them, then their wraps — one undo step, one rebuild.
-// Nodes of a Pax that isn't installed are left out (with their wires / pins)
-// and named in a warning; the rest is placed.
+// v0.0.941 — nodes of a Pax that isn't installed are placed too, as ghosts
+// (the processing graph skips them: no processor), with their wires, pins and
+// wrap membership; a warning names the missing Pax.
 void WebBridge::commitFragment (const juce::DynamicObject& frag, float dx, float dy)
 {
     auto* nodesArr = frag.getProperty ("nodes").getArray();
     if (nodesArr == nullptr) return;
 
-    juce::StringArray missing, skipped;
-    auto paxInstalled = [this] (const juce::String& name)
-    {
-        if (registry == nullptr) return true;
-        for (const auto& e : registry->getEntries()) if (e.name == name) return true;
-        return false;
-    };
+    juce::StringArray missing;
 
     pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
     graph.pushSnapshot();
@@ -147,12 +142,8 @@ void WebBridge::commitFragment (const juce::DynamicObject& frag, float dx, float
         float        x        = (float) (double) nObj->getProperty ("x") + dx;
         float        y        = (float) (double) nObj->getProperty ("y") + dy;
         juce::String paxName  = nObj->getProperty ("paxName").toString();
-        if (paxName.isNotEmpty() && ! paxInstalled (paxName))
-        {
-            missing.addIfNotAlreadyThere (paxName);
-            skipped.add (savedId);
-            continue;
-        }
+        if (paxName.isNotEmpty() && ! isPaxInstalled (paxName))
+            missing.addIfNotAlreadyThere (paxName);   // placed anyway, as a ghost
         PaxPortSpec spec;
         spec.audioIn  = (int) nObj->getProperty ("audioInputs");
         spec.audioOut = (int) nObj->getProperty ("audioOutputs");
@@ -181,7 +172,6 @@ void WebBridge::commitFragment (const juce::DynamicObject& frag, float dx, float
             if (auto* cObj = c.getDynamicObject())
             {
                 const auto sn = cObj->getProperty ("sourceNodeId").toString(), tn = cObj->getProperty ("targetNodeId").toString();
-                if (skipped.contains (sn) || skipped.contains (tn)) continue;
                 graph.addConnection (sn, cObj->getProperty ("sourcePortId").toString(),
                                      tn, cObj->getProperty ("targetPortId").toString());
             }
@@ -192,7 +182,7 @@ void WebBridge::commitFragment (const juce::DynamicObject& frag, float dx, float
             {
                 juce::StringArray ids, ports;
                 if (auto* a = wObj->getProperty ("nodeIds").getArray())
-                    for (auto& v : *a) if (! skipped.contains (v.toString()) && graph.findNode (v.toString()) != nullptr) ids.add (v.toString());
+                    for (auto& v : *a) if (graph.findNode (v.toString()) != nullptr) ids.add (v.toString());
                 if (ids.isEmpty()) continue;
                 if (auto* a = wObj->getProperty ("ports").getArray())
                     for (auto& v : *a) if (ids.contains (v.toString().upToFirstOccurrenceOf ("_", false, false))) ports.add (v.toString());
@@ -210,13 +200,36 @@ void WebBridge::commitFragment (const juce::DynamicObject& frag, float dx, float
 
     graph.resumeNotifications();   // one rebuild, pushes the graph
 
-    if (! missing.isEmpty())
-        juce::AlertWindow::showAsync (juce::MessageBoxOptions()
-            .withIconType (juce::MessageBoxIconType::WarningIcon)
-            .withTitle ("Missing Pax")
-            .withMessage ("These Pax aren't installed, so their nodes were left out:\n\n  " + missing.joinIntoString ("\n  ")
-                          + "\n\nEverything else was placed. Install them in the Pax folder and drop it again to get them back.")
-            .withButton ("OK"), nullptr);
+    warnMissingPax (missing);
+}
+
+// v0.0.941 — ghost nodes
+bool WebBridge::isPaxInstalled (const juce::String& name) const
+{
+    if (registry == nullptr) return true;
+    for (const auto& e : registry->getEntries()) if (e.name == name) return true;
+    return false;
+}
+
+void WebBridge::warnMissingPax (const juce::StringArray& missing)
+{
+    if (missing.isEmpty()) return;
+    juce::AlertWindow::showAsync (juce::MessageBoxOptions()
+        .withIconType (juce::MessageBoxIconType::WarningIcon)
+        .withTitle ("Missing Pax")
+        .withMessage ("These Pax aren't installed, so their nodes are shown as ghosts (greyed, passing nothing):\n\n  "
+                      + missing.joinIntoString ("\n  ")
+                      + "\n\nTheir settings and wires are kept. Install them in the Pax folder and restart Patchy to bring them back.")
+        .withButton ("OK"), nullptr);
+}
+
+void WebBridge::warnMissingPaxInGraph()
+{
+    juce::StringArray missing;
+    for (const auto& n : graph.getNodes())
+        if (n.paxName.isNotEmpty() && ! isPaxInstalled (n.paxName))
+            missing.addIfNotAlreadyThere (n.paxName);
+    warnMissingPax (missing);
 }
 
 // ── Wrap library (v0.0.938) ──────────────────────────────────────────────────

@@ -47,11 +47,12 @@ import ChannelFilterPaxNode from './ChannelFilterPaxNode';
 import EnvelopeNode     from './EnvelopeNode';
 import AudioToDmxNode from './AudioToDmxNode';
 import AudioPeakToOscNode from './AudioPeakToOscNode';
+import GhostNode from './GhostNode';   // v0.0.941
 import { _paxInfoMap, detectPaxTheme } from './NodeUtils';
 
 // ── Node type registry ────────────────────────────────────────────────────────
 const edgeTypes = { wrapRoute: WrapRouteEdge };   // v0.0.934 — a wire drawn through open-wrap frame ports
-const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, audioPlayer: AudioPlayerNode, midiChMatrix: MidiChMatrixNode, midiMorpher: MidiMorpherNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, channelFilterPax: ChannelFilterPaxNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode, wrap: WrapNode, wrapFrame: WrapFrame, wrapRail: WrapRail };
+const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, audioPlayer: AudioPlayerNode, midiChMatrix: MidiChMatrixNode, midiMorpher: MidiMorpherNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, channelFilterPax: ChannelFilterPaxNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode, wrap: WrapNode, wrapFrame: WrapFrame, wrapRail: WrapRail, ghost: GhostNode };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 // _paxInfoMap lives in NodeUtils.tsx (not declared here) — GenericNode.tsx
@@ -59,6 +60,10 @@ const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMoni
 // GenericNode to register it as a node type, so declaring it here would
 // create a circular import. NodeUtils.tsx is a lower-level shared utility
 // file both already depend on safely.
+
+// v0.0.941 — set once the Pax list has arrived (it's pushed before the graph),
+// so a Pax node is only shown as a ghost when its Pax is really not installed.
+let _paxListLoaded = false;
 
 function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<NodeData | MidiMonitorNodeData | DmxMonitorNodeData | OscMonitorNodeData | UdpMonitorNodeData | MqttMonitorNodeData | MqttConsoleNodeData | MidiChMatrixNodeData | MidiMorpherNodeData> {
   const isMidiMonitor    = raw.nodeType === 5;
@@ -75,6 +80,7 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
   const isAudioPlayer    = raw.nodeType === 26;
   const isMidiChMatrix   = raw.nodeType === 27;
   const isMidiMorpher    = raw.nodeType === 28;
+  const isGhost          = !!raw.paxName && _paxListLoaded && !(paxInfoMap?.has(raw.paxName) ?? true);
   return {
     id:       raw.id,
     type:     isMidiMonitor    ? 'midiMonitor'
@@ -91,6 +97,7 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
             : isAudioPlayer    ? 'audioPlayer'
             : isMidiChMatrix   ? 'midiChMatrix'
             : isMidiMorpher    ? 'midiMorpher'
+            : isGhost          ? 'ghost'      // v0.0.941 — Pax not installed
             : raw.paxName === 'Spectrumyser' ? 'spectrumyser'
             : raw.paxName === 'Channel Filter' ? 'channelFilterPax'
             : raw.paxName === 'Envelope'     ? 'envelope'
@@ -898,6 +905,9 @@ function FlowCanvas() {
   // drag / fold handlers always see the latest values.
   const [wraps, setWrapsState] = useState<RawWrap[]>([]);
   const wrapsRef = useRef<RawWrap[]>([]);
+  // v0.0.941 — wraps folded to the header straight from their open frame
+  // (session only, like node folding): unfolding goes back to the frame
+  const [headerFromOpen, setHeaderFromOpen] = useState<Set<string>>(new Set());
   const setWraps = useCallback((next: RawWrap[] | ((ps: RawWrap[]) => RawWrap[])) => {
     wrapsRef.current = typeof next === 'function' ? next(wrapsRef.current) : next;
     setWrapsState(wrapsRef.current);
@@ -1335,6 +1345,7 @@ function FlowCanvas() {
       setTimeout(() => ids.forEach(id => updateNodeInternals(id)), 50);
       setWraps(ps => ps.map(p => p.id === wrapId ? { ...p, open: true } : p));
       setSelectedWraps(s => { const n = new Set(s); n.delete(wrapId); return n; });
+      setHeaderFromOpen(s => { if (!s.has(wrapId)) return s; const n = new Set(s); n.delete(wrapId); return n; });
       Bridge.wrapSetOpen(wrapId, true);
     },
     close: (wrapId) => {
@@ -1353,6 +1364,10 @@ function FlowCanvas() {
     },
     unwrap: (wrapId) => Bridge.wrapUnwrap(wrapId),
     remove: (wrapId) => Bridge.wrapRemove(wrapId),
+    foldHeader: (wrapId) => {   // v0.0.941 — see headerFromOpen
+      setHeaderFromOpen(s => new Set(s).add(wrapId));
+      wrapActionsRef.current?.close(wrapId);
+    },
     rename: (wrapId, name) => {
       setWraps(ps => ps.map(p => p.id === wrapId ? { ...p, name } : p));
       Bridge.wrapRename(wrapId, name);
@@ -1377,6 +1392,20 @@ function FlowCanvas() {
       Bridge.wrapSetPins(wrapId, pins);
     },
   }), [getNodes, getEdges, setWraps, updateNodeInternals, enterWrap]);
+  const wrapActionsRef = useRef<WrapActions | null>(null);
+  wrapActionsRef.current = wrapActions;
+  // v0.0.941 — the global ⇕ fold also folds open frames to their header, and
+  // unfolding brings them back open (folded boxes follow via _forceCollapsed)
+  const firstAllCollapsed = useRef(true);
+  useEffect(() => {
+    if (firstAllCollapsed.current) { firstAllCollapsed.current = false; return; }
+    if (allCollapsed) {
+      for (const p of wrapsRef.current) if (p.open) wrapActions.foldHeader(p.id);
+    } else {
+      for (const id of headerFromOpen) if (wrapsRef.current.some(p => p.id === id && !p.open)) wrapActions.open(id);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allCollapsed]);
 
   // Left automatically if the wrap goes (unwrapped, deleted, undone)
   useEffect(() => {
@@ -1483,7 +1512,9 @@ function FlowCanvas() {
         boxes.push({
           id: WRAP_PREFIX + p.id, type: 'wrap', position: { x: p.x, y: p.y },
           deletable: false, selected: selectedWraps.has(p.id), measured: wrapMeasured[p.id],
-          data: { wrap: p, ports: wrapFacePorts(p, nodes, edges), pax: wrapPaxOf(p, nodes), actions: wrapActions },
+          data: { wrap: p, ports: wrapFacePorts(p, nodes, edges), pax: wrapPaxOf(p, nodes), actions: wrapActions,
+                  _forceCollapsed: allCollapsed,     // v0.0.941 — global ⇕ fold
+                  fromOpen: headerFromOpen.has(p.id) },
         });
       }
     }
@@ -1534,7 +1565,7 @@ function FlowCanvas() {
       }
     }
     return { nodes: [...frames, ...shown, ...boxes], edges: viewEdges };
-  }, [nodes, edges, wraps, selectedWraps, wrapActions, wrapMeasured, dropHint, frozenFrames, entered, railMeasured]);
+  }, [nodes, edges, wraps, selectedWraps, wrapActions, wrapMeasured, dropHint, frozenFrames, entered, railMeasured, allCollapsed, headerFromOpen]);
 
   // ── ⌥-drag: nodes join / leave open wraps (v0.0.935) ──────────────────────
   // Plain drags are unchanged. With ⌥ held, a node whose centre is dropped
@@ -1722,6 +1753,7 @@ function FlowCanvas() {
 
     Bridge.onPaxList((paxItems) => {
       paxItems.forEach(a => _paxInfoMap.set(a.name, a));
+      _paxListLoaded = true;   // v0.0.941
     });
     Bridge.ready();
     return () => unsubGraph();

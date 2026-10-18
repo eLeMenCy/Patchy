@@ -50,6 +50,7 @@ bool WebBridge::openFile (const juce::File& file)
     currentFile = file;
     lastOpenDir = file.getParentDirectory();
     if (onLoadGraph) onLoadGraph (json);
+    warnMissingPaxInGraph();   // v0.0.941 — ghosts
     pushToUI ("onFileState", buildFileStateJson());
     AppSettings::addRecentFile (file);
     AppSettings::setLastSessionFile (file.getFullPathName());

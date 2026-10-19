@@ -1,4 +1,5 @@
 #include "WebBridge.h"
+#include "DiagLog.h"   // v0.0.942
 #include "AppSettings.h"
 #include "StartupFadeRegistry.h"
 #include "MidiDeviceNodes.h"
@@ -263,6 +264,36 @@ void WebBridge::handleSetNodeSettings (const juce::DynamicObject* obj)
     }
 }
 
+// v0.0.942 — one log line per committed settings change: the keys that
+// changed (short values), or the whole settings when they aren't an object
+// (generic Pax: one value per parameter). Long values (DMX channel blobs)
+// are cut; anything named like a password is masked.
+static juce::String settingsChangeText (const juce::String& before, const juce::String& after)
+{
+    auto cut = [] (juce::String t) { return t.length() > 60 ? t.substring (0, 57) + "..." : t; };
+    auto a = juce::JSON::parse (before), b = juce::JSON::parse (after);
+    auto* bo = b.getDynamicObject();
+    if (bo == nullptr) return "settings = " + cut (after);
+    auto* ao = a.getDynamicObject();
+    juce::StringArray parts;
+    for (auto& p : bo->getProperties())
+    {
+        const auto key = p.name.toString();
+        const auto now = juce::JSON::toString (p.value, true);
+        const auto was = ao != nullptr && ao->hasProperty (p.name) ? juce::JSON::toString (ao->getProperty (p.name), true) : juce::String();
+        if (now == was) continue;
+        parts.add (key + " = " + (key.containsIgnoreCase ("password") ? juce::String ("***") : cut (now)));
+    }
+    return parts.isEmpty() ? juce::String() : parts.joinIntoString (", ");
+}
+
+static juce::String nodeLogName (GraphModel& graph, const juce::String& nodeId)
+{
+    if (auto* nd = graph.findNode (nodeId))
+        return (nd->customName.isNotEmpty() ? nd->customName : nd->label) + " (" + nodeId.substring (0, 8) + ")";
+    return nodeId;
+}
+
 void WebBridge::handleCommitNodeSettings ()
 {
     if (pendingSettingsSnapshot.isObject())
@@ -278,6 +309,8 @@ void WebBridge::handleCommitNodeSettings ()
 
         if (node && node->settingsJson != snapSettings)
         {
+            if (auto t = settingsChangeText (snapSettings, node->settingsJson); t.isNotEmpty())
+                diagLog ("Settings: " + nodeLogName (graph, pendingSettingsNodeId) + " " + t);   // v0.0.942
             pushSettingsToUI (pendingSettingsNodeId, node->settingsJson);
             graph.pushExistingSnapshot (std::move (pendingSettingsSnapshot));
             pushUndoState();
@@ -313,6 +346,8 @@ void WebBridge::handleCommitSettingsChange (const juce::DynamicObject* obj)
 
         if (snapSettings != settingsJson)
         {
+            if (auto t = settingsChangeText (snapSettings, settingsJson); t.isNotEmpty())
+                diagLog ("Settings: " + nodeLogName (graph, nodeId) + " " + t);   // v0.0.942
             pushSettingsToUI (nodeId, settingsJson);
             graph.pushExistingSnapshot (std::move (preSnapshot));
             pushUndoState();
@@ -414,6 +449,24 @@ void WebBridge::handleSetNodeParam (const juce::DynamicObject* obj)
     juce::String nodeId = obj->getProperty ("nodeId").toString();
     juce::String key    = obj->getProperty ("key").toString();
     juce::String value  = obj->getProperty ("value").toString();
+
+    // v0.0.942 — device settings committed from a panel (ports, universe,
+    // host, topic, startup fade…): one log line each, so a change can be
+    // confirmed. Panels only send these on commit, never per drag step.
+    if (key == "udpSettings" || key == "oscSettings" || key == "artNetSettings"
+        || key == "mqttSubscribeSettings" || key == "mqttPublishSettings" || key == "audioInStartupFade"
+        || key == "mqttConsoleSend")
+    {
+        auto shown = value;
+        auto parsed = juce::JSON::parse (value);
+        if (auto* o = parsed.getDynamicObject())
+            if (o->hasProperty ("password"))
+            {
+                if (o->getProperty ("password").toString().isNotEmpty()) o->setProperty ("password", "***");   // never log a password
+                shown = juce::JSON::toString (parsed, true);
+            }
+        diagLog ((key == "mqttConsoleSend" ? "MQTT Console: " : "Settings: ") + nodeLogName (graph, nodeId) + " " + key + " = " + shown);
+    }
 
     // v0.0.929 — generic MIDI Learn arm/disarm: live only, never undoable.
     if (key == "learnArm")

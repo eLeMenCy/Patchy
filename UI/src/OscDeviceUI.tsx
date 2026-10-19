@@ -6,6 +6,7 @@
  * header comment for the full rationale and naming convention explanation.
  */
 
+import ValueBox from './ValueBox';   // v0.0.942
 import { useState, useEffect, useRef } from 'react';
 import { Bridge } from './Bridge';
 import { SettingsPanelHeader, isLikelyCompleteHost } from './NodeUtils';
@@ -122,14 +123,9 @@ export function OscDeviceSettingsPanel ({ nodeId, nodeType, port, targetHost, os
       />
 
       <div style={labelStyle}>Port</div>
-      <input
-        type="number" min={1} max={65535} value={localPort || ''}
-        placeholder="e.g. 8000"
-        onChange={e => updateLocal({ port: parseInt(e.target.value, 10) || 0 })}
-        onKeyDown={commitOnEnter}
-        onBlur={() => commitOnBlur()}
-        style={inputStyle}
-      />
+      <ValueBox value={localPort || NaN} min={1} max={65535} placeholder="e.g. 8000" accent={accent}
+        onCommit={v => { updateLocal({ port: v }); commitNow({ port: v }); }}
+        width="100%" style={{ ...inputStyle, textAlign: 'left' }} />
 
       {isOut && (<>
         <div style={labelStyle}>Target Host</div>

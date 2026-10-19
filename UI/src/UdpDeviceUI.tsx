@@ -6,6 +6,7 @@
  * header comment for the full rationale and naming convention explanation.
  */
 
+import ValueBox from './ValueBox';   // v0.0.942
 import { useState, useEffect, useRef } from 'react';
 import { Bridge } from './Bridge';
 import { SettingsPanelHeader, isLikelyCompleteHost } from './NodeUtils';
@@ -121,10 +122,6 @@ export function UdpDeviceSettingsPanel ({ nodeId, nodeType, port, mode, targetHo
     el.blur();
   };
 
-  const commitOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') { e.preventDefault(); commitNow(); blurSuppressed(e.target as HTMLInputElement); }
-  };
-
   // Host-shaped fields (Target Host, Multicast Group) get their own Enter
   // handler: a malformed/incomplete address deliberately does NOT call
   // preventDefault(), and blurs-then-refocuses (rather than skipping blur
@@ -184,14 +181,9 @@ export function UdpDeviceSettingsPanel ({ nodeId, nodeType, port, mode, targetHo
       <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 8, marginBottom: 4 }}>
         Port
       </div>
-      <input
-        type="number" min={1} max={65535} value={localPort || ''}
-        placeholder="e.g. 9000"
-        onChange={e => updateLocal({ port: parseInt(e.target.value, 10) || 0 })}
-        onKeyDown={commitOnEnter}
-        onBlur={() => commitOnBlur()}
-        style={inputStyle}
-      />
+      <ValueBox value={localPort || NaN} min={1} max={65535} placeholder="e.g. 9000" accent={accent}
+        onCommit={v => { updateLocal({ port: v }); commitNow({ port: v }); }}
+        width="100%" style={{ ...inputStyle, textAlign: 'left' }} />
 
       <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 8, marginBottom: 4 }}>
         Mode

@@ -6,6 +6,7 @@
  * header comment for the full rationale and naming convention explanation.
  */
 
+import ValueBox from './ValueBox';   // v0.0.942
 import { useState, useEffect, useRef } from 'react';
 import { Bridge } from './Bridge';
 import { SettingsPanelHeader, isLikelyCompleteHost } from './NodeUtils';
@@ -54,10 +55,6 @@ export function ArtNetDeviceSettingsPanel ({ nodeId, nodeType, universe, targetH
   const commitOnBlur = (overrides: { universe?: number; targetHost?: string } = {}) => {
     if (suppressNextBlurRef.current) { suppressNextBlurRef.current = false; return; }
     commitNow(overrides);
-  };
-
-  const commitOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') { e.preventDefault(); commitNow(); blurSuppressed(e.target as HTMLInputElement); }
   };
 
   // Target Host gets its own Enter handler — see UdpDeviceSettingsPanel's
@@ -117,14 +114,9 @@ export function ArtNetDeviceSettingsPanel ({ nodeId, nodeType, universe, targetH
       />
 
       <div style={labelStyle}>Universe</div>
-      <input
-        type="number" min={0} max={32767} value={localUniverse || ''}
-        placeholder="0"
-        onChange={e => updateLocal({ universe: parseInt(e.target.value, 10) || 0 })}
-        onKeyDown={commitOnEnter}
-        onBlur={() => commitOnBlur()}
-        style={inputStyle}
-      />
+      <ValueBox value={localUniverse} min={0} max={32767} accent={accent}
+        onCommit={v => { updateLocal({ universe: v }); commitNow({ universe: v }); }}
+        width="100%" style={{ ...inputStyle, textAlign: 'left' }} />
       <div style={{ fontSize: 9, color: accent, marginTop: 4, opacity: 0.7 }}>
         Port fixed at 6454 (Art-Net spec)
       </div>

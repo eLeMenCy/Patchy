@@ -3,6 +3,7 @@ import { NodeProps } from '@xyflow/react';
 import { Bridge } from './Bridge';
 import { useNodeDelete, NodeHeader, NodeHandle, useNodeCollapsed } from './NodeUtils';
 import { Send } from 'lucide-react';
+import ValueBox from './ValueBox';   // v0.0.942
 import { HintContext } from './HintPanel';
 
 // ── Settings interface ────────────────────────────────────────────────────────
@@ -70,9 +71,9 @@ export const MqttConsoleNode = memo(function MqttConsoleNode({ id, data, selecte
   // Send: fires the one-shot backend trigger, adds the topic to history
   // (if new), and clears the payload field only — the topic stays, since
   // sending several payloads to the same topic in a row is the common case.
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback((typed?: number) => {   // v0.0.942 — typed: Return in the payload box
     const t = topic.trim();
-    const p = parseFloat(payload);
+    const p = typed ?? parseFloat(payload);
     if (!t || isNaN(p)) return;
 
     Bridge.sendMqttConsole(id, t, p);
@@ -91,10 +92,6 @@ export const MqttConsoleNode = memo(function MqttConsoleNode({ id, data, selecte
     if (e.key === 'Enter') { handleSend(); setHistoryOpen(false); }
     if (e.key === 'Escape') setHistoryOpen(false);
   };
-  const handlePayloadKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') handleSend();
-  };
-
   const inputStyle: React.CSSProperties = {
     width: '100%', fontSize: 11, padding: '4px 8px',
     background: 'var(--surface)', border: '1px solid var(--border)',
@@ -176,15 +173,14 @@ export const MqttConsoleNode = memo(function MqttConsoleNode({ id, data, selecte
                         textTransform: 'uppercase', marginTop: 8, marginBottom: 4 }}>
             Payload
           </div>
-          <input
-            type="number" value={payload} placeholder="e.g. 23.5"
-            onChange={e => setPayload(e.target.value)}
-            onKeyDown={handlePayloadKeyDown}
-            style={inputStyle}
-          />
+          {/* v0.0.942 — value box: drag to scrub (⇧ fine), double-click to type */}
+          <ValueBox value={payload.trim() === '' ? NaN : parseFloat(payload)} min={-1e9} max={1e9}
+            step={1} fineStep={0.01} coarse={1} format={v => String(v)} placeholder="e.g. 23.5" accent="var(--mqtt)"
+            onLive={v => setPayload(String(v))} onCommit={v => setPayload(String(v))} onEnter={v => handleSend(v)}
+            width="100%" style={{ ...inputStyle, textAlign: 'left' }} />
 
           <button
-            onClick={handleSend}
+            onClick={() => handleSend()}
             disabled={!canSend}
             onMouseEnter={() => setHint({ title: 'Send', body: 'Publishes this topic + payload once. Connect to an MQTT Publish node to actually reach a broker.' })}
             onMouseLeave={() => setHint(null)}

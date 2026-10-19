@@ -1,3 +1,4 @@
+import ValueBox from './ValueBox';   // v0.0.942
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, ArtNetSnapshotEntry } from './Bridge';
@@ -350,18 +351,8 @@ function ArtNetMonitorSettingsPanel ({ settings, onChange, onCommit, onClose }: 
             onChange={e => onCommit({ filterUniverse: e.target.checked })}
             style={{ accentColor: ACCENT }} />
           {settings.filterUniverse && (
-            <input type="number" min={0} max={32767}
-              value={settings.filterUniverseValue}
-              onChange={e => onChange({ filterUniverseValue: Number(e.target.value) })}
-              onBlur={e => onCommit({ filterUniverseValue: Number(e.target.value) })}
-              onKeyDown={e => { if (e.key === 'Enter') onCommit({ filterUniverseValue: Number((e.target as HTMLInputElement).value) }); }}
-              style={{
-                width: 60, background: 'var(--surface)', border: `1px solid ${ACCENT}`,
-                color: 'var(--text)', fontSize: 10, borderRadius: 3,
-                padding: '2px 4px', fontFamily: "'JetBrains Mono', monospace",
-                outline: 'none',
-              }}
-            />
+            <ValueBox value={settings.filterUniverseValue} min={0} max={32767} accent={ACCENT} width={60}
+              onLive={v => onChange({ filterUniverseValue: v })} onCommit={v => onCommit({ filterUniverseValue: v })} />
           )}
         </div>
       ))}

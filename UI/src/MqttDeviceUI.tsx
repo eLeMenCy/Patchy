@@ -8,6 +8,7 @@
  * (mirror each other's topic/QoS/username/password shape).
  */
 
+import ValueBox from './ValueBox';   // v0.0.942
 import { useState, useEffect, useRef } from 'react';
 import { Bridge } from './Bridge';
 import { Checkbox, SettingsPanelHeader, isLikelyCompleteHost } from './NodeUtils';
@@ -159,23 +160,25 @@ export function MqttSubscribeSettingsPanel ({ nodeId, host, port, topic, qos, us
 
       <div style={labelStyle}>Broker Host</div>
       <input
-        type="text" value={localHost} placeholder="127.0.0.1"
+        type="text" value={localHost} placeholder="e.g. 127.0.0.1"
         autoCapitalize="off" autoCorrect="off" spellCheck={false}
         onChange={e => updateLocal({ host: e.target.value })}
         onKeyDown={commitHostOnEnter}
         onBlur={() => commitOnBlur()}
         style={inputStyle}
       />
+      {/* v0.0.942 (user) — nothing is applied until the host is complete:
+          say so, so a port / topic change doesn't look lost */}
+      {!isLikelyCompleteHost(localHost) && (
+        <div style={{ fontSize: 9, color: '#fbbf24', marginTop: 4 }}>
+          Set the broker host — nothing is applied until then
+        </div>
+      )}
 
       <div style={labelStyle}>Broker Port</div>
-      <input
-        type="number" min={1} max={65535} value={localPort || ''}
-        placeholder="1883"
-        onChange={e => updateLocal({ port: parseInt(e.target.value, 10) || 1883 })}
-        onKeyDown={commitOnEnter}
-        onBlur={() => commitOnBlur()}
-        style={inputStyle}
-      />
+      <ValueBox value={localPort || NaN} min={1} max={65535} placeholder="1883" accent={accent}
+        onCommit={v => { updateLocal({ port: v }); commitNow({ port: v }); }}
+        width="100%" style={{ ...inputStyle, textAlign: 'left' }} />
 
       <div style={labelStyle}>Topic</div>
       <input
@@ -405,23 +408,25 @@ export function MqttPublishSettingsPanel ({ nodeId, host, port, topic, qos, reta
 
       <div style={labelStyle}>Broker Host</div>
       <input
-        type="text" value={localHost} placeholder="127.0.0.1"
+        type="text" value={localHost} placeholder="e.g. 127.0.0.1"
         autoCapitalize="off" autoCorrect="off" spellCheck={false}
         onChange={e => updateLocal({ host: e.target.value })}
         onKeyDown={commitHostOnEnter}
         onBlur={() => commitOnBlur()}
         style={inputStyle}
       />
+      {/* v0.0.942 (user) — nothing is applied until the host is complete:
+          say so, so a port / topic change doesn't look lost */}
+      {!isLikelyCompleteHost(localHost) && (
+        <div style={{ fontSize: 9, color: '#fbbf24', marginTop: 4 }}>
+          Set the broker host — nothing is applied until then
+        </div>
+      )}
 
       <div style={labelStyle}>Broker Port</div>
-      <input
-        type="number" min={1} max={65535} value={localPort || ''}
-        placeholder="1883"
-        onChange={e => updateLocal({ port: parseInt(e.target.value, 10) || 1883 })}
-        onKeyDown={commitOnEnter}
-        onBlur={() => commitOnBlur()}
-        style={inputStyle}
-      />
+      <ValueBox value={localPort || NaN} min={1} max={65535} placeholder="1883" accent={accent}
+        onCommit={v => { updateLocal({ port: v }); commitNow({ port: v }); }}
+        width="100%" style={{ ...inputStyle, textAlign: 'left' }} />
 
       <div style={labelStyle}>Topic</div>
       <input

@@ -18,6 +18,7 @@ import { useState, useEffect, useContext } from 'react';
 import { Bridge, type StartupFadeDevices } from './Bridge';
 import { Checkbox, SettingsPanelHeader } from './NodeUtils';
 import { NodeSelect } from './NodeSelect';
+import ValueBox from './ValueBox';   // v0.0.942
 import { DawContext } from './DawContext';
 import { HintContext } from './HintPanel';
 
@@ -105,8 +106,8 @@ export function AudioDeviceSettingsPanel ({ nodeId, nodeType, selectedChannels, 
   const toggleFade = () =>
     Bridge.setAudioInStartupFade(nodeId, !fadeOn, fadeOn ? 0 : FADE_DEFAULT_MS);
 
-  const commitFadeMs = () => {
-    const parsed = parseInt(msDraft, 10);
+  const commitFadeMs = (typed?: number) => {   // v0.0.942 — from the value box
+    const parsed = typed ?? parseInt(msDraft, 10);
     const v = Number.isFinite(parsed) ? Math.min(FADE_MAX_MS, Math.max(0, parsed)) : (fadeMs ?? FADE_DEFAULT_MS);
     setMsDraft(String(v));
     if (fadeOn && v !== fadeMs) Bridge.setAudioInStartupFade(nodeId, true, v);
@@ -206,19 +207,8 @@ export function AudioDeviceSettingsPanel ({ nodeId, nodeType, selectedChannels, 
               {fadeOn && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, marginLeft: 18 }}>
                   <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Mute</span>
-                  <input
-                    type="number" min={0} max={FADE_MAX_MS} step={50}
-                    value={msDraft}
-                    onChange={e => setMsDraft(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-                    onBlur={commitFadeMs}
-                    style={{
-                      width: 64, fontSize: 10, padding: '3px 6px',
-                      background: 'var(--surface)', border: '1px solid var(--border)',
-                      borderRadius: 3, color: 'var(--text-dim)',
-                      fontFamily: "'JetBrains Mono', monospace",
-                    }}
-                  />
+                  <ValueBox value={parseInt(msDraft, 10)} min={0} max={FADE_MAX_MS} step={50} fineStep={10} accent={accent}
+                    onCommit={commitFadeMs} width={64} style={{ color: 'var(--text-dim)' }} />
                   <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>ms</span>
                 </div>
               )}

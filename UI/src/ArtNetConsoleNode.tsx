@@ -1,3 +1,4 @@
+import ValueBox from './ValueBox';   // v0.0.942
 import { memo, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, ArtNetSnapshotEntry } from './Bridge';
@@ -320,17 +321,9 @@ function ArtNetConsoleSettingsPanel ({ settings, onChange, onCommit, onClose }: 
         // 0-32767: ArtNet 4's Port-Address is a 15-bit value (Net × 7 bits
         // + Sub-Net × 4 bits + Universe × 4 bits) — not an arbitrary limit,
         // it's the actual addressable range the protocol allows.
-        <input type="number" min={0} max={32767}
-          value={settings.universe}
-          onChange={e => onChange({ universe: Number(e.target.value) })}
-          onBlur={e => onCommit({ universe: Number(e.target.value) })}
-          onKeyDown={e => { if (e.key === 'Enter') onCommit({ universe: Number((e.target as HTMLInputElement).value) }); }}
-          style={{
-            width: '100%', background: 'var(--surface)', border: `1px solid ${ACCENT}`,
-            color: 'var(--text)', fontSize: 10, borderRadius: 3,
-            padding: '2px 6px', fontFamily: "'JetBrains Mono', monospace", outline: 'none',
-          }}
-        />
+        <ValueBox value={settings.universe} min={0} max={32767} accent={ACCENT}
+          onLive={v => onChange({ universe: v })} onCommit={v => onCommit({ universe: v })}
+          width="100%" style={{ textAlign: 'left', padding: '2px 6px' }} />
       ))}
       {row('Channels', (
         <NodeSelect value={String(settings.visibleCount)} showEmpty={false} accent={ACCENT}

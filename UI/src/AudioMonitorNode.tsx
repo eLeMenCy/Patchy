@@ -1,7 +1,11 @@
 import { memo, useContext, useCallback, useEffect, useRef, useState } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, AudioSnapshot } from './Bridge';
-import { useNodeSettings, useNodeDelete, NodeHeader, NodeHeaderButton, NodeHandle, Checkbox, useNodeCollapsed, SettingsPanelHeader } from './NodeUtils';
+import { useNodeSettings, useNodeDelete, NodeHeader, NodeHeaderButton, NodeHandle, Checkbox, useNodeCollapsed, SettingsPanelHeader, readoutBoxStyle } from './NodeUtils';
+import ValueBox from './ValueBox';   // v0.0.944
+
+// v0.0.944 — the display windows the time slider snaps to
+const TIME_WINDOWS = [10, 25, 50, 100, 200];
 import { Pause, Play } from 'lucide-react';
 import { HintContext } from './HintPanel';
 import { NodeSelect } from './NodeSelect';
@@ -222,10 +226,10 @@ function SettingsPanel ({ s, onChange, onDiscreteChange, onClose, onReset, onCom
   const { setHint: setSliderHint } = useContext(HintContext);
   const slider = (key: keyof AudioMonitorSettings, min:number, max:number, step:number, fmt:(v:number)=>string, label?:string) => (
     <>
-      <span style={{ fontSize:10, color:'var(--text-dim)', width:36, textAlign:'right',
-                     flexShrink:0, fontVariantNumeric:'tabular-nums' }}>
-        {fmt(s[key] as number)}
-      </span>
+      {/* v0.0.944 — value box readout (drag, ⇧ fine, double-click to type) */}
+      <ValueBox value={s[key] as number} min={min} max={max} step={step} format={fmt} accent="var(--audio)"
+        onLive={v => onChange({ [key]: v })} onCommit={v => { onChange({ [key]: v }); onCommit(); }}
+        width={40} style={{ ...readoutBoxStyle('var(--text-dim)'), fontSize: 10, flexShrink: 0 }} />
       <input type="range" min={min} max={max} step={step}
         value={s[key] as number}
         onChange={e => onChange({ [key]: parseFloat(e.target.value) })}
@@ -294,8 +298,11 @@ function SettingsPanel ({ s, onChange, onDiscreteChange, onClose, onReset, onCom
             onChange={e => onChange({ clipThresholdDb: parseFloat(e.target.value) })}
             onMouseUp={onCommit} onKeyUp={onCommit}
             style={{ width: '100%' }} />
-          <div style={{ textAlign: 'right', fontSize: 9, color: 'var(--text-dim)', marginTop: 1 }}>
-            {(s.clipThresholdDb >= 0 ? '+' : '') + s.clipThresholdDb.toFixed(1) + ' dBFS'}
+          <div style={{ textAlign: 'right', marginTop: 1 }}>
+            <ValueBox value={s.clipThresholdDb} min={-18} max={0} step={0.5} fineStep={0.1} accent="var(--audio)"
+              format={v => (v >= 0 ? '+' : '') + v.toFixed(1) + ' dBFS'}
+              onLive={v => onChange({ clipThresholdDb: v })} onCommit={v => { onChange({ clipThresholdDb: v }); onCommit(); }}
+              width={64} style={{ ...readoutBoxStyle('var(--text-dim)'), fontSize: 9 }} />
           </div>
         </div>
       ))}
@@ -467,7 +474,12 @@ function AudioMonitorNode ({ id, data, selected }: NodeProps) {
             style={{ writingMode:'vertical-lr' as const, direction:'rtl' as const,
                      height: canvasH - 20, cursor:'pointer', flex:1 }}
           />
-          <span style={{ fontSize:8, color:'var(--text-muted)' }}>.1×</span>
+          {/* v0.0.944 — the current zoom as a value box */}
+          <ValueBox value={settings.amplitudeMode === 'auto' ? 1 : settings.amplitudeZoom} min={0.1} max={4} step={0.1} fineStep={0.01}
+            format={v => `${v.toFixed(1)}×`} accent="var(--audio)" disabled={settings.amplitudeMode === 'auto'}
+            onLive={v => patch({ amplitudeZoom: v })}
+            onCommit={v => { patch({ amplitudeZoom: v }); Bridge.commitNodeSettings(id); }}
+            width={30} style={{ ...readoutBoxStyle('var(--text-dim)'), fontSize: 8, textAlign: 'center', padding: '1px 1px' }} />
         </div>
       </div>
 
@@ -494,9 +506,15 @@ function AudioMonitorNode ({ id, data, selected }: NodeProps) {
           style={{ flex:1, cursor:'pointer' }}
         />
         <span style={{ fontSize:8, color:'var(--text-muted)', flexShrink:0 }}>200ms</span>
-        <span style={{ fontSize:9, color:'var(--audio)', width:36, textAlign:'right', flexShrink:0 }}>
-          {settings.timeWindowMs}ms
-        </span>
+        {/* v0.0.944 — value box over the five windows (drag steps through them) */}
+        <ValueBox value={Math.max(0, TIME_WINDOWS.indexOf(settings.timeWindowMs))} min={0} max={TIME_WINDOWS.length - 1}
+          format={i => `${TIME_WINDOWS[Math.round(i)]}ms`}
+          parse={t => { const ms = parseFloat(t); if (isNaN(ms)) return NaN;
+                        return TIME_WINDOWS.reduce((bi, w, i) => Math.abs(w - ms) < Math.abs(TIME_WINDOWS[bi] - ms) ? i : bi, 0); }}
+          accent="var(--audio)"
+          onLive={i => patch({ timeWindowMs: TIME_WINDOWS[Math.round(i)] })}
+          onCommit={i => { patch({ timeWindowMs: TIME_WINDOWS[Math.round(i)] }); Bridge.commitNodeSettings(id); }}
+          width={40} style={{ ...readoutBoxStyle('var(--audio)'), fontSize: 9, flexShrink: 0 }} />
       </div>
 
       {/* Channel mode colour legend */}

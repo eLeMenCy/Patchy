@@ -1,7 +1,8 @@
 import { memo, useContext, useCallback, useEffect, useRef, useState } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, AudioPlayerFileLoaded, AudioPlayerStatus } from './Bridge';
-import { useNodeSettings, useNodeDelete, useNodeDisabled, NodeHeader, NodeHandle, useNodeCollapsed, SettingsPanelHeader } from './NodeUtils';
+import { useNodeSettings, useNodeDelete, useNodeDisabled, NodeHeader, NodeHandle, useNodeCollapsed, SettingsPanelHeader, readoutBoxStyle } from './NodeUtils';
+import ValueBox from './ValueBox';   // v0.0.944
 import { Play, Pause, SkipBack, FolderOpen } from 'lucide-react';
 import { HintContext } from './HintPanel';
 import { NodeSelect } from './NodeSelect';
@@ -446,7 +447,13 @@ function AudioPlayerNode ({ id, data, selected }: NodeProps) {
             style={{ writingMode:'vertical-lr' as const, direction:'rtl' as const,
                      height: canvasH - 20, cursor:'pointer', flex:1 }}
           />
-          <span style={{ fontSize:8, color:'var(--text-muted)' }}>{'-\u221E'}</span>
+          {/* v0.0.944 — the current level as a value box (dB; ⇧ fine; type "-inf" or "min" for silence) */}
+          <ValueBox value={levelToDb (settings.level)} min={LEVEL_MIN_DB} max={0} step={0.5} fineStep={0.1}
+            format={formatDb} minWord={'-\u221E'} accent="var(--audio)"
+            parse={t => /inf|∞/i.test (t) ? LEVEL_MIN_DB : parseFloat (t.replace (',', '.'))}
+            onLive={db => patch ({ level: dbToLevel (db) })}
+            onCommit={db => { patch ({ level: dbToLevel (db) }); Bridge.commitNodeSettings (id); }}
+            width={32} style={{ ...readoutBoxStyle ('var(--text-dim)'), fontSize: 8, textAlign: 'center', padding: '1px 1px' }} />
         </div>
       </div>
 

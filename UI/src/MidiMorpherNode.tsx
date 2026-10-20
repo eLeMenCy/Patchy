@@ -24,6 +24,7 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Funnel, FunnelX } from 'lucide-react';
+import ValueBox from './ValueBox';   // v0.0.944
 import { Bridge } from './Bridge';
 import type { RawPort } from './Bridge';
 import { HintContext } from './HintPanel';
@@ -83,6 +84,11 @@ const ACCENT = 'var(--midi)';
 
 
 // ── Range value: drag up/down to scrub, double-click to type ─────────────────
+// v0.0.944 — now the shared ValueBox (the control every node uses since
+// v0.0.942); this wrapper keeps the Morpher's own meanings: a high end at the
+// top is stored as -1 ("Max"), 0 shows "Min", ⌥ + drag puts the row's low and
+// high on one value, pitch bend moves 128 per step (⇧: 1), and a drag is one
+// undo step (live changes + onRelease) while a typed value commits on its own.
 function RangeValue ({ value, isHi, max, onChange, onChangeLinked, onRelease, onCommit, dim, format, parse }: {
   value:     number;          // hi: -1 = Max
   isHi:      boolean;
@@ -95,104 +101,18 @@ function RangeValue ({ value, isHi, max, onChange, onChangeLinked, onRelease, on
   format?:   (v: number) => string;   // v0.0.927 — single values in Basic (note names…)
   parse?:    (t: string) => number;   //            typed text → value (NaN = ignore)
 }) {
-  const [editing, setEditing] = useState (false);
-  const [draft,   setDraft]   = useState ('');
-  // Drag state. `cur` = this field's current value as a number (Max → max).
-  const drag = useRef<{ y: number; v: number; cur: number; linked: boolean; lastY: number } | null> (null);
-  const done = useRef (false);   // Enter/Escape already handled — ignore the blur that follows the unmount
-
-  // Latest callbacks: the window listeners below live for the whole drag and
-  // must not call the closures from when it started (after linking, the other
-  // end of the range has moved; an old closure would put it back).
-  const cbs = useRef ({ onChange, onChangeLinked, onRelease });
-  cbs.current = { onChange, onChangeLinked, onRelease };
-
-  const shown  = format ? format (value) : isHi ? fmtHi (value) : fmtLo (value);
   const actual = isHi && value < 0 ? max : value;
   const store  = (v: number) => (isHi && v >= max ? -1 : Math.max (0, Math.min (max, v)));
-  const step   = max > 127 ? 128 : 1;   // pitch bend: one MIDI-ish step per 3 px
-
-  const commitDraft = () => {
-    if (done.current) return;
-    done.current = true;
-    const t = draft.trim().toLowerCase();
-    const n = parse ? parse (draft) : t === 'max' ? max : t === 'min' ? 0 : parseInt (t, 10);
-    if (! isNaN (n)) onCommit (store (n));
-    setEditing (false);
-  };
-
-  const onMouseDown = (e: React.MouseEvent) => {
-    // No stopPropagation here (nor on the panel): React's stop also stops the
-    // NATIVE event at the root, so window/document listeners — this drag's
-    // mouseup, NodeSelect's outside-click — never fire and controls stay
-    // "stuck". The `nodrag` class is what keeps ReactFlow from moving the node.
-    e.preventDefault();
-
-    // v0.0.926 (user's idea) — ⌥ Option links the row's low and high: both go
-    // to this field's value and follow the drag together (a single value such
-    // as CC 7–7). Read LIVE during the drag: pressing ⌥ mid-drag links from
-    // the current value, releasing it unlinks (only this field keeps moving).
-    // Each switch re-anchors the drag at the current mouse position/value.
-    drag.current = { y: e.clientY, v: actual, cur: actual, linked: false, lastY: e.clientY };
-
-    const setLinked = (on: boolean, y: number) => {
-      const d = drag.current;
-      if (! d || d.linked === on) return;
-      d.linked = on; d.y = y; d.v = d.cur;
-      if (on) cbs.current.onChangeLinked (d.cur);
-    };
-    setLinked (e.altKey, e.clientY);
-
-    const move = (ev: MouseEvent) => {
-      const d = drag.current;
-      if (! d) return;
-      d.lastY = ev.clientY;
-      setLinked (ev.altKey, ev.clientY);
-      const delta = Math.round ((d.y - ev.clientY) / 3) * step;
-      const next  = clampTo (d.v + delta, max);
-      if (next === d.cur) return;
-      d.cur = next;
-      if (d.linked) cbs.current.onChangeLinked (next);
-      else          cbs.current.onChange (store (next));
-    };
-    const key = (ev: KeyboardEvent) => {
-      if (ev.key === 'Alt' && drag.current) setLinked (ev.type === 'keydown', drag.current.lastY);
-    };
-    const up = () => {
-      drag.current = null;
-      window.removeEventListener ('mousemove', move, true);
-      window.removeEventListener ('mouseup',   up,   true);
-      window.removeEventListener ('keydown',   key,  true);
-      window.removeEventListener ('keyup',     key,  true);
-      cbs.current.onRelease();
-    };
-    // Capture phase: runs before anything below window can stop the event.
-    window.addEventListener ('mousemove', move, true);
-    window.addEventListener ('mouseup',   up,   true);
-    window.addEventListener ('keydown',   key,  true);
-    window.addEventListener ('keyup',     key,  true);
-  };
-
-  const box: React.CSSProperties = {
-    width: 46, textAlign: 'center', fontSize: 10, padding: '2px 2px', borderRadius: 3,
-    border: '1px solid var(--border)', background: 'var(--surface)',
-    color: dim ? 'var(--text-muted)' : 'var(--text)', fontFamily: "'JetBrains Mono', monospace",
-    opacity: dim ? 0.5 : 1,
-  };
-
-  return editing ? (
-    <input autoFocus value={draft} className="nodrag"
-      onChange={e => setDraft (e.target.value)}
-      onBlur={commitDraft}
-      onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') commitDraft(); if (e.key === 'Escape') { done.current = true; setEditing (false); } }}
-      style={{ ...box, outline: 'none', borderColor: ACCENT }} />
-  ) : (
-    <span className="nodrag" title="Drag up/down • ⌥ Option + drag: low and high together • double-click to type (a number, min or max)"
-      onMouseDown={onMouseDown}
-      onDoubleClick={e => { e.stopPropagation(); done.current = false; setDraft (format ? format (actual) : String (actual)); setEditing (true); }}
-      style={{ ...box, cursor: 'ns-resize', userSelect: 'none', display: 'inline-block' }}>
-      {shown}
-    </span>
+  const dragging = useRef (false);
+  const show = (v: number) => format ? format (v) : isHi ? fmtHi (store (v)) : fmtLo (v);
+  return (
+    <ValueBox value={actual} min={0} max={max} coarse={max > 127 ? 128 : 1} format={show} parse={parse}
+      title="Drag up/down (⇧ fine) • ⌥ Option + drag: low and high together • double-click to type (a number, min or max)"
+      dim={dim} accent={ACCENT} width={46}
+      onLive={v => { dragging.current = true; onChange (store (v)); }}
+      onLinked={v => { dragging.current = true; onChangeLinked (v); }}
+      onCommit={v => { if (dragging.current) onChange (store (v)); else onCommit (store (v)); }}
+      onRelease={() => { dragging.current = false; onRelease(); }} />
   );
 }
 

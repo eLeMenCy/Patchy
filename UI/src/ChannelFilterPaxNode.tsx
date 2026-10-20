@@ -13,7 +13,7 @@
 import { useState, useEffect, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge } from './Bridge';
-import { NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCollapseArrow, settingsPanelStyle, EditableTitle, commitModelName } from './NodeUtils';
+import { NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCollapseArrow, settingsPanelStyle, EditableTitle, commitModelName , SettingsPanelHeader } from './NodeUtils';
 import { HintContext } from './HintPanel';
 import { Settings, X, Power } from 'lucide-react';
 
@@ -147,6 +147,9 @@ export default function ChannelFilterPaxNode ({ id, data, selected }: NodeProps)
       {/* Settings panel */}
       {showSettings && ! collapsed && (
         <div style={settingsPanelStyle}>
+          {/* v0.0.945 — Reset lives in the settings panel's header (all nodes) */}
+          <SettingsPanelHeader title="CHANNEL FILTER" onReset={resetParams}
+            onClose={() => { _settingsOpen.set(id, false); setShowSettings(false); }} />
           {/* Channel — 16 buttons, same style as SpectrumyserNode.tsx's own
               5-button "band count" row, just scaled up */}
           <div className="nodrag" style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8 }}>
@@ -181,12 +184,6 @@ export default function ChannelFilterPaxNode ({ id, data, selected }: NodeProps)
             ))}
           </div>
 
-          <div onDoubleClick={e => e.stopPropagation()}>
-            <NodeHeaderButton onClick={resetParams}
-              onHint={{ onMouseEnter: () => setHint ({ title: 'Reset', body: 'Reset to Channel 1, Filter mode.' }), onMouseLeave: () => setHint (null) }}>
-              <span style={{ fontSize: 11, fontWeight: 700 }}>R</span>
-            </NodeHeaderButton>
-          </div>
         </div>
       )}
     </div>

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, SpectrumSnapshot } from './Bridge';
-import { NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, resolveCssColor, EditableTitle, commitModelName, readoutBoxStyle } from './NodeUtils';
+import { NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, resolveCssColor, EditableTitle, commitModelName, readoutBoxStyle , SettingsPanelHeader } from './NodeUtils';
 import ValueBox from './ValueBox';   // v0.0.943
 import { HintContext } from './HintPanel';
 import { Settings, X, Power } from 'lucide-react';
@@ -293,6 +293,9 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
       {/* Settings panel */}
       {showSettings && !collapsed && (
         <div style={settingsPanelStyle}>
+          {/* v0.0.945 — Reset lives in the settings panel's header (all nodes) */}
+          <SettingsPanelHeader title="SPECTRUMYSER" onReset={handleReset}
+            onClose={() => { _settingsOpen.set(id, false); setShowSettings(false); }} />
           {/* Band count + reset */}
           <div className="nodrag" style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
             <span style={{ color:'var(--text-muted)', minWidth:40 }}>Bands</span>
@@ -305,12 +308,6 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
                 fontWeight: n===bandCount ? 700 : 400, fontSize:10,
               }}>{n}</div>
             ))}
-            <div onDoubleClick={e => e.stopPropagation()}>
-              <NodeHeaderButton onClick={handleReset}
-                onHint={{ onMouseEnter: () => setHint({title:'Reset',body:'Reset all bands to defaults.'}), onMouseLeave: () => setHint(null) }}>
-                <span style={{ fontSize:11, fontWeight:700 }}>R</span>
-              </NodeHeaderButton>
-            </div>
           </div>
 
           {/* Sliders — nodrag stops node from moving */}

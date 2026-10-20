@@ -233,6 +233,7 @@ function SettingsPanel ({ s, onChange, onDiscreteChange, onClose, onReset, onCom
       <input type="range" min={min} max={max} step={step}
         value={s[key] as number}
         onChange={e => onChange({ [key]: parseFloat(e.target.value) })}
+        onDoubleClick={e => { e.stopPropagation(); onChange({ [key]: DEFAULT_SETTINGS[key] }); onCommit(); }}
         onMouseUp={onCommit} onKeyUp={onCommit}
         onMouseEnter={() => label && setSliderHint({ title: label, body: `Range: ${min} to ${max}. Double-click to reset.` })}
         onMouseLeave={() => setSliderHint(null)}
@@ -296,6 +297,7 @@ function SettingsPanel ({ s, onChange, onDiscreteChange, onClose, onReset, onCom
           <input type="range" min={-18} max={0} step={0.5}
             value={s.clipThresholdDb}
             onChange={e => onChange({ clipThresholdDb: parseFloat(e.target.value) })}
+            onDoubleClick={e => { e.stopPropagation(); onChange({ clipThresholdDb: DEFAULT_SETTINGS.clipThresholdDb }); onCommit(); }}
             onMouseUp={onCommit} onKeyUp={onCommit}
             style={{ width: '100%' }} />
           <div style={{ textAlign: 'right', marginTop: 1 }}>
@@ -470,7 +472,9 @@ function AudioMonitorNode ({ id, data, selected }: NodeProps) {
                 onMouseLeave={() => setHint(null)}
             value={settings.amplitudeMode === 'auto' ? 1 : settings.amplitudeZoom}
             disabled={settings.amplitudeMode === 'auto'}
-            onChange={e => patch({ amplitudeZoom: parseFloat(e.target.value) })} onMouseUp={() => Bridge.commitNodeSettings(id)} onKeyUp={() => Bridge.commitNodeSettings(id)}
+            onChange={e => patch({ amplitudeZoom: parseFloat(e.target.value) })}
+            onDoubleClick={e => { e.stopPropagation(); patch({ amplitudeZoom: DEFAULT_SETTINGS.amplitudeZoom }); Bridge.commitNodeSettings(id); }}
+            onMouseUp={() => Bridge.commitNodeSettings(id)} onKeyUp={() => Bridge.commitNodeSettings(id)}
             style={{ writingMode:'vertical-lr' as const, direction:'rtl' as const,
                      height: canvasH - 20, cursor:'pointer', flex:1 }}
           />
@@ -503,6 +507,7 @@ function AudioMonitorNode ({ id, data, selected }: NodeProps) {
           }}
           onMouseUp={() => Bridge.commitNodeSettings(id)}
           onKeyUp={() => Bridge.commitNodeSettings(id)}
+          onDoubleClick={e => { e.stopPropagation(); patch({ timeWindowMs: DEFAULT_SETTINGS.timeWindowMs }); Bridge.commitNodeSettings(id); }}
           style={{ flex:1, cursor:'pointer' }}
         />
         <span style={{ fontSize:8, color:'var(--text-muted)', flexShrink:0 }}>200ms</span>

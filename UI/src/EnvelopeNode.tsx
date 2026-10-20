@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge } from './Bridge';
-import { SliderRow, Stepper, FreqBandDual, NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, resolveCssColor, EditableTitle, commitModelName } from './NodeUtils';
+import { SliderRow, Stepper, FreqBandDual, NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, resolveCssColor, EditableTitle, commitModelName , SettingsPanelHeader } from './NodeUtils';
 import { HintContext } from './HintPanel';
 import { Settings, X, Power } from 'lucide-react';
 
@@ -280,12 +280,6 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
           </NodeHeaderButton>
         </div>
 
-        <div onDoubleClick={e => e.stopPropagation()}>
-          <NodeHeaderButton onClick={handleReset}
-            onHint={{ onMouseEnter: () => setHint({title:'Reset',body:'Reset all parameters to defaults.'}), onMouseLeave: () => setHint(null) }}>
-            <span style={{ fontSize:11, fontWeight:700 }}>R</span>
-          </NodeHeaderButton>
-        </div>
 
         <div onDoubleClick={e => e.stopPropagation()}>
           <NodeHeaderButton onClick={() => setShowSettings(v => { const next = !v; _settingsOpen.set(id, next); return next; })}
@@ -318,6 +312,9 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
       {/* Settings */}
       {showSettings && !collapsed && (
         <div style={settingsPanelStyle}>
+          {/* v0.0.945 — Reset lives in the settings panel's header (all nodes) */}
+          <SettingsPanelHeader title="ENVELOPE" onReset={handleReset}
+            onClose={() => { _settingsOpen.set(id, false); setShowSettings(false); }} />
 
           <SliderRow label="Attack"      value={attack}      min={1}    max={500}  step={1}
             format={v => `${Math.round(v)}ms`} onChange={v => setParam(3,v)} color={ACCENT}

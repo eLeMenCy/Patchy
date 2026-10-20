@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge } from './Bridge';
-import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, _paxInfoMap, detectPaxTheme, resolveCssColor, SliderRow, Stepper, FreqBandDual, freqLabel } from './NodeUtils';
+import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, _paxInfoMap, detectPaxTheme, resolveCssColor, SliderRow, Stepper, FreqBandDual, freqLabel , SettingsPanelHeader } from './NodeUtils';
 import { HintContext } from './HintPanel';
 import { Settings, X } from 'lucide-react';
 
@@ -428,12 +428,6 @@ export default function AudioPeakToOscNode_BandStyle({ id, data, selected }: Nod
           {sendMode === 0 ? 'CHANGE' : 'RATE'}
         </div>
 
-        <div onDoubleClick={e => e.stopPropagation()}>
-          <NodeHeaderButton onClick={handleReset}
-            onHint={{ onMouseEnter: () => setHint({ title: 'Reset', body: 'Reset all parameters to defaults.' }), onMouseLeave: () => setHint(null) }}>
-            <span style={{ fontSize: 11, fontWeight: 700 }}>R</span>
-          </NodeHeaderButton>
-        </div>
 
         <div onDoubleClick={e => e.stopPropagation()}>
           <NodeHeaderButton onClick={() => setShowSettings(v => { const next = !v; _settingsOpen.set(id, next); return next; })}
@@ -470,6 +464,9 @@ export default function AudioPeakToOscNode_BandStyle({ id, data, selected }: Nod
       {/* Settings */}
       {showSettings && !collapsed && (
         <div style={settingsPanelStyle}>
+          {/* v0.0.945 — Reset lives in the settings panel's header (all nodes) */}
+          <SettingsPanelHeader title="AUDIO PEAK TO OSC" onReset={handleReset}
+            onClose={() => { _settingsOpen.set(id, false); setShowSettings(false); }} />
 
           {/* Max Rate — only meaningful in Send Mode=Rate; conditionally
               shown, same treatment as Freq Band being conditional on Mode

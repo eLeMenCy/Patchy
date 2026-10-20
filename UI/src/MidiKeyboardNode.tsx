@@ -267,8 +267,9 @@ function Keyboard ({ nodeId, settings, activeNotes, onNoteOn, onNoteOff }: {
 }
 
 // ── Wheel slider ──────────────────────────────────────────────────────────────
-function WheelSlider ({ label, value, min, max, onChange, onRelease, color = 'var(--midi)', wheelHint, wheelHintClear, portAnchor }: {
+function WheelSlider ({ label, value, min, max, onChange, onRelease, color = 'var(--midi)', wheelHint, wheelHintClear, portAnchor, resetValue }: {
   portAnchor?: string;   // v0.0.918 — marks the label as a port anchor (see NodeUtils' "Port anchors")
+  resetValue?: number;   // v0.0.945 — double-click goes back to it
   label:       string;
   value:       number;
   min:         number;
@@ -294,6 +295,7 @@ function WheelSlider ({ label, value, min, max, onChange, onRelease, color = 'va
       <input
         type="range" min={min} max={max} value={value}
         onChange={e => onChange(Number(e.target.value))}
+        onDoubleClick={resetValue === undefined ? undefined : (e => { e.stopPropagation(); onChange(resetValue); onRelease?.(); })}
         onMouseUp={onRelease}
         onTouchEnd={onRelease}
         onMouseEnter={() => wheelHint?.(label, min, max)}
@@ -493,7 +495,7 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
         {/* Mod wheel */}
         <WheelSlider label="M" value={modWheel} min={0} max={127}
           wheelHint={wheelHint} wheelHintClear={wheelHintClear}
-          onChange={onModChange} onRelease={() => Bridge.commitNodeSettings(id)} color="var(--midi)" />
+          onChange={onModChange} onRelease={() => Bridge.commitNodeSettings(id)} color="var(--midi)" resetValue={0} />
 
         {/* Keyboard */}
         <Keyboard

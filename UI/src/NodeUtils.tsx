@@ -526,6 +526,9 @@ export function NodeHeaderButton ({
   return (
     <button
       onClick={onClick}
+      // v0.0.945 — two quick clicks on a header button are two clicks, never
+      // the header's double-click (which folds the node)
+      onDoubleClick={e => e.stopPropagation()}
       title={title}
       style={{
         background:   active ? `color-mix(in srgb, ${accent} 20%, transparent)` : 'transparent',

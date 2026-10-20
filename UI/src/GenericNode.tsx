@@ -4,7 +4,7 @@ import { DawContext } from './DawContext';
 import { X, Settings, Power } from 'lucide-react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, PaxParamInfo } from './Bridge';
-import { useNodeDelete, useNodeDisabled, NodeHeaderButton, useNodeCollapsed, useNodeSettings, NodeHandle, nodeContainerStyle, portColour, _paxInfoMap, detectPaxTheme, detectPaxTagPrefix, EditableTitle, commitModelName, niceStep, readoutBoxStyle } from './NodeUtils';
+import { useNodeDelete, useNodeDisabled, NodeHeaderButton, useNodeCollapsed, useNodeSettings, NodeHandle, nodeContainerStyle, portColour, _paxInfoMap, detectPaxTheme, detectPaxTagPrefix, EditableTitle, commitModelName, niceStep, readoutBoxStyle, SettingsPanelHeader } from './NodeUtils';
 import ValueBox from './ValueBox';   // v0.0.943
 
 import { DeviceSelector, AudioDeviceSettingsPanel, ChannelSummary } from './AudioDeviceUI';
@@ -985,10 +985,6 @@ function GenericNode({ id, data, selected }: NodeProps) {
                   </span>
                 );
               })}
-              <NodeHeaderButton onClick={resetParams}
-                onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.reset), onMouseLeave: () => setHint(null) }}>
-                <span style={{ fontSize: 11, fontWeight: 700 }}>R</span>
-              </NodeHeaderButton>
             </>)}
           </div>
         )}
@@ -1004,11 +1000,12 @@ function GenericNode({ id, data, selected }: NodeProps) {
       {isPax && paxParams.length > 0 && !isSingleReadOnlyPax && (!isMultiParamPax || showSettings) && (
         <div className="nodrag" style={{ padding: '8px 10px 6px',
                                          borderTop: '1px solid var(--border)' }}>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 2 }}>
-            <NodeHeaderButton
-              onClick={resetParams}
-              onHint={{ onMouseEnter: () => setHint(BUTTON_HINTS.reset), onMouseLeave: () => setHint(null) }}><span style={{ fontSize: 11, fontWeight: 700 }}>R</span></NodeHeaderButton>
-          </div>
+          {/* v0.0.945 — Reset in the settings panel's header (multi-parameter
+              Pax: this is their panel); a one-slider Pax has no panel and no
+              R — double-clicking its slider resets it */}
+          {isMultiParamPax && (
+            <SettingsPanelHeader title={(nodeData.paxName as string) || 'Parameters'} onReset={resetParams} onClose={closeSettings} />
+          )}
           {paxParams.map((p, i) => (
             <div key={i} style={{ marginBottom: 0, paddingTop: 8 }}>
               {/* Read-only params (see PaxAPI.h's PAX_isParameterReadOnly) —

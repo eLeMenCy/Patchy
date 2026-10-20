@@ -6,6 +6,7 @@
  * MidiKeyboardNode and GenericNode.
  */
 
+import ValueBox from './ValueBox';   // v0.0.943
 import { useCallback, useState, useEffect, useLayoutEffect, useContext, useRef } from 'react';
 import { Handle, Position, useReactFlow, useUpdateNodeInternals } from '@xyflow/react';
 import { Settings, X, Power, Pencil } from 'lucide-react';
@@ -1018,8 +1019,21 @@ const FREQ_MIN = 20, FREQ_MAX = 20000;
 export const freqLabel = (hz: number) =>
   hz >= 1000 ? `${(hz / 1000).toFixed(2)}k` : `${Math.round(hz)}`;
 
+// v0.0.943 — a readable step for a slider without one (step 0 = "any"):
+// about 1/500 of the range, rounded to 1, 2 or 5 × a power of ten.
+export function niceStep (range: number): number {
+  const raw = range / 500;
+  if (raw <= 0) return 1;
+  const p = Math.pow (10, Math.floor (Math.log10 (raw)));
+  const m = raw / p;
+  return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p;
+}
+
 // ── Slider row — label on the left, matching EnvelopeNode's layout ──────────
-export function SliderRow({ label, value, min, max, step = 0, format, onChange, onDoubleClick, onCommit, color }: {
+// v0.0.943 — the value on the right is a value box (drag / ⇧ fine / double-
+// click to type); `readout` replaces it when the slider isn't in the value's
+// own units (Envelope's log-mapped Hz).
+export function SliderRow({ label, value, min, max, step = 0, format, onChange, onDoubleClick, onCommit, color, log, readout }: {
   label:         string;
   value:         number;
   min:           number;
@@ -1030,7 +1044,10 @@ export function SliderRow({ label, value, min, max, step = 0, format, onChange, 
   onDoubleClick: () => void;
   onCommit?:     () => void;
   color:         string;
+  log?:          boolean;
+  readout?:      React.ReactNode;
 }) {
+  const boxStep = step > 0 ? step : niceStep (max - min);
   return (
     <div className="nodrag" onMouseDown={e => e.stopPropagation()}
       style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
@@ -1042,15 +1059,26 @@ export function SliderRow({ label, value, min, max, step = 0, format, onChange, 
         onDoubleClick={e => { e.stopPropagation(); onDoubleClick(); onCommit?.(); }}
         onChange={e => onChange(parseFloat(e.target.value))}
         style={{ flex: 1, ['--thumb-color' as any]: color }} />
-      <span style={{ minWidth: 42, color, fontSize: 8, textAlign: 'right' }}>
-        {format(value)}
-      </span>
+      {readout ?? (
+        <ValueBox value={value} min={min} max={max} step={boxStep} log={log} format={format} accent={color}
+          onLive={onChange} onCommit={v => { onChange(v); onCommit?.(); }}
+          width={46} style={readoutBoxStyle (color)} />
+      )}
     </div>
   );
 }
 
+// v0.0.943 — a slider's value box looks like the plain readout it replaces
+// (small, coloured, right-aligned) with a faint frame that shows it's live
+export const readoutBoxStyle = (color: string): React.CSSProperties => ({
+  fontSize: 8, color, textAlign: 'right', padding: '1px 3px',
+  border: `1px solid color-mix(in srgb, ${color} 25%, transparent)`, background: 'transparent',
+});
+
 // ── Number stepper — identical control to EnvelopeNode's CC Number/MIDI Ch ──
-export function Stepper({ label, value, min, max, width = 28, color, buttons = false, onChange }: {
+// v0.0.943 — the number itself is now the shared value box (drag, ⇧ fine,
+// double-click to type); the − / + buttons stay where asked for.
+export function Stepper({ label, value, min, max, width = 28, color, buttons = false, log, onChange }: {
   label:    string;
   value:    number;
   min:      number;
@@ -1058,89 +1086,29 @@ export function Stepper({ label, value, min, max, width = 28, color, buttons = f
   width?:   number;
   color:    string;
   buttons?: boolean;
+  log?:     boolean;
   onChange: (v: number) => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft,   setDraft]   = useState('');
-  const dragStart = useRef<{ y: number; v: number } | null>(null);
   const colorHex = resolveCssColor(color);
-
-  const commitDraft = () => {
-    const n = parseInt(draft, 10);
-    if (!isNaN(n)) onChange(Math.max(min, Math.min(max, n)));
-    setEditing(false);
-  };
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    dragStart.current = { y: e.clientY, v: value };
-    const onMove = (ev: MouseEvent) => {
-      if (!dragStart.current) return;
-      const delta = Math.round((dragStart.current.y - ev.clientY) / 3);
-      onChange(Math.max(min, Math.min(max, dragStart.current.v + delta)));
-    };
-    const onUp = () => {
-      dragStart.current = null;
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup',   onUp);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup',   onUp);
-  };
-
+  const btn = (text: string, v: number) => (
+    <div onClick={() => onChange(Math.max(min, Math.min(max, v)))}
+      onDoubleClick={e => e.stopPropagation()} style={{
+      width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: 'var(--surface)', borderRadius: 2, cursor: 'pointer', fontSize: 10,
+      color: 'var(--text-muted)', userSelect: 'none',
+    }}>{text}</div>
+  );
   return (
     <div className="nodrag" onDoubleClick={e => e.stopPropagation()}
       style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
       {label && <span style={{ color: 'var(--text-muted)', minWidth: 60, fontSize: 8 }}>{label}</span>}
-
       <div style={{ display: 'flex', alignItems: 'center', gap: buttons ? 3 : 0 }}>
-        {buttons && (
-          <div onClick={() => onChange(Math.max(min, value - 1))}
-            onDoubleClick={e => e.stopPropagation()} style={{
-            width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'var(--surface)', borderRadius: 2, cursor: 'pointer', fontSize: 10,
-            color: 'var(--text-muted)', userSelect: 'none',
-          }}>−</div>
-        )}
-
-        {editing ? (
-          <input autoFocus type="number" value={draft}
-            onChange={e => setDraft(e.target.value)}
-            onBlur={commitDraft}
-            onKeyDown={e => {
-              if (e.key === 'Enter') commitDraft();
-              if (e.key === 'Escape') setEditing(false);
-              e.stopPropagation();
-            }}
-            style={{
-              width, textAlign: 'center', fontSize: 9,
-              background: 'var(--surface)', color,
-              border: `1px solid ${color}`, borderRadius: 2,
-              outline: 'none', padding: '1px 2px',
-              fontFamily: "'JetBrains Mono', monospace",
-            }} />
-        ) : (
-          <span
-            onDoubleClick={e => { e.stopPropagation(); setDraft(String(value)); setEditing(true); }}
-            onMouseDown={handleMouseDown}
-            title="Double-click to type • drag up/down to scrub"
-            style={{
-              minWidth: width, textAlign: 'center', fontSize: 9, color,
-              cursor: 'ns-resize', userSelect: 'none', padding: '1px 2px',
-              borderRadius: 2, border: `1px solid ${colorHex}44`, background: 'var(--surface)',
-            }}>
-            {value}
-          </span>
-        )}
-
-        {buttons && (
-          <div onClick={() => onChange(Math.min(max, value + 1))}
-            onDoubleClick={e => e.stopPropagation()} style={{
-            width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'var(--surface)', borderRadius: 2, cursor: 'pointer', fontSize: 10,
-            color: 'var(--text-muted)', userSelect: 'none',
-          }}>+</div>
-        )}
+        {buttons && btn('−', value - 1)}
+        <ValueBox value={value} min={min} max={max} log={log} accent={color}
+          onLive={onChange} onCommit={onChange} width={width + 6}
+          style={{ fontSize: 9, color, padding: '1px 2px', borderRadius: 2,
+                   border: `1px solid ${colorHex}44`, background: 'var(--surface)' }} />
+        {buttons && btn('+', value + 1)}
       </div>
     </div>
   );
@@ -1149,50 +1117,101 @@ export function Stepper({ label, value, min, max, width = 28, color, buttons = f
 // ── Freq Band dual-handle slider ─────────────────────────────────────────────
 // One slider, two heads (Band Low / Band High), plus a Stepper at each
 // extremity that narrows the slider's own min/max span (a "zoom" window).
-export function FreqBandDual({ bandLow, bandHigh, zoomMin, zoomMax, color, onBandChange, onZoomChange, onCommit }: {
+// v0.0.943 — ⌘ / Ctrl + drag (a head or a Hz label) moves the WHOLE band,
+// keeping its width (same ratio); `log` places the heads proportionally (Hz);
+// without `onZoomChange` there are no zoom ends (Envelope).
+export function FreqBandDual({ bandLow, bandHigh, zoomMin, zoomMax, color, onBandChange, onBandSet, onZoomChange, onCommit, log = false }: {
   bandLow:      number;
   bandHigh:     number;
   zoomMin:      number;
   zoomMax:      number;
   color:        string;
   onBandChange: (which: 'low' | 'high', v: number) => void;
-  onZoomChange: (which: 'min' | 'max', v: number) => void;
+  onBandSet?:   (low: number, high: number) => void;   // ⌘ + drag moves the whole band
+  onZoomChange?: (which: 'min' | 'max', v: number) => void;
   onCommit:     () => void;
+  log?:         boolean;
 }) {
+  // Head position ↔ Hz: linear in the zoom window, or proportional (log)
+  const POS = 1000;
+  const toPos   = (hz: number) => log ? Math.log (Math.max (hz, zoomMin) / zoomMin) / Math.log (zoomMax / zoomMin) * POS
+                                      : (hz - zoomMin) / (zoomMax - zoomMin) * POS;
+  const fromPos = (p: number)  => Math.round (log ? zoomMin * Math.pow (zoomMax / zoomMin, p / POS)
+                                                  : zoomMin + p / POS * (zoomMax - zoomMin));
+  const pct = (hz: number) => `${Math.max (0, Math.min (100, toPos (hz) / POS * 100))}%`;
+
+  // the other edge follows by the same ratio; stops at the window's edges
+  const moveBand = (which: 'low' | 'high', v: number) => {
+    if (! onBandSet) return;
+    const r = which === 'low' ? v / bandLow : v / bandHigh;
+    let lo = bandLow * r, hi = bandHigh * r;
+    if (lo < zoomMin) { hi *= zoomMin / lo; lo = zoomMin; }
+    if (hi > zoomMax) { lo *= zoomMax / hi; hi = zoomMax; }
+    onBandSet (Math.round (Math.max (zoomMin, lo)), Math.round (Math.min (zoomMax, hi)));
+  };
+
+  // ⌘ held while dragging a head (read live: pressing it mid-drag moves the band from there)
+  const cmd = useRef (false);
+  useEffect (() => {
+    const k = (e: KeyboardEvent) => { if (e.key === 'Meta' || e.key === 'Control') cmd.current = e.type === 'keydown'; };
+    window.addEventListener ('keydown', k); window.addEventListener ('keyup', k);
+    return () => { window.removeEventListener ('keydown', k); window.removeEventListener ('keyup', k); };
+  }, []);
+  const head = (which: 'low' | 'high', v: number) => {
+    if (cmd.current && onBandSet) moveBand (which, v); else onBandChange (which, v);
+  };
+  const headDown = (e: React.MouseEvent) => { cmd.current = e.metaKey || e.ctrlKey; };
+
+  const label = (which: 'low' | 'high') => {
+    const lo = which === 'low';
+    return (
+      <span style={{
+        position: 'absolute', top: -12, zIndex: 2, left: pct (lo ? bandLow : bandHigh),
+        transform: lo ? 'translateX(calc(-100% - 3px))' : 'translateX(5px)', whiteSpace: 'nowrap',
+      }}>
+        <ValueBox value={lo ? bandLow : bandHigh} min={lo ? zoomMin : bandLow} max={lo ? bandHigh : zoomMax}
+          log format={freqLabel} accent={color}
+          onLive={v => onBandChange (which, v)} onCommit={v => { onBandChange (which, v); onCommit(); }}
+          onLinked={onBandSet && (v => moveBand (which, v))} linkKey="cmd" onRelease={onCommit}
+          linkMin={zoomMin} linkMax={zoomMax}
+          width="auto" style={{ ...readoutBoxStyle (color), textAlign: 'center', minWidth: 30 }} />
+      </span>
+    );
+  };
+
   return (
     <div className="nodrag" onMouseDown={e => e.stopPropagation()} style={{
       marginBottom: 3, background: 'var(--surface)', border: '1px solid var(--border)',
       borderRadius: 3, padding: '4px 6px 5px',
-    }}>
+    }}
+      title={onBandSet ? '⌘ + drag a head or a value: moves the whole band' : undefined}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 10 }}>
-        <Stepper label="" value={zoomMin} min={FREQ_MIN} max={zoomMax - 10} width={26} color={color}
-          onChange={v => onZoomChange('min', v)} />
+        {onZoomChange && (
+          <Stepper label="" value={zoomMin} min={FREQ_MIN} max={zoomMax - 10} width={26} color={color} log
+            onChange={v => onZoomChange('min', v)} />
+        )}
         <div className="dual-range" style={{ position: 'relative', flex: 1, height: 16 }}>
-          <span style={{
-            position: 'absolute', top: -10,
-            left: `${((bandLow - zoomMin) / (zoomMax - zoomMin)) * 100}%`,
-            transform: 'translateX(calc(-100% - 3px))', fontSize: 8, color, whiteSpace: 'nowrap',
-          }}>{freqLabel(bandLow)}</span>
-          <span style={{
-            position: 'absolute', top: -10,
-            left: `${((bandHigh - zoomMin) / (zoomMax - zoomMin)) * 100}%`,
-            transform: 'translateX(5px)', fontSize: 8, color, whiteSpace: 'nowrap',
-          }}>{freqLabel(bandHigh)}</span>
-          <input type="range" min={zoomMin} max={zoomMax} step={1}
-            value={bandLow}
+          {label ('low')}
+          {label ('high')}
+          <input type="range" min={0} max={POS} step={1}
+            value={toPos (bandLow)}
+            onMouseDown={headDown}
             onMouseUp={onCommit} onKeyUp={onCommit}
-            onChange={e => onBandChange('low', Number(e.target.value))}
+            onChange={e => head ('low', fromPos (Number (e.target.value)))}
             onDoubleClick={e => { e.stopPropagation(); onBandChange('low', 200); onCommit(); }}
             style={{ width: '100%', top: 5, left: 0, ['--thumb-color' as any]: color }} />
-          <input type="range" min={zoomMin} max={zoomMax} step={1}
-            value={bandHigh}
+          <input type="range" min={0} max={POS} step={1}
+            value={toPos (bandHigh)}
+            onMouseDown={headDown}
             onMouseUp={onCommit} onKeyUp={onCommit}
-            onChange={e => onBandChange('high', Number(e.target.value))}
+            onChange={e => head ('high', fromPos (Number (e.target.value)))}
             onDoubleClick={e => { e.stopPropagation(); onBandChange('high', 2000); onCommit(); }}
             style={{ width: '100%', top: 5, left: 0, ['--thumb-color' as any]: color }} />
         </div>
-        <Stepper label="" value={zoomMax} min={zoomMin + 10} max={FREQ_MAX} width={34} color={color}
-          onChange={v => onZoomChange('max', v)} />
+        {onZoomChange && (
+          <Stepper label="" value={zoomMax} min={zoomMin + 10} max={FREQ_MAX} width={34} color={color} log
+            onChange={v => onZoomChange('max', v)} />
+        )}
       </div>
     </div>
   );

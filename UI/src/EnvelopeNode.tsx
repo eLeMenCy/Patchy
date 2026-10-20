@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge } from './Bridge';
-import { NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, resolveCssColor, EditableTitle, commitModelName } from './NodeUtils';
+import { SliderRow, Stepper, FreqBandDual, NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, resolveCssColor, EditableTitle, commitModelName } from './NodeUtils';
 import { HintContext } from './HintPanel';
 import { Settings, X, Power } from 'lucide-react';
 
@@ -17,10 +17,6 @@ const CANVAS_H = 48;
 
 // Log scale helpers (same as Spectrumyser)
 const FREQ_MIN = 20, FREQ_MAX = 20000;
-const toSlider   = (hz: number) =>
-  Math.round((Math.log(hz / FREQ_MIN) / Math.log(FREQ_MAX / FREQ_MIN)) * 1000);
-const fromSlider = (v: number) =>
-  Math.round(FREQ_MIN * Math.pow(FREQ_MAX / FREQ_MIN, v / 1000));
 const freqLabel  = (hz: number) =>
   hz >= 1000 ? `${(hz / 1000).toFixed(1)}k` : `${Math.round(hz)}`;
 
@@ -94,125 +90,8 @@ function EnvelopeDisplay({ ccValue, attack, release }: { ccValue: number; attack
     style={{ display: 'block', borderRadius: 2 }} />;
 }
 
-// ── Slider row ────────────────────────────────────────────────────────────────
-function SliderRow({ label, value, min, max, step = 0, format, onChange, onDoubleClick, onCommit, color }: {
-  label:         string;
-  value:         number;
-  min:           number;
-  max:           number;
-  step?:         number;
-  format:        (v: number) => string;
-  onChange:      (v: number) => void;
-  onDoubleClick: () => void;
-  onCommit?:     () => void;
-  color?:        string;
-}) {
-  return (
-    <div className="nodrag" onMouseDown={e => e.stopPropagation()}
-      style={{ display:'flex', alignItems:'center', gap:4, marginBottom:3 }}>
-      <span style={{ color:'var(--text-muted)', minWidth:60, fontSize:8 }}>{label}</span>
-      <input type="range" min={min} max={max} step={step === 0 ? 'any' : step}
-        value={value} className="nodrag"
-        onMouseDown={e => e.stopPropagation()}
-        onMouseUp={onCommit} onKeyUp={onCommit}
-        onDoubleClick={e => { e.stopPropagation(); onDoubleClick(); onCommit?.(); }}
-        onChange={e => onChange(parseFloat(e.target.value))}
-        style={{ flex:1, ['--thumb-color' as any]: color ?? ACCENT }} />
-      <span style={{ minWidth:38, color: color ?? ACCENT, fontSize:8, textAlign:'right' }}>
-        {format(value)}
-      </span>
-    </div>
-  );
-}
-
-// ── Number stepper ────────────────────────────────────────────────────────────
-function Stepper({ label, value, min, max, onChange }: {
-  label:    string;
-  value:    number;
-  min:      number;
-  max:      number;
-  onChange: (v: number) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft,   setDraft]   = useState('');
-  const dragStart = useRef<{ y: number; v: number } | null>(null);
-
-  const commitDraft = () => {
-    const n = parseInt(draft, 10);
-    if (!isNaN(n)) onChange(Math.max(min, Math.min(max, n)));
-    setEditing(false);
-  };
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (!(e.metaKey || e.ctrlKey)) return;
-    e.preventDefault();
-    dragStart.current = { y: e.clientY, v: value };
-    const onMove = (ev: MouseEvent) => {
-      if (!dragStart.current) return;
-      const delta = Math.round((dragStart.current.y - ev.clientY) / 3);
-      onChange(Math.max(min, Math.min(max, dragStart.current.v + delta)));
-    };
-    const onUp = () => {
-      dragStart.current = null;
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup',   onUp);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup',   onUp);
-  };
-
-  return (
-    <div className="nodrag" onDoubleClick={e => e.stopPropagation()}
-      style={{ display:'flex', alignItems:'center', gap:4, marginBottom:3 }}>
-      <span style={{ color:'var(--text-muted)', minWidth:60, fontSize:8 }}>{label}</span>
-      <div style={{ display:'flex', alignItems:'center', gap:3 }}>
-        <div onClick={() => onChange(Math.max(min, value-1))}
-          onDoubleClick={e => e.stopPropagation()} style={{
-          width:16, height:16, display:'flex', alignItems:'center', justifyContent:'center',
-          background:'var(--surface)', borderRadius:2, cursor:'pointer', fontSize:10,
-          color:'var(--text-muted)', userSelect:'none',
-        }}>−</div>
-
-        {editing ? (
-          <input autoFocus type="number" value={draft}
-            onChange={e => setDraft(e.target.value)}
-            onBlur={commitDraft}
-            onKeyDown={e => {
-              if (e.key === 'Enter') commitDraft();
-              if (e.key === 'Escape') setEditing(false);
-              e.stopPropagation();
-            }}
-            style={{
-              width:36, textAlign:'center', fontSize:9,
-              background:'var(--surface)', color:ACCENT,
-              border:`1px solid ${ACCENT}`, borderRadius:2,
-              outline:'none', padding:'1px 2px',
-              fontFamily:"'JetBrains Mono', monospace",
-            }} />
-        ) : (
-          <span
-            onDoubleClick={e => { e.stopPropagation(); setDraft(String(value)); setEditing(true); }}
-            onMouseDown={handleMouseDown}
-            title="Double-click to type • ⌘/Ctrl+drag to scrub"
-            style={{
-              minWidth:36, textAlign:'center', fontSize:9, color:ACCENT,
-              cursor:'ns-resize', userSelect:'none', padding:'1px 2px',
-              borderRadius:2, border:'1px solid transparent',
-            }}>
-            {value}
-          </span>
-        )}
-
-        <div onClick={() => onChange(Math.min(max, value+1))}
-          onDoubleClick={e => e.stopPropagation()} style={{
-          width:16, height:16, display:'flex', alignItems:'center', justifyContent:'center',
-          background:'var(--surface)', borderRadius:2, cursor:'pointer', fontSize:10,
-          color:'var(--text-muted)', userSelect:'none',
-        }}>+</div>
-      </div>
-    </div>
-  );
-}
+// v0.0.943 — SliderRow / Stepper are the shared ones (NodeUtils): value box
+// readouts (drag, ⇧ fine, double-click to type).
 
 // ── Main node ─────────────────────────────────────────────────────────────────
 export default function EnvelopeNode({ id, data, selected }: NodeProps) {
@@ -302,6 +181,12 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
     }
   }, [id, mode, ccNumber, midiCh, attack, release, sensitivity, bandLow, bandHigh]);
 
+  // v0.0.943 — the band: both edges in one settings write
+  const setBand = (lo: number, hi: number) => {   // both in one settings write
+    Bridge.setPaxParameter(id, 6, lo); Bridge.setPaxParameter(id, 7, hi);
+    Bridge.setNodeSettings(id, [mode, ccNumber, midiCh, attack, release, sensitivity, lo, hi]);
+    setBandLow(lo); setBandHigh(hi);
+  };
   const handleReset = useCallback(() => {
     setParam(0, 0);
     setParam(1, 11);
@@ -445,9 +330,9 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
             onDoubleClick={() => setParam(5, 1.0)} onCommit={() => Bridge.commitNodeSettings(id)} />
 
           <div style={sectionDividerStyle}>
-            <Stepper label="CC Number" value={ccNumber} min={0} max={127}
+            <Stepper label="CC Number" value={ccNumber} min={0} max={127} width={30} color={ACCENT} buttons
               onChange={v => { setParam(1, v); Bridge.commitNodeSettings(id); }} />
-            <Stepper label="MIDI Ch"   value={midiCh}   min={1} max={16}
+            <Stepper label="MIDI Ch"   value={midiCh}   min={1} max={16} width={30} color={ACCENT} buttons
               onChange={v => { setParam(2, v); Bridge.commitNodeSettings(id); }} />
           </div>
 
@@ -455,14 +340,16 @@ export default function EnvelopeNode({ id, data, selected }: NodeProps) {
           {mode === 1 && (
             <div style={sectionDividerStyle}>
               <div style={{ color:'var(--text-muted)', fontSize:8, marginBottom:4 }}>Band Filter</div>
-              <SliderRow label="Low"  value={toSlider(bandLow)}  min={0} max={1000} step={1}
-                format={() => freqLabel(bandLow)}
-                onChange={v => setParam(6, fromSlider(v))} color="var(--audio)"
-                onDoubleClick={() => setParam(6, 200)} onCommit={() => Bridge.commitNodeSettings(id)} />
-              <SliderRow label="High" value={toSlider(bandHigh)} min={0} max={1000} step={1}
-                format={() => freqLabel(bandHigh)}
-                onChange={v => setParam(7, fromSlider(v))} color="var(--audio)"
-                onDoubleClick={() => setParam(7, 2000)}  onCommit={() => Bridge.commitNodeSettings(id)} />
+              {/* v0.0.943 (user) — one two-head band slider, like Audio to DMX's
+                  Freq Band: proportional (Hz), ⌘ + drag moves the whole band */}
+              <FreqBandDual bandLow={bandLow} bandHigh={bandHigh} zoomMin={FREQ_MIN} zoomMax={FREQ_MAX} log
+                color="var(--audio)"
+                onBandChange={(which, v) => {   // one edge pushes the other (≥ 1 Hz apart)
+                  if (which === 'low') { const lo = Math.max(FREQ_MIN, Math.min(v, FREQ_MAX - 1)); setBand(lo, Math.max(bandHigh, lo + 1)); }
+                  else                 { const hi = Math.min(FREQ_MAX, Math.max(v, FREQ_MIN + 1)); setBand(Math.min(bandLow, hi - 1), hi); }
+                }}
+                onBandSet={(lo, hi) => setBand(lo, hi)}
+                onCommit={() => Bridge.commitNodeSettings(id)} />
             </div>
           )}
         </div>

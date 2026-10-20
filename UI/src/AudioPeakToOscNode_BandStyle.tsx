@@ -507,6 +507,7 @@ export default function AudioPeakToOscNode_BandStyle({ id, data, selected }: Nod
                 zoomMin={zoomMin} zoomMax={zoomMax}
                 color={ACCENT}
                 onBandChange={onBandChange}
+                onBandSet={(lo, hi) => applyUpdate({ bandLow: lo, bandHigh: hi })}   // v0.0.943 — ⌥ + drag
                 onZoomChange={onZoomChange}
                 onCommit={() => Bridge.commitNodeSettings(id)}
               />

@@ -541,6 +541,7 @@ export default function AudioToDmxNode({ id, data, selected }: NodeProps) {
                 zoomMin={zoomMin} zoomMax={zoomMax}
                 color={ACCENT}
                 onBandChange={onBandChange}
+                onBandSet={(lo, hi) => applyUpdate({ bandLow: lo, bandHigh: hi })}   // v0.0.943 — ⌥ + drag
                 onZoomChange={onZoomChange}
                 onCommit={() => Bridge.commitNodeSettings(id)}
               />

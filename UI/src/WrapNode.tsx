@@ -16,13 +16,14 @@
 //   WrapFrame — the open frame: dashed outline + title bar (fold, unwrap);
 //               dragging the title bar moves the wrap's nodes (v0.0.930).
 
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { NodeProps, EdgeProps, useUpdateNodeInternals, Handle, Position, BaseEdge, getBezierPath } from '@xyflow/react';
 import { Package, Maximize2, Minimize2, LogIn, Ungroup, X, Settings, Pin, BookmarkPlus } from 'lucide-react';
 import { Bridge } from './Bridge';
 import type { RawWrap, RawWrapPin, PaxParamInfo } from './Bridge';
 import { HintContext } from './HintPanel';
-import { NodeHandle, NodeHeaderButton, EditableTitle, freqLabel } from './NodeUtils';
+import { NodeHandle, NodeHeaderButton, EditableTitle, freqLabel, niceStep, readoutBoxStyle } from './NodeUtils';
+import ValueBox from './ValueBox';   // v0.0.943
 
 export const WRAP_ACCENT = 'var(--generic)';
 
@@ -139,6 +140,13 @@ function WrapParamControl ({ x, p, i, live, actions, labelNode, big = false }: {
   labelNode?: React.ReactNode; big?: boolean;
 }) {
   const { setHint } = useContext (HintContext);
+  // v0.0.943 — ⌘ / Ctrl held while dragging a pair's head: the pair moves together
+  const cmd = useRef (false);
+  useEffect (() => {
+    const k = (e: KeyboardEvent) => { if (e.key === 'Meta' || e.key === 'Control') cmd.current = e.type === 'keydown'; };
+    window.addEventListener ('keydown', k); window.addEventListener ('keyup', k);
+    return () => { window.removeEventListener ('keydown', k); window.removeEventListener ('keyup', k); };
+  }, []);
   const v = x.values[i] ?? p.defaultValue;
   const row: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 };
   const label = labelNode ?? <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{p.name}</span>;
@@ -171,23 +179,45 @@ function WrapParamControl ({ x, p, i, live, actions, labelNode, big = false }: {
       if (nh <= lo + step) actions.setParam (x.nodeId, pr.lo, Math.max (zMin, nh - step));
     };
     const commit = () => actions.commitParam (x.nodeId);
+    const boxStep = p.step >= 1 ? 1 : niceStep (zMax - zMin);
+    const movePair = (dist: number, ratio: number) => {   // keeps the gap (Hz: ratio)
+      let l = isHz (p) ? lo * ratio : lo + dist, h = isHz (p) ? hi * ratio : hi + dist;
+      if (l < zMin) { h = isHz (p) ? h * zMin / l : h + (zMin - l); l = zMin; }
+      if (h > zMax) { l = isHz (p) ? l * zMax / h : l - (h - zMax); h = zMax; }
+      if (p.step >= 1) { l = Math.round (l); h = Math.round (h); }
+      actions.setParam (x.nodeId, pr.lo, Math.max (zMin, l));
+      actions.setParam (x.nodeId, pr.hi, Math.min (zMax, h));
+    };
     return (
       <div>
         <div style={row}>{labelNode ?? <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{pairLabel (p)}</span>}
-          <span style={{ fontSize: 9, color: 'var(--text-dim)', fontVariantNumeric: 'tabular-nums' }}>
-            {fmtPairEnd (p, lo)} – {fmtPairEnd (hp, hi)}{isHz (p) ? ' Hz' : ''}
+          {/* v0.0.943 — both ends are value boxes; ⌥ + drag moves the pair
+              together (Hz: same ratio, otherwise same distance) */}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, color: 'var(--text-dim)' }}>
+            <ValueBox value={lo} min={zMin} max={hi} step={boxStep} log={isHz (p)} format={q => fmtPairEnd (p, q)} accent={x.accent}
+              onLive={setLo} onCommit={q => { setLo (q); commit(); }} onRelease={commit}
+              onLinked={q => movePair (q - lo, q / lo)} linkKey="cmd" linkMin={zMin} linkMax={zMax}
+              width="auto" style={{ ...readoutBoxStyle ('var(--text-dim)'), fontSize: 9, minWidth: 30 }} />
+            –
+            <ValueBox value={hi} min={lo} max={zMax} step={boxStep} log={isHz (p)} format={q => fmtPairEnd (hp, q)} accent={x.accent}
+              onLive={setHi} onCommit={q => { setHi (q); commit(); }} onRelease={commit}
+              onLinked={q => movePair (q - hi, q / hi)} linkKey="cmd" linkMin={zMin} linkMax={zMax}
+              width="auto" style={{ ...readoutBoxStyle ('var(--text-dim)'), fontSize: 9, minWidth: 30 }} />
+            {isHz (p) ? ' Hz' : ''}
           </span>
         </div>
         <div className="dual-range nodrag"
-          onMouseEnter={() => setHint ({ title: `${pairLabel (p)} — ${x.name}`, body: `Two heads: Low and High (they push each other). Range shown: the node's own zoom (${fmtPairEnd (p, zMin)}–${fmtPairEnd (hp, zMax)}), changed on the node. Double-click a head to reset it.` })}
+          onMouseEnter={() => setHint ({ title: `${pairLabel (p)} — ${x.name}`, body: `Two heads: Low and High (they push each other); ⌘ + drag a head or a value moves both together. Range shown: the node's own zoom (${fmtPairEnd (p, zMin)}–${fmtPairEnd (hp, zMax)}), changed on the node. Double-click a head to reset it.` })}
           onMouseLeave={() => setHint (null)}
           style={{ position: 'relative', height: 16, marginTop: 2 }}>
           <input type="range" min={zMin} max={zMax} step={step} value={Math.min (zMax, Math.max (zMin, lo))}
-            onChange={e => setLo (Number (e.target.value))} onMouseUp={commit} onKeyUp={commit}
+            onMouseDown={e => { cmd.current = e.metaKey || e.ctrlKey; }}
+            onChange={e => { const q = Number (e.target.value); if (cmd.current) movePair (q - lo, q / lo); else setLo (q); }} onMouseUp={commit} onKeyUp={commit}
             onDoubleClick={() => { setLo (p.defaultValue); commit(); }}
             style={{ width: '100%', top: 5, left: 0, ['--thumb-color' as any]: x.accent }} />
           <input type="range" min={zMin} max={zMax} step={step} value={Math.min (zMax, Math.max (zMin, hi))}
-            onChange={e => setHi (Number (e.target.value))} onMouseUp={commit} onKeyUp={commit}
+            onMouseDown={e => { cmd.current = e.metaKey || e.ctrlKey; }}
+            onChange={e => { const q = Number (e.target.value); if (cmd.current) movePair (q - hi, q / hi); else setHi (q); }} onMouseUp={commit} onKeyUp={commit}
             onDoubleClick={() => { setHi (hp.defaultValue); commit(); }}
             style={{ width: '100%', top: 5, left: 0, ['--thumb-color' as any]: x.accent }} />
         </div>
@@ -240,19 +270,20 @@ function WrapParamControl ({ x, p, i, live, actions, labelNode, big = false }: {
   if (p.name === 'DMX Channel')
     return (
       <div style={row}>{label}
-        <input type="number" className="nodrag" min={p.min} max={p.max} step={1} value={Math.round (v)}
-          onChange={e => { const r = parseInt (e.target.value, 10); if (! isNaN (r)) actions.setParam (x.nodeId, i, Math.min (p.max, Math.max (p.min, r))); }}
-          onBlur={() => actions.commitParam (x.nodeId)}
-          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-          style={{ width: 44, fontSize: 9, textAlign: 'right', background: 'var(--surface)', color: WRAP_ACCENT,
-                   border: '1px solid var(--border)', borderRadius: 3, padding: '2px 4px' }} />
+        <ValueBox value={Math.round (v)} min={p.min} max={p.max} accent={WRAP_ACCENT} width={44}
+          onLive={r => actions.setParam (x.nodeId, i, r)}
+          onCommit={r => { actions.setParam (x.nodeId, i, r); actions.commitParam (x.nodeId); }}
+          style={{ fontSize: 9, textAlign: 'right', color: WRAP_ACCENT }} />
       </div>
     );
 
   return (
     <div>
       <div style={row}>{label}
-        <span style={{ fontSize: 9, color: 'var(--text-dim)', fontVariantNumeric: 'tabular-nums' }}>{fmtValue (p, v)}</span>
+        <ValueBox value={v} min={p.min} max={p.max} step={p.step >= 1 ? 1 : niceStep (p.max - p.min)} format={q => fmtValue (p, q)}
+          accent={WRAP_ACCENT} onLive={q => actions.setParam (x.nodeId, i, q)}
+          onCommit={q => { actions.setParam (x.nodeId, i, q); actions.commitParam (x.nodeId); }}
+          width={56} style={{ ...readoutBoxStyle ('var(--text-dim)'), fontSize: 9 }} />
       </div>
       <input type="range" className="nodrag" min={p.min} max={p.max} step={(p.max - p.min) / 1000} value={v}
         onChange={e => { let nv = parseFloat (e.target.value); if (p.step >= 1) nv = Math.round (nv); actions.setParam (x.nodeId, i, nv); }}

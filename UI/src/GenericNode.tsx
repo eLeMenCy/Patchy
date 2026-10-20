@@ -4,7 +4,8 @@ import { DawContext } from './DawContext';
 import { X, Settings, Power } from 'lucide-react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, PaxParamInfo } from './Bridge';
-import { useNodeDelete, useNodeDisabled, NodeHeaderButton, useNodeCollapsed, useNodeSettings, NodeHandle, nodeContainerStyle, portColour, _paxInfoMap, detectPaxTheme, detectPaxTagPrefix, EditableTitle, commitModelName } from './NodeUtils';
+import { useNodeDelete, useNodeDisabled, NodeHeaderButton, useNodeCollapsed, useNodeSettings, NodeHandle, nodeContainerStyle, portColour, _paxInfoMap, detectPaxTheme, detectPaxTagPrefix, EditableTitle, commitModelName, niceStep, readoutBoxStyle } from './NodeUtils';
+import ValueBox from './ValueBox';   // v0.0.943
 
 import { DeviceSelector, AudioDeviceSettingsPanel, ChannelSummary } from './AudioDeviceUI';
 import { MidiChannelSummary, MidiOutChannelFilterPanel } from './MidiDeviceUI';
@@ -1051,26 +1052,12 @@ function GenericNode({ id, data, selected }: NodeProps) {
               ) : p.name === 'DMX Channel' ? (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{p.name}</span>
-                <input type="number"
-                  className="nodrag"
-                  min={p.min} max={p.max} step={1}
-                  value={Math.round(paramValues[i] !== undefined ? paramValues[i] : p.defaultValue)}
-                  onChange={e => {
-                    const raw = parseInt(e.target.value, 10);
-                    if (isNaN(raw)) return;
-                    onParamChange(i, Math.min(p.max, Math.max(p.min, raw)));
-                  }}
-                  onBlur={() => Bridge.commitNodeSettings(id)}
-                  onKeyDown={e => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); } }}
-                  onMouseEnter={() => setHint({ title: p.name, body: `1-based DMX channel this node's output writes to (1-${p.max}).` })}
-                  onMouseLeave={() => setHint(null)}
-                  style={{
-                    width: 44, fontSize: 9, textAlign: 'right',
-                    background: 'var(--surface)', color: theme.accent,
-                    border: '1px solid var(--border)', borderRadius: 3,
-                    padding: '2px 4px',
-                  }}
-                />
+                <ValueBox value={Math.round(paramValues[i] !== undefined ? paramValues[i] : p.defaultValue)}
+                  min={p.min} max={p.max} accent={theme.accent} width={44}
+                  title={`1-based DMX channel this node's output writes to (1-${p.max}). Drag up/down (⇧ fine) • double-click to type`}
+                  onLive={v => onParamChange(i, v)}
+                  onCommit={v => { onParamChange(i, v); Bridge.commitNodeSettings(id); }}
+                  style={{ fontSize: 9, color: theme.accent, textAlign: 'right' }} />
               </div>
               ) : (
               <div style={{ position: 'relative' }}>
@@ -1119,15 +1106,22 @@ Double-click to reset to default (${p.defaultValue}).` })}
               <div style={{ display: 'flex', justifyContent: 'space-between',
                             fontSize: 9, marginTop: 9 }}>
                 <span style={{ color: 'var(--text-muted)' }}>{p.name}</span>
-                <span style={{ color: 'var(--text-dim)' }}>
-                  {(() => {
-                    const v = paramValues[i] !== undefined ? paramValues[i] : p.defaultValue;
-                    const isDb = p.name.toLowerCase().includes('db');
-                    if (p.step >= 1) return (v > 0 ? '+' : '') + Math.round(v).toString() + (isDb ? ' dB' : '');
-                    if (isDb) return (v >= 0 ? '+' : '') + v.toFixed(1) + ' dB';
-                    return v.toFixed(2);
-                  })()}
-                </span>
+                {/* v0.0.943 — the value is a value box (drag, ⇧ fine, double-click to type) */}
+                {(() => {
+                  const v = paramValues[i] !== undefined ? paramValues[i] : p.defaultValue;
+                  const isDb = p.name.toLowerCase().includes('db');
+                  const fmt = (x: number) =>
+                    p.step >= 1 ? (x > 0 ? '+' : '') + Math.round(x).toString() + (isDb ? ' dB' : '')
+                    : isDb ? (x >= 0 ? '+' : '') + x.toFixed(1) + ' dB'
+                    : x.toFixed(2);
+                  return (
+                    <ValueBox value={v} min={p.min} max={p.max} step={p.step >= 1 ? 1 : niceStep(p.max - p.min)}
+                      format={fmt} accent={theme.accent} width={52}
+                      onLive={x => onParamChange(i, x)}
+                      onCommit={x => { onParamChange(i, x); Bridge.commitNodeSettings(id); }}
+                      style={{ ...readoutBoxStyle('var(--text-dim)'), fontSize: 9 }} />
+                  );
+                })()}
               </div>
               )}
             </div>

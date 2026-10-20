@@ -32,6 +32,9 @@ export interface ValueBoxProps {
   onRelease?: () => void;        // drag ended (after onCommit) — e.g. close an undo step
   onEnter?:  (v: number) => void;   // typed value confirmed with Return (after onCommit) — e.g. Send
   onLinked?: (v: number) => void;   // ⌥ + drag: set both ends of a pair to v (live)
+  linkMin?:  number;             // bounds while linked (a pair's own min / max is the partner)
+  linkKey?:  'alt' | 'cmd';      // v0.0.943 — key that links: ⌥ (Morpher-style ranges) or ⌘ / Ctrl (frequency bands: move the band)
+  linkMax?:  number;
   title?:    string;
   accent?:   string;
   width?:    number | string;
@@ -48,7 +51,7 @@ const decimalsOf = (step: number) => {
 
 export default function ValueBox ({
   value, min, max, step = 1, fineStep, log = false, coarse, decimals, unit, format, parse,
-  minWord, maxWord, placeholder, onLive, onCommit, onRelease, onLinked, onEnter,
+  minWord, maxWord, placeholder, onLive, onCommit, onRelease, onLinked, onEnter, linkMin, linkMax, linkKey = 'alt',
   title, accent = 'var(--accent)', width = 52, style, dim, disabled,
 }: ValueBoxProps) {
   const dec   = decimals ?? decimalsOf (step);
@@ -88,7 +91,7 @@ export default function ValueBox ({
     let n = parse ? parse (draft)
           : t === 'max' || (maxWord && t === maxWord.toLowerCase()) ? max
           : t === 'min' || (minWord && t === minWord.toLowerCase()) ? min
-          : parseFloat (t.replace (',', '.'));
+          : parseFloat (t.replace (',', '.')) * (/^-?[\d.,]+\s*k/.test (t) ? 1000 : 1);   // "2k" = 2000 (Hz)
     if (! isNaN (n)) { n = clamp (round (n, fine)); cbs.current.onCommit (n); if (viaEnter) onEnter?.(n); }
     setEditing (false);
   };
@@ -117,7 +120,8 @@ export default function ValueBox ({
       if (d.shift === on) return;
       d.shift = on; d.y = y; d.v = d.cur;   // re-anchor: no jump when switching speed
     };
-    setLinked (e.altKey, e.clientY);
+    const linkHeld = (ev: { altKey: boolean; metaKey: boolean; ctrlKey: boolean }) => linkKey === 'cmd' ? (ev.metaKey || ev.ctrlKey) : ev.altKey;
+    setLinked (linkHeld (e), e.clientY);
 
     const apply = (y: number) => {
       const ticks = Math.round ((d.y - y) / 3);
@@ -130,7 +134,7 @@ export default function ValueBox ({
         const big = d.shift ? 1 : coarse ?? ((max - min) / step > 2000 ? 10 : 1);   // long ranges (ports)
         next = round (d.v + ticks * (d.shift ? fine : step * big), d.shift ? fine : step);
       }
-      next = clamp (next);
+      next = d.linked ? Math.max (linkMin ?? min, Math.min (linkMax ?? max, next)) : clamp (next);
       if (next === d.cur) return;
       d.cur = next; d.moved = true;
       setDragV (next);
@@ -139,12 +143,12 @@ export default function ValueBox ({
     };
     const move = (ev: MouseEvent) => {
       d.lastY = ev.clientY;
-      setLinked (ev.altKey, ev.clientY);
+      setLinked (linkHeld (ev), ev.clientY);
       setShift  (ev.shiftKey, ev.clientY);
       apply (ev.clientY);
     };
     const key = (ev: KeyboardEvent) => {
-      if (ev.key === 'Alt')   setLinked (ev.type === 'keydown', d.lastY);
+      if (linkKey === 'alt' ? ev.key === 'Alt' : ev.key === 'Meta' || ev.key === 'Control') setLinked (ev.type === 'keydown', d.lastY);
       if (ev.key === 'Shift') setShift  (ev.type === 'keydown', d.lastY);
     };
     const up = () => {
@@ -175,7 +179,7 @@ export default function ValueBox ({
     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
     ...style,
   };
-  const tip = title ?? `Drag up/down (⇧ fine)${onLinked ? ' • ⌥ Option + drag: low and high together' : ''} • double-click to type`;
+  const tip = title ?? `Drag up/down (⇧ fine)${! onLinked ? '' : linkKey === 'cmd' ? ' • ⌘ + drag: moves the whole band' : ' • ⌥ Option + drag: low and high together'} • double-click to type`;
 
   return editing ? (
     <input autoFocus value={draft} className="nodrag"

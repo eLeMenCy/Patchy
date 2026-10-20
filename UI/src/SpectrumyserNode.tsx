@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, SpectrumSnapshot } from './Bridge';
-import { NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, resolveCssColor, EditableTitle, commitModelName } from './NodeUtils';
+import { NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCollapseArrow, nodeContainerStyle, settingsPanelStyle, sectionDividerStyle, resolveCssColor, EditableTitle, commitModelName, readoutBoxStyle } from './NodeUtils';
+import ValueBox from './ValueBox';   // v0.0.943
 import { HintContext } from './HintPanel';
 import { Settings, X, Power } from 'lucide-react';
 
@@ -327,7 +328,10 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
                 onMouseUp={() => Bridge.commitNodeSettings(id)}
                 onKeyUp={() => Bridge.commitNodeSettings(id)}
                 style={{ width:70, ['--thumb-color' as any]: BAND_COLORS[b] }} />
-              <span style={{ minWidth:28, color:ACCENT }}>{freqLabel(bandLow[b] ?? DEFAULT_LOW[b])}</span>
+              {/* v0.0.943 — value box (Hz, proportional; ⌘ still moves the band) */}
+              <ValueBox value={bandLow[b] ?? DEFAULT_LOW[b]} min={20} max={20000} log format={freqLabel} accent={ACCENT}
+                onLive={v => handleParam(1+b*2, v)} onCommit={v => { handleParam(1+b*2, v); Bridge.commitNodeSettings(id); }}
+                width={34} style={readoutBoxStyle(ACCENT)} />
               <span style={{ color: linked ? '#fbbf24' : 'var(--text-muted)', fontSize: linked ? 11 : 9, transition: 'all 0.1s' }}>{linked ? '⇔' : '→'}</span>
               <input type="range" min={0} max={1000} step={1}
                 value={toSlider(bandHigh[b] ?? DEFAULT_HIGH[b])}
@@ -338,7 +342,9 @@ export default function SpectrumyserNode({ id, data, selected }: NodeProps) {
                 onMouseUp={() => Bridge.commitNodeSettings(id)}
                 onKeyUp={() => Bridge.commitNodeSettings(id)}
                 style={{ width:70, ['--thumb-color' as any]: BAND_COLORS[b] }} />
-              <span style={{ minWidth:32, color:ACCENT }}>{freqLabel(bandHigh[b] ?? DEFAULT_HIGH[b])}</span>
+              <ValueBox value={bandHigh[b] ?? DEFAULT_HIGH[b]} min={20} max={20000} log format={freqLabel} accent={ACCENT}
+                onLive={v => handleParam(1+b*2+1, v)} onCommit={v => { handleParam(1+b*2+1, v); Bridge.commitNodeSettings(id); }}
+                width={36} style={readoutBoxStyle(ACCENT)} />
             </div>
           ))}
           {linked && (

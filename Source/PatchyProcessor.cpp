@@ -284,18 +284,6 @@ void PatchyProcessor::processGraphBlock (juce::AudioBuffer<float>& buffer,
     // Swap in a newly built graph if one is pending
     if (graphPending.exchange (false))
     {
-        // TEMPORARY diagnostic (2026-09-02), remove once resolved — 4
-        // targeted fixes so far (the two documented below, plus a
-        // MidiOutDeviceNode data race fix and making 3 per-block
-        // containers persistent instead of reconstructed, both
-        // elsewhere) have not conclusively resolved a real,
-        // user-reported audio-stream glitch specifically on graph
-        // edits. Rather than keep reasoning about what SHOULD be fast,
-        // this measures exactly how long this whole swap block
-        // genuinely takes, in microseconds, every single time it runs —
-        // direct, empirical evidence rather than further speculation.
-        auto timingStart = std::chrono::high_resolution_clock::now();
-
         // Real bug found and fixed 2026-09-02 — the previous version of
         // this swap called std::make_unique<ProcessingGraph>(...) directly
         // here, on the audio thread, every single time a graph rebuild's
@@ -343,22 +331,6 @@ void PatchyProcessor::processGraphBlock (juce::AudioBuffer<float>& buffer,
         // changed between the rebuild and this exact moment), not removed
         // — the cost of keeping it is negligible once it's a no-op.
         processingGraph.prepare (lastSampleRate, lastBlockSize);
-
-        auto timingEnd = std::chrono::high_resolution_clock::now();
-        auto timingMicros = std::chrono::duration_cast<std::chrono::microseconds> (timingEnd - timingStart).count();
-        diagLog ("PatchyProcessor: graph swap took " + juce::String ((int) timingMicros) + " microseconds");
-
-        // TEMPORARY diagnostic (2026-09-02) — flags that the very next
-        // process() call below is the FIRST one on freshly swapped-in
-        // node instances, so it can be timed and logged specifically,
-        // separately from the regular, randomly-sampled baseline. The
-        // swap logic above is now confirmed fast (comparable to or
-        // faster than ordinary blocks), but that alone doesn't confirm
-        // whether these brand-new node instances' own very first
-        // process() call — cold in CPU cache, potentially doing
-        // something their own subsequent calls don't — behaves any
-        // differently from a typical, already-warm, steady-state block.
-        firstProcessAfterSwap = true;
     }
 
     // Clear any output channels that aren't used by inputs
@@ -370,35 +342,10 @@ void PatchyProcessor::processGraphBlock (juce::AudioBuffer<float>& buffer,
     if (processingGraph.isEmpty())
     {
         // No nodes — pass audio through silently, pass MIDI through
-        firstProcessAfterSwap = false;   // TEMPORARY diagnostic (2026-09-02) — avoid mislabeling a later block
         return;
     }
 
-    // TEMPORARY diagnostic (2026-09-02), remove once resolved — same
-    // investigation as the swap-block timing above; logs a baseline,
-    // normal (non-swap) block's own processing time for direct
-    // comparison, throttled to roughly once every few seconds to avoid
-    // flooding the log. Also separately, always logs the very first
-    // process() call specifically on the block right after a swap (see
-    // firstProcessAfterSwap's own comment above), regardless of the
-    // throttle — this is the one measurement not yet taken.
-    bool logThisBaseline = firstProcessAfterSwap;
-    auto baselineStart = logThisBaseline ? std::chrono::high_resolution_clock::now()
-                                          : std::chrono::high_resolution_clock::time_point{};
-
     processingGraph.process (buffer, midiMessages);
-
-    if (logThisBaseline)
-    {
-        auto baselineEnd = std::chrono::high_resolution_clock::now();
-        auto baselineMicros = std::chrono::duration_cast<std::chrono::microseconds> (baselineEnd - baselineStart).count();
-        diagLog ("PatchyProcessor: FIRST process() after swap took " + juce::String ((int) baselineMicros) + " microseconds");
-    }
-
-    // Reset regardless of whether this block's own timing was logged —
-    // this flag must only ever describe the ONE block immediately
-    // following a swap, never any block after that.
-    firstProcessAfterSwap = false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

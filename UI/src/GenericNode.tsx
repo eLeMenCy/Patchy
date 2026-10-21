@@ -6,6 +6,8 @@ import { NodeProps } from '@xyflow/react';
 import { Bridge, PaxParamInfo } from './Bridge';
 import { useNodeDelete, useNodeDisabled, NodeHeaderButton, useNodeCollapsed, useNodeSettings, NodeHandle, nodeContainerStyle, portColour, _paxInfoMap, detectPaxTheme, detectPaxTagPrefix, EditableTitle, commitModelName, niceStep, readoutBoxStyle, SettingsPanelHeader } from './NodeUtils';
 import ValueBox from './ValueBox';   // v0.0.943
+import { LearnButton } from './LearnButton';   // v0.0.947
+import { useMidiLearn } from './Learn';
 
 import { DeviceSelector, AudioDeviceSettingsPanel, ChannelSummary } from './AudioDeviceUI';
 import { MidiChannelSummary, MidiOutChannelFilterPanel } from './MidiDeviceUI';
@@ -61,6 +63,13 @@ const PAX_THEME = { accent: 'var(--av)', dim: 'var(--av-dim)', glow: 'var(--av-g
 // anchor (v0.0.918, replaces 914's alignToRail): the Pax's ports sit on the
 // element marked data-port-anchor="<anchor>" in the JSX below (see NodeUtils'
 // "Port anchors") — a single port on it, two ports 7 px above/below.
+// v0.0.947 — MIDI Learn on generic Pax: which parameter learns what from the
+// next event at the node's MIDI input ('cc' = a CC's number, 'ch' = its channel).
+// Only Pax that RECEIVE the MIDI they're configured for (user, 2026-10-21).
+const PAX_LEARN: Record<string, Record<string, 'cc' | 'ch'>> = {
+  'MIDI to DMX': { 'MIDI CC': 'cc' },
+};
+
 const PAX_PORT_OFFSET_OVERRIDES: Record<string, { in?: number; out?: number; anchor?: string }> = {
   // out: -4 = the value found by eye on 2026-09-15. in: -4 + 7 — its single
   // MIDI input centred between its 2 outputs (ports are 14 px apart), i.e.
@@ -504,6 +513,14 @@ function GenericNode({ id, data, selected }: NodeProps) {
     });
     Bridge.setPaxParameter(id, index, value);
   }, [id]);
+  // v0.0.947 — Learn (see PAX_LEARN); target = the parameter's index
+  const learnMap = PAX_LEARN[nodeData.paxName as string] ?? {};
+  const learn = useMidiLearn<string>(id, (t, ev) => {
+    const i = Number(t), kind = learnMap[paxParams[i]?.name ?? ''];
+    if (kind === 'cc' && ev.type !== 4) return;   // only a CC teaches a CC number
+    onParamChange(i, kind === 'ch' ? ev.ch : ev.d1);
+    Bridge.commitNodeSettings(id);
+  });
   const resetParams = useCallback(() => {
     const defaults = paxParams.map(p => p.defaultValue);
     setParamValues(defaults);
@@ -815,6 +832,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
           />
           {showSettings && (
             <MidiOutChannelFilterPanel
+              nodeId={id}
               channels={midiOutChannels}
               onChannelsChange={handleMidiOutChannelsChange}
               onClose={closeSettings}
@@ -1102,7 +1120,13 @@ Double-click to reset to default (${p.defaultValue}).` })}
               {!p.readOnly && !(p.step >= 1 && p.min === 0 && p.max === 1) && p.name !== 'DMX Channel' && (
               <div style={{ display: 'flex', justifyContent: 'space-between',
                             fontSize: 9, marginTop: 9 }}>
-                <span style={{ color: 'var(--text-muted)' }}>{p.name}</span>
+                <span style={{ color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {p.name}
+                  {learnMap[p.name] && (
+                    <LearnButton armed={learn.target === String(i)} onClick={() => learn.start(String(i))} accent={theme.accent}
+                      what={learnMap[p.name] === 'cc' ? 'the CC number (move a knob or fader)' : 'the channel'} />
+                  )}
+                </span>
                 {/* v0.0.943 — the value is a value box (drag, ⇧ fine, double-click to type) */}
                 {(() => {
                   const v = paramValues[i] !== undefined ? paramValues[i] : p.defaultValue;

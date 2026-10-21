@@ -14,6 +14,8 @@ import { useState, useEffect, useCallback, useContext } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge } from './Bridge';
 import { NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCollapseArrow, settingsPanelStyle, EditableTitle, commitModelName , SettingsPanelHeader } from './NodeUtils';
+import { LearnButton } from './LearnButton';   // v0.0.947
+import { useMidiLearn } from './Learn';
 import { HintContext } from './HintPanel';
 import { Settings, X, Power } from 'lucide-react';
 
@@ -75,6 +77,9 @@ export default function ChannelFilterPaxNode ({ id, data, selected }: NodeProps)
     Bridge.setPaxParameter (id, 1, 0);
     Bridge.commitNodeSettings (id);
   }, [id]);
+
+  // v0.0.947 — Learn the channel from the next event arriving at the input
+  const learn = useMidiLearn<'ch'> (id, (_t, ev) => handleParam (0, ev.ch));
 
   return (
     <div style={{
@@ -154,6 +159,8 @@ export default function ChannelFilterPaxNode ({ id, data, selected }: NodeProps)
               5-button "band count" row, just scaled up */}
           <div className="nodrag" style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8 }}>
             <span style={{ color: 'var(--text-muted)', minWidth: 40 }}>Channel</span>
+            {/* v0.0.947 — Learn: the next event's channel */}
+            <LearnButton armed={learn.target === 'ch'} onClick={() => learn.start ('ch')} accent={ACCENT} what="the channel" />
           </div>
           <div className="nodrag" style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 10 }}>
             {Array.from ({ length: 16 }, (_, i) => i + 1).map (ch => (

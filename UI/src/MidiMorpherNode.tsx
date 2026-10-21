@@ -25,6 +25,7 @@ import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Funnel, FunnelX } from 'lucide-react';
 import ValueBox from './ValueBox';   // v0.0.944
+import { LearnButton as LearnBtn } from './LearnButton';   // v0.0.947
 import { Bridge } from './Bridge';
 import type { RawPort } from './Bridge';
 import { HintContext } from './HintPanel';
@@ -49,26 +50,9 @@ import { useMidiLearn } from './Learn';
 type LearnTarget = 'in' | 'out';
 interface LearnProps { target: LearnTarget | null; start: (t: LearnTarget) => void }
 
-function LearnButton ({ armed, onClick }: { armed: boolean; onClick: () => void }) {
-  return (
-    <span onClick={onClick}
-      title={armed ? 'Listening — move a control or play a key (click to cancel)'
-                   : 'Learn: move a control or play a key on a connected controller to fill this in'}
-      style={{ fontSize: 9, letterSpacing: 0, textTransform: 'none', cursor: 'pointer', padding: '1px 6px',
-               borderRadius: 3, border: `1px solid ${armed ? ACCENT : 'var(--border)'}`,
-               color: armed ? 'var(--bg)' : 'var(--text-dim)', background: armed ? ACCENT : 'transparent',
-               animation: armed ? 'patchyLearnPulse 1s ease-in-out infinite' : 'none' }}>
-      {armed ? '● Listening…' : 'Learn'}
-    </span>
-  );
-}
-// One keyframe for the pulsing Learn button (injected once)
-if (typeof document !== 'undefined' && ! document.getElementById ('patchy-learn-kf')) {
-  const st = document.createElement ('style');
-  st.id = 'patchy-learn-kf';
-  st.textContent = '@keyframes patchyLearnPulse { 0%,100% { opacity: 1 } 50% { opacity: .55 } }';
-  document.head.appendChild (st);
-}
+// v0.0.947 — the Learn pill is shared now (LearnButton.tsx)
+const LearnButton = ({ armed, onClick }: { armed: boolean; onClick: () => void }) =>
+  <LearnBtn armed={armed} onClick={onClick} accent={ACCENT} />;
 
 export interface MidiMorpherNodeData {
   label:         string;

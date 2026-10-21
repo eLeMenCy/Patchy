@@ -244,10 +244,16 @@ void DynamicPaxProcessor::process (int numSamples)
         return;
     }
 
+    // ── Generic MIDI Learn (v0.0.947) — once here for every Pax with a MIDI
+    // input (DRY: no Pax code involved). While armed the MIDI input is held
+    // back (same as the Morpher): the learned event isn't processed too.
+    const bool learning = captureLearn (inputMidi);
+
     // ── Convert juce::MidiBuffer → PAX_MidiEvent array ───────────────────
     int inCount = 0;
     for (const auto& meta : inputMidi)
     {
+        if (learning) break;
         if (inCount >= kMaxMidiEvents) break;
         const auto& msg = meta.getMessage();
         auto& ev = midiInBuf[inCount++];

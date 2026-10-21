@@ -207,12 +207,12 @@ public:
     /** Rebuild wraps from a saved "wraps" array (snapshot / file); members
         that no longer exist are dropped, empty wraps skipped. */
     void        restoreWraps (const juce::var& wrapsArray);
-    /** v0.0.936 — the wraps array of a saved graph: "wraps", or "packs" in
-     *  files / snapshots saved before the Packs → Wraps rename (TEMPORARY
-     *  fallback — drop once old projects have been re-saved). */
+    /** The wraps array of a saved graph. (v0.0.936–946 also read the old
+     *  "packs" key; dropped in v0.0.947 once the user had re-saved every
+     *  file and DAW session from before the Packs → Wraps rename.) */
     static juce::var wrapsOf (const juce::DynamicObject& o)
     {
-        return o.hasProperty ("wraps") ? o.getProperty ("wraps") : o.getProperty ("packs");
+        return o.getProperty ("wraps");
     }
     const std::vector<WrapData>& getWraps() const { return wraps; }
 

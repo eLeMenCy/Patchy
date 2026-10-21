@@ -462,7 +462,6 @@ void GraphModel::restoreWraps (const juce::var& wrapsArray)
         WrapData p;
         p.id   = o->getProperty ("id").toString();
         p.name = o->getProperty ("name").toString();
-        if (p.name == "PACK") p.name = "WRAP";   // v0.0.936 — old default name (TEMPORARY, with wrapsOf's fallback)
         if (auto* ids = o->getProperty ("nodeIds").getArray())
             for (const auto& v : *ids)
                 if (findNode (v.toString()) != nullptr) p.nodeIds.add (v.toString());

@@ -124,6 +124,10 @@ public:
         if (inputMidi.getNumEvents() > 0)
             recordMidiActivity (inputMidi.getNumEvents());
 
+        // v0.0.947 — Learn (channel filter): while armed, nothing goes to the
+        // device (the learned note isn't played); downstream still gets it.
+        if (captureLearn (inputMidi)) return;
+
         // Send to the physical device — gated by the channel filter.
         // 0 = omni (every channel sent, matching this node's own default/
         // original behaviour before this feature existed). A channel-less

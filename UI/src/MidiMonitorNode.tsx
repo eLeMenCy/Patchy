@@ -1,5 +1,7 @@
 import { memo, useContext, useCallback, useEffect, useRef, useState } from 'react';
 import { NodeProps } from '@xyflow/react';
+import { LearnButton } from './LearnButton';   // v0.0.947
+import { useMidiLearn } from './Learn';
 import { Bridge, RawMidiMonitorEvent } from './Bridge';
 import { NodeSelect } from './NodeSelect';
 import { useNodeSettings, useNodeDelete, NodeHeader, NodeHeaderButton, NodeHandle, Checkbox, useNodeCollapsed, SettingsPanelHeader } from './NodeUtils';
@@ -195,7 +197,8 @@ function buildRow(ev: RawMidiMonitorEvent, s: MonitorSettings): DisplayRow {
 }
 
 // ── Settings panel ────────────────────────────────────────────────────────────
-function SettingsPanel({ s, onChange, onDiscreteChange, onClose, onReset, onCommit }: {
+function SettingsPanel({ nodeId, s, onChange, onDiscreteChange, onClose, onReset, onCommit }: {
+  nodeId: string;   // v0.0.947 — for Learn
   s: MonitorSettings;
   onChange: (patch: Partial<MonitorSettings>) => void;
   onDiscreteChange: (patch: Partial<MonitorSettings>) => void;
@@ -203,6 +206,8 @@ function SettingsPanel({ s, onChange, onDiscreteChange, onClose, onReset, onComm
   onReset: () => void;
   onCommit: () => void;
 }) {
+  // v0.0.947 — Learn: the next event's channel REPLACES the filter (user)
+  const learn = useMidiLearn<'ch'>(nodeId, (_t, ev) => onDiscreteChange({ channels: [ev.ch] }));
   const row = (label: string, children: React.ReactNode) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
       <div style={{ width: 110, fontSize: 10, color: 'var(--text-dim)', flexShrink: 0 }}>{label}</div>
@@ -298,8 +303,10 @@ function SettingsPanel({ s, onChange, onDiscreteChange, onClose, onReset, onComm
       </div>
 
       {section('Channel Filter')}
-      <div style={{ fontSize: 9, color: 'var(--text-muted)', marginBottom: 4 }}>
-        All channels when none selected
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
+        <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>All channels when none selected</span>
+        <LearnButton armed={learn.target === 'ch'} onClick={() => learn.start('ch')}
+          what="the channel (replaces the selection)" />
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
         {Array.from({length: 16}, (_, i) => chBtn(i + 1))}
@@ -530,7 +537,7 @@ function MidiMonitorNode({ id, data, selected }: NodeProps) {
       {/* Settings overlay */}
       {showSettings && (
         <div onMouseDown={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
-        <SettingsPanel s={settings} onChange={patch} onDiscreteChange={commitPatch}
+        <SettingsPanel nodeId={id} s={settings} onChange={patch} onDiscreteChange={commitPatch}
           onClose={() => closeSettings()} onReset={() => { commitPatch(DEFAULT_SETTINGS); }} onCommit={() => Bridge.commitNodeSettings(id)} />
         </div>
       )}

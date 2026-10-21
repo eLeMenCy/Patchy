@@ -23,6 +23,8 @@
  */
 
 import { SettingsPanelHeader } from './NodeUtils';
+import { LearnButton } from './LearnButton';   // v0.0.947
+import { useMidiLearn } from './Learn';
 
 // ── Channel summary label ─────────────────────────────────────────────────────
 // Unlike AudioDeviceUI's own ChannelSummary (which returns null on an
@@ -45,12 +47,15 @@ export function MidiChannelSummary ({ channels }: { channels: number[] }) {
 }
 
 // ── Channel filter settings panel ─────────────────────────────────────────────
-export function MidiOutChannelFilterPanel ({ channels, onChannelsChange, onClose }: {
+export function MidiOutChannelFilterPanel ({ nodeId, channels, onChannelsChange, onClose }: {
+  nodeId:           string;   // v0.0.947 — for Learn
   channels:         number[];
   onChannelsChange: (next: number[]) => void;
   onClose:          () => void;
 }) {
   const accent = 'var(--midi)';
+  // v0.0.947 — Learn: the next event's channel REPLACES the selection (user)
+  const learn = useMidiLearn<'ch'> (nodeId, (_t, ev) => onChannelsChange ([ev.ch]));
 
   const chBtn = (ch: number) => {
     const active = channels.includes (ch);
@@ -96,8 +101,10 @@ export function MidiOutChannelFilterPanel ({ channels, onChannelsChange, onClose
         onReset={() => onChannelsChange ([])}
         onClose={onClose}
       />
-      <div style={{ fontSize: 9, color: 'var(--text-muted)', marginBottom: 4 }}>
-        All channels when none selected
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
+        <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>All channels when none selected</span>
+        <LearnButton armed={learn.target === 'ch'} onClick={() => learn.start ('ch')} accent={accent}
+          what="the channel (replaces the selection)" />
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
         {Array.from ({ length: 16 }, (_, i) => chBtn (i + 1))}

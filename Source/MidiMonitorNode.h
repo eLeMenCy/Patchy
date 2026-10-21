@@ -103,6 +103,9 @@ public:
     void process (int /*numSamples*/) override
     {
         outputMidi = inputMidi;
+        // v0.0.947 — Learn (display channel filter). A monitor is transparent,
+        // so its pass-through is never held back while it listens.
+        captureLearn (inputMidi);
         // Record activity for port LED flashing
         if (! outputMidi.isEmpty())
             recordMidiActivity (outputMidi.getNumEvents());

@@ -286,31 +286,12 @@ private:
         expectEquals ((int) g.getWraps().size(), 1);
         expectEquals (g.getWraps()[0].nodeIds.size(), 1, "c dropped, b kept");
 
-        // v0.0.936 — files saved before the rename keep their wraps under "packs"
+        // v0.0.947 — the old "packs" key is no longer read (fallback removed)
         {
             auto* old = new juce::DynamicObject();
-            old->setProperty ("packs", v.getProperty ("wraps", {}));
             juce::var oldVar (old);
-            expect (GraphModel::wrapsOf (*old).isArray(), "\"packs\" read as wraps");
-            g.restoreWraps (GraphModel::wrapsOf (*old));
-            expectEquals ((int) g.getWraps().size(), 1, "old file: wrap restored");
-
-            // the old default name follows the rename; a chosen name doesn't
-            auto* o2 = new juce::DynamicObject();
-            juce::var o2v (o2);
-            juce::Array<juce::var> arr;
-            for (const auto* nm : { "PACK", "Drums" })
-            {
-                auto* w = new juce::DynamicObject();
-                w->setProperty ("id", juce::Uuid().toString());
-                w->setProperty ("name", nm);
-                w->setProperty ("nodeIds", juce::Array<juce::var> { g.getWraps()[0].nodeIds[0] });
-                arr.add (juce::var (w));
-            }
-            o2->setProperty ("packs", arr);
-            g.restoreWraps (GraphModel::wrapsOf (*o2));
-            expectEquals (g.getWraps()[0].name, juce::String ("WRAP"));
-            expectEquals (g.getWraps()[1].name, juce::String ("Drums"));
+            old->setProperty ("packs", v.getProperty ("wraps", {}));
+            expect (! GraphModel::wrapsOf (*old).isArray(), "\"packs\" no longer read");
         }
 
         // Older snapshots without "wraps" → none

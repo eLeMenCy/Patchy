@@ -1,4 +1,5 @@
 #include "PatchyProcessor.h"
+#include "AppSettings.h"   // v0.0.948
 #include "DiagLog.h"   // timestamped lifecycle / host-idle driver log lines (v0.0.919)
 #include "PatchyEditor.h"
 #include "AudioDeviceNodes.h"
@@ -339,13 +340,48 @@ void PatchyProcessor::processGraphBlock (juce::AudioBuffer<float>& buffer,
     for (int i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
 
+    // v0.0.948 — Panic: hand this block's flags to the current graph (the
+    // MIDI request is consumed once; blackout / mute follow the latch and
+    // the user's Preferences options)
+    const bool latched = panicLatched.load (std::memory_order_relaxed);
+    processingGraph.panicMidi     = panicMidiRequest.exchange (false, std::memory_order_relaxed);
+    processingGraph.panicBlackout = latched && panicOptBlackout.load (std::memory_order_relaxed);
+    processingGraph.panicMute     = latched && panicOptMute.load (std::memory_order_relaxed);
+    processingGraph.panicRelease  = panicReleaseRequest.exchange (false, std::memory_order_relaxed);
+
     if (processingGraph.isEmpty())
     {
         // No nodes — pass audio through silently, pass MIDI through
+        if (processingGraph.panicMute) buffer.clear();
         return;
     }
 
     processingGraph.process (buffer, midiMessages);
+    if (processingGraph.panicMute) buffer.clear();   // the host output too (incl. DAW pass-through)
+}
+
+// v0.0.948 — the ⚠ button / ⌘. (message thread). Engaging always sends the
+// MIDI panic; with a Preferences option on, the button latches (blackout /
+// mute) until pressed again. Returns the new latched state.
+bool PatchyProcessor::triggerPanic()
+{
+    panicOptBlackout.store (AppSettings::getPanicBlackout(), std::memory_order_relaxed);
+    panicOptMute.store     (AppSettings::getPanicMute(),     std::memory_order_relaxed);
+    const bool latching = panicOptBlackout.load() || panicOptMute.load();
+
+    if (panicLatched.load())                     // second press: release
+    {
+        panicLatched.store (false);
+        panicReleaseRequest.store (true);   // consoles re-send their state
+        diagLog ("Panic: released");
+        return false;
+    }
+    panicMidiRequest.store (true);
+    panicLatched.store (latching);
+    diagLog (juce::String ("Panic: MIDI all notes / sound off")
+             + (latching ? juce::String (" + ") + (panicOptBlackout.load() ? "DMX/ArtNet blackout " : "")
+                           + (panicOptMute.load() ? "audio muted " : "") + "(latched)" : juce::String()));
+    return latching;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

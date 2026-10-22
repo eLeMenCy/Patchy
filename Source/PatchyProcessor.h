@@ -101,6 +101,9 @@ public:
 
     /** Call after any structural change to the graph model. */
     void rebuildProcessingGraph();
+    /** v0.0.948 — ⚠ / ⌘.: MIDI panic, and blackout / mute latch (Preferences). Returns the latched state. */
+    bool triggerPanic();
+    bool isPanicLatched() const { return panicLatched.load(); }
     bool isStandalone = false;
 
     /** Prune ProcessingGraph edges for ports removed from a node. Call after GraphModel update. */
@@ -1616,6 +1619,13 @@ private:
     // constructed (time_since_epoch() == 0) is used as the "no previous
     // call yet" sentinel on the very first block.
     std::chrono::high_resolution_clock::time_point lastCallbackTime {};
+
+    // v0.0.948 — Panic (see triggerPanic / processGraphBlock)
+    std::atomic<bool> panicMidiRequest { false };
+    std::atomic<bool> panicLatched     { false };
+    std::atomic<bool> panicReleaseRequest { false };
+    std::atomic<bool> panicOptBlackout { true };
+    std::atomic<bool> panicOptMute     { true };
 
     double lastSampleRate  = 44100.0;
     int    lastBlockSize   = 512;

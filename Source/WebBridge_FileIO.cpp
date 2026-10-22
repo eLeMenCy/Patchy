@@ -73,6 +73,21 @@ void WebBridge::pushRecentFiles()
     pushToUI ("onRecentFiles", juce::JSON::toString (juce::var (arr), true));
 }
 
+// v0.0.948 — Panic: { latched, blackout, mute } (options from Preferences)
+void WebBridge::handlePanic()
+{
+    pushPanicState (onPanic ? onPanic() : false);
+}
+
+void WebBridge::pushPanicState (bool latched)
+{
+    auto* o = new juce::DynamicObject();
+    o->setProperty ("latched",  latched);
+    o->setProperty ("blackout", AppSettings::getPanicBlackout());
+    o->setProperty ("mute",     AppSettings::getPanicMute());
+    pushToUI ("onPanicState", juce::JSON::toString (juce::var (o), true));
+}
+
 void WebBridge::pushAppSettings()
 {
     auto* o = new juce::DynamicObject();

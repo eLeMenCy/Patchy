@@ -21,7 +21,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { Bridge, RecentFile, FileMissing, FileState, AudioSettings, GraphState, RawNode, RawConnection, RawPort, PortActivityEntry, PaxParamInfo, PaxInfo, FragmentData, UndoState, AudioPlayerStatus, RawWrap } from './Bridge';
+import { Bridge, RecentFile, FileMissing, FileState, AudioSettings, GraphState, RawNode, RawConnection, RawPort, PortActivityEntry, PaxParamInfo, PaxInfo, FragmentData, UndoState, AudioPlayerStatus, RawWrap, PanicState } from './Bridge';
 import { WrapNode, WrapFrame, WrapRail, WrapRouteEdge, WrapPort, WrapPax, WrapActions, FRAME_PAD, FRAME_HEAD, FRAME_PORT_TOP, FRAME_PORT_GAP } from './WrapNode';
 import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
@@ -992,6 +992,9 @@ function FlowCanvas() {
   const [prefs, setPrefs]       = useState<GraphPreferences>(loadPrefs);
   const [showPrefs, setShowPrefs] = useState(false);
   const [allCollapsed, setAllCollapsed] = useState(false);
+  // v0.0.948 — Panic state (latched + Preferences options), pushed by the engine
+  const [panic, setPanic] = useState<PanicState>({ latched: false, blackout: true, mute: true });
+  useEffect(() => Bridge.onPanicState(setPanic), []);
   const [fileState, setFileState] = useState<FileState>({ fileName: 'Untitled', hasFile: false });
   const [undoState, setUndoState] = useState<UndoState>({ canUndo: false, canRedo: false });
   const [audioSettings, setAudioSettings] = useState<AudioSettings | null>(null);
@@ -2481,6 +2484,30 @@ function FlowCanvas() {
             }}
           >
             {allCollapsed ? <ChevronsUpDown size={19} /> : <ChevronsDownUp size={19} />}
+          </button>
+          {/* v0.0.948 — Panic (also ⌘.): MIDI all notes / sound off; with the
+              Preferences options on it latches (DMX / ArtNet blackout, audio
+              muted) — lit red until pressed again */}
+          <button
+            onClick={() => Bridge.panic()}
+            onMouseEnter={() => setHint({ title: panic.latched ? 'Panic — engaged' : 'Panic (⌘.)',
+              body: panic.latched
+                ? `Click to release: ${[panic.blackout && 'DMX / ArtNet lights back', panic.mute && 'audio back'].filter(Boolean).join(', ') || 'back to normal'}.`
+                : `Sends All Notes Off, All Sound Off and Sustain off on all 16 channels to every MIDI Out${panic.blackout || panic.mute ? `, and holds ${[panic.blackout && 'a DMX / ArtNet blackout', panic.mute && 'all audio muted'].filter(Boolean).join(' and ')} until clicked again` : ''}. Options: Preferences → Panic.` })}
+            onMouseLeave={() => setHint(null)}
+            style={{
+              background:   panic.latched ? '#ef4444' : 'transparent',
+              border:       `1px solid ${panic.latched ? '#ef4444' : 'var(--border)'}`,
+              borderRadius: 'var(--radius)',
+              color:        panic.latched ? '#fff' : '#f59e0b',
+              cursor:       'pointer',
+              width:        26, height: 26,
+              display:      'flex', alignItems: 'center', justifyContent: 'center',
+              animation:    panic.latched ? 'patchyLearnPulse 1s ease-in-out infinite' : 'none',
+              transition:   'background 0.15s, color 0.15s',
+            }}
+          >
+            <span style={{ fontSize: 15, lineHeight: 1 }}>⚠</span>
           </button>
         <div style={{ position: 'relative' }}>
           <div style={{ position: 'relative' }}>

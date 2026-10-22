@@ -4,6 +4,8 @@
 #include "NodeProcessor.h"
 #include <atomic>
 #include <cstdint>
+#include <array>
+#include <bitset>
 
 // Forward declare to avoid circular include (ProcessingGraph includes NodeProcessor
 // which would then include ProcessingGraph again)
@@ -128,6 +130,18 @@ public:
         // device (the learned note isn't played); downstream still gets it.
         if (captureLearn (inputMidi)) return;
 
+        // v0.0.948 — notes sent and not yet released, for the panic's explicit
+        // Note Offs (many synths ignore All Notes Off / All Sound Off)
+        for (const auto meta : inputMidi)
+        {
+            const auto m = meta.getMessage();
+            const int  c = m.getChannel() - 1;
+            if (c < 0 || c > 15) continue;
+            if (m.isNoteOn())                                   held[(size_t) c].set   ((size_t) m.getNoteNumber());
+            else if (m.isNoteOff())                             held[(size_t) c].reset ((size_t) m.getNoteNumber());
+            else if (m.isAllNotesOff() || m.isAllSoundOff())    held[(size_t) c].reset();
+        }
+
         // Send to the physical device — gated by the channel filter.
         // 0 = omni (every channel sent, matching this node's own default/
         // original behaviour before this feature existed). A channel-less
@@ -152,6 +166,24 @@ public:
     // running node" lesson) — bypasses the rebuild requirement entirely.
     void setChannelFilter (std::uint16_t mask) { channelFilter.store (mask, std::memory_order_relaxed); }
 
+    /** v0.0.948 — Panic (audio thread, called by the graph before process):
+        a Note Off for every note this node sent and hasn't released, then
+        Sustain off, All Sound Off and All Notes Off on all 16 channels.
+        Returns how many Note Offs were added. */
+    int addPanic (juce::MidiBuffer& buf)
+    {
+        int offs = 0;
+        for (int c = 0; c < 16; ++c)
+        {
+            for (int n = 0; n < 128; ++n)
+                if (held[(size_t) c].test ((size_t) n)) { buf.addEvent (juce::MidiMessage::noteOff (c + 1, n), 0); ++offs; }
+            buf.addEvent (juce::MidiMessage::controllerEvent (c + 1, 64, 0), 0);
+            buf.addEvent (juce::MidiMessage::allSoundOff (c + 1), 0);
+            buf.addEvent (juce::MidiMessage::allNotesOff (c + 1), 0);
+        }
+        return offs;
+    }
+
     /** v0.0.919 — true when set to the "DAW" device: its MIDI goes back to
      *  the host (audio thread reads it; set on the message thread). */
     bool isDawOutput() const { return dawOutput.load (std::memory_order_relaxed); }
@@ -164,6 +196,7 @@ private:
     std::atomic<bool>                 dawOutput { false };   // v0.0.919 — see isDawOutput()
     juce::SpinLock outputLock;   // protects output from the message-thread/audio-thread race above
     std::atomic<std::uint16_t> channelFilter { 0 }; // one bit per channel (1-16); 0 = omni
+    std::array<std::bitset<128>, 16> held {};        // v0.0.948 — audio thread only (see process / addPanic)
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MidiOutDeviceNode)
 };
 

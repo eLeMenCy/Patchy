@@ -1,4 +1,5 @@
 #include "ProcessingGraph.h"
+#include "DiagLog.h"   // v0.0.948
 #include "MidiDeviceNodes.h"
 #include "AudioDeviceNodes.h"
 #include "UdpDeviceNodes.h"
@@ -623,6 +624,34 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
             // already empty before this block even runs.
             n->inputArtNetFrame.fill (0);
             n->inputArtNetFrameValid = false;
+        }
+
+        // v0.0.948 — Panic: applied to the output nodes' inputs, right before
+        // they run (no node code involved). MIDI: All Notes Off (CC 123),
+        // All Sound Off (CC 120) and Sustain off (CC 64 = 0) on all 16
+        // channels, once; DMX / ArtNet: an all-zero frame; audio: silence.
+        if (panicMidi)
+            if (auto* mo = dynamic_cast<MidiOutDeviceNode*> (n))
+            {
+                const int offs = mo->addPanic (n->inputMidi);   // held notes' Note Offs + the CCs
+                diagLog ("Panic: MIDI Out " + n->id.substring (0, 8) + " — " + juce::String (offs)
+                         + " held note(s) released + All Notes / Sound Off, Sustain off (16 ch)");
+            }
+        if (panicBlackout)
+        {
+            // every DMX / ArtNet input goes dark — monitors show it, and the
+            // outputs send all-zero frames even with nothing connected upstream
+            n->inputDmxFrame.fill (0);
+            n->inputArtNetFrame.fill (0);
+            if (dynamic_cast<DmxOutDeviceNode*> (n) != nullptr)    n->inputDmxFrameValid    = true;
+            if (dynamic_cast<ArtNetOutDeviceNode*> (n) != nullptr) n->inputArtNetFrameValid = true;
+        }
+        if (panicMute && dynamic_cast<AudioOutDeviceNode*> (n) != nullptr)
+            n->inputAudio.clear();
+        if (panicRelease)   // lights back without touching a fader
+        {
+            if (auto* c = dynamic_cast<DmxConsoleNode*> (n))    c->forceReEmit();
+            if (auto* c = dynamic_cast<ArtNetConsoleNode*> (n)) c->forceReEmit();
         }
 
         // DAW AudioIn: outputAudio already filled in step 2 — skip process()

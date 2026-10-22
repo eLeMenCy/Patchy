@@ -361,6 +361,11 @@ const _recentSubscribers:      RecentFilesCallback[] = [];
 let   _recentCache:            RecentFile[] = [];
 const _appSettingsSubscribers: AppSettingsCallback[] = [];
 let   _appSettingsCache:       { reopenLastProject: number } = { reopenLastProject: -1 };
+// v0.0.948 — Panic: latched state + the Preferences options
+export interface PanicState { latched: boolean; blackout: boolean; mute: boolean; }
+type PanicCallback = (s: PanicState) => void;
+const _panicSubscribers: PanicCallback[] = [];
+let   _panicCache: PanicState = { latched: false, blackout: true, mute: true };
 const _fileMissingSubscribers: FileMissingCallback[] = [];
 let   _fileMissingPending:     FileMissing | null = null;   // events, kept until someone listens
 const _askReopenSubscribers:   AskReopenCallback[] = [];
@@ -518,6 +523,10 @@ function _dispatchClaimed() {
   onRecentFiles: (json: string) => {
     try { _recentCache = JSON.parse(json) as RecentFile[]; } catch { _recentCache = []; }
     _recentSubscribers.forEach(cb => cb(_recentCache));
+  },
+  onPanicState: (json: string) => {   // v0.0.948
+    try { _panicCache = JSON.parse(json) as PanicState; } catch { return; }
+    _panicSubscribers.forEach(cb => cb(_panicCache));
   },
   onAppSettings: (json: string) => {
     try { _appSettingsCache = JSON.parse(json); } catch { /* keep */ }
@@ -931,6 +940,13 @@ export const Bridge = {
   locateFile(path: string)              { sendToJuce({ type: 'locateFile', path }); },
   clearRecentFiles()                    { sendToJuce({ type: 'clearRecentFiles' }); },
   setReopenLastProject(enabled: boolean) { sendToJuce({ type: 'setReopenLastProject', enabled }); },
+  /** v0.0.948 — ⚠ panic (also ⌘. in the native window) and its Preferences options */
+  panic() { sendToJuce({ type: 'panic' }); },
+  setPanicOptions(blackout: boolean, mute: boolean) { sendToJuce({ type: 'setPanicOptions', blackout, mute }); },
+  onPanicState(cb: PanicCallback) {
+    _panicSubscribers.push(cb); cb(_panicCache);
+    return () => { const i = _panicSubscribers.indexOf(cb); if (i !== -1) _panicSubscribers.splice(i, 1); };
+  },
   /** v0.0.920 — the plugin window's resize grip (see App.tsx FlowCanvas). */
   resizeEditor(w: number, h: number) {
     sendToJuce({ type: 'resizeEditor', w: Math.round(w), h: Math.round(h) });

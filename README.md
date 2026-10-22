@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.947
+> Version 0.0.948
 
 ---
 
@@ -84,6 +84,7 @@
 - **MIDI CH. Matrix** — a resizable (4×4 to 16×16) channel-remap grid: click a cell to route input channel N to output channel M, with one-to-many fan-out; unmapped channels either dropped or passed through unchanged via a header toggle; live per-channel label flash on activity, mirroring the same real-time flash language used for edges elsewhere; disabled state passes every channel straight through unchanged (N→N), matching Transpose's own bypass behaviour
 - **MIDI Out Device channel filter** — a per-device output filter, in the same "Ch. 1, 3, 7" / "Ch. Omni" style as MIDI Monitor's own display filter, but genuinely functional here: only the selected channels actually reach the physical device, everything else is silently held back before it ever leaves the plugin. Handy for narrowing an omni-only synth down to a single receiving channel without needing a full Matrix. Empty selection = Omni (every channel sent), matching this node's own original behaviour, so nothing changes until you opt in
 - **MIDI Morpher** — turns MIDI events matching one rule (channel, message, Data1/Data2 ranges) into others: change channel or message type, rescale / invert / fix values, swap Data1/Data2, pitch bend as one 14-bit value; unmatched events pass through or are blocked. Two faces on the same rule — **Basic** (the rule as a sentence, e.g. *"CC 7 on ch 3 → CC 110"*, edited in plain words: When / Send / Value) and **Advanced** (MidiDash-style IN/OUT table, full rule editor); live feedback (matching rows light up, last-morph readout, transfer curves, warnings for parts of a rule that can't apply). See [MIDI Morpher](#midi-morpher)
+- **Panic ⚠** — the ⚠ button in the top bar (or ⌘.) sends All Notes Off, All Sound Off and Sustain off on every MIDI Out; with its Preferences options (both on by default) it also blacks out every DMX / ArtNet output and mutes all audio, and stays lit until clicked again
 - **MIDI Learn** — click Learn, move a knob or play a key, and the node fills itself in from the next MIDI event at its input: the MIDI Morpher (type, number, channel), MIDI to DMX (CC number), Channel Filter (channel), and the MIDI Out / MIDI Monitor channel filters (the channel replaces the selection)
 - **Value fields** — drag up/down to change a value, double-click to type it, ⌥ Option + drag to set a range's low and high together (MIDI Morpher; to be used across all nodes)
 - **Note names** — Yamaha (C3 = 60) or Roland (C4 = 60) convention, per node, in MIDI Monitor, MIDI Keyboard and MIDI Morpher

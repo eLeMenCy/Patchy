@@ -105,6 +105,8 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
                                            if (node) node->resetToDefault();
                                            p.saveMidiChMatrixState (nid);
                                        };
+    bridge.onPanic                   = [&p] { return p.triggerPanic(); };      // v0.0.948
+    bridge.getPanicLatched           = [&p] { return p.isPanicLatched(); };
     bridge.onSetLearnArm             = [&p](const juce::String& nid, bool on)   // v0.0.929
                                        {
                                            if (auto* n = p.getProcessingGraph().findNode (nid)) n->armLearn (on);
@@ -335,6 +337,10 @@ bool PatchyEditor::keyPressed (const juce::KeyPress& key, juce::Component*)
     }
 
     if (! cmd) return false;
+
+    // v0.0.948 — ⌘. (Command-period, the classic Mac "stop"): panic. Handled
+    // here only (not also in the WebView) so one press never toggles twice.
+    if (key.getKeyCode() == '.' || key.getTextCharacter() == '.') { bridge.handlePanic(); return true; }
 
     // Phase 6 rename fix, 2026-09-25 — while a UI text field has focus,
     // Cmd+Z / Cmd+Shift+Z must not undo/redo the graph (it removed a

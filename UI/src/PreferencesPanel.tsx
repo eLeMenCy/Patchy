@@ -218,6 +218,10 @@ function GraphTab ({ prefs, onChange }: {
   const [wrapIsDefault, setWrapIsDefault] = useState(true);
   const [wrapUnreachable, setWrapUnreachable] = useState('');
   useEffect(() => Bridge.onWrapLibrary(lib => { setWrapFolder(lib.folder); setWrapIsDefault(lib.isDefault); setWrapUnreachable(lib.unreachable ?? ''); }), []);
+  // v0.0.948 — Panic options (app-wide, AppSettings.h; both on by default)
+  const [panicBlackout, setPanicBlackout] = useState(true);
+  const [panicMute,     setPanicMute]     = useState(true);
+  useEffect(() => Bridge.onPanicState(st => { setPanicBlackout(st.blackout); setPanicMute(st.mute); }), []);
   const prefBtn: React.CSSProperties = {
     fontSize: 10, padding: '3px 10px', borderRadius: 'var(--radius)', cursor: 'pointer',
     background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border-hi)',
@@ -260,6 +264,20 @@ function GraphTab ({ prefs, onChange }: {
           />
         </>
       )}
+      {/* v0.0.948 — what ⚠ (and ⌘.) does besides the MIDI panic */}
+      <SectionHeader label="Panic ⚠" />
+      <ToggleRow
+        label="Also black out DMX / ArtNet"
+        desc="⚠ always sends All Notes Off, All Sound Off and Sustain off on every MIDI Out. With this on, it also sends all-zero frames to every DMX and ArtNet output, and the button stays lit until you click it again."
+        value={panicBlackout}
+        onChange={v => Bridge.setPanicOptions(v, panicMute)}
+      />
+      <ToggleRow
+        label="Also mute audio"
+        desc="With this on, ⚠ also silences every Audio Out and Patchy's own output (the DAW track or the Standalone's device) until you click it again."
+        value={panicMute}
+        onChange={v => Bridge.setPanicOptions(panicBlackout, v)}
+      />
       {/* v0.0.939 — where the wrap library lives */}
       <SectionHeader label="Wrap library" />
       <div style={{ marginBottom: 10 }}>

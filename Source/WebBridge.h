@@ -189,6 +189,8 @@ public:
 
     // Called directly from C++ (e.g. keyboard shortcuts in PatchyEditor)
     void handleFileNew();
+    /** v0.0.948 — ⚠ / ⌘.: trigger (or release) the panic and tell the UI. */
+    void handlePanic();
     void handleFileOpen();
     void handleFileSave();
     void handleFileSaveAs();
@@ -241,6 +243,8 @@ public:
     // v0.0.929 — generic MIDI Learn: arm / disarm a node (setNodeParam key
     // "learnArm", "1"/"0"). Not graph state: no undo snapshot, no graph push.
     std::function<void(const juce::String&, bool)>                                                 onSetLearnArm;
+    std::function<bool()> onPanic;            // v0.0.948 — returns the latched state
+    std::function<bool()> getPanicLatched;    // v0.0.948
     // AudioPlayerNode's own controls — playback (play/pause/stop/seek/
     // return-to-start) is real-time/discrete, handled separately from the
     // small, discrete settings (mode/frequency/noise type/level/loop),
@@ -404,6 +408,7 @@ private:
     bool openFile (const juce::File& file);   // load + make current + recent list; false if unreadable
     void pushRecentFiles();
     void pushAppSettings();
+    void pushPanicState (bool latched);   // v0.0.948
     void handleLaunchActions();               // Standalone, once per process: ask / reopen / report missing
     void handleAudioPlayerLoadFile (const juce::DynamicObject* obj);
     void handleAudioPlayerRequestFileInfo (const juce::DynamicObject* obj);

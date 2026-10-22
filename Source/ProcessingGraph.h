@@ -116,6 +116,12 @@ public:
     }
     GraphModel* graphModel = nullptr;  // set by PatchyProcessor, used for dynamic port updates
     bool isStandaloneMode = false;  // set true only in standalone app
+    // v0.0.948 — Panic, set by PatchyProcessor before each block (the state
+    // itself lives there: a graph is replaced on every edit).
+    bool panicMidi     = false;   // this block only: MIDI panic into every MIDI Out
+    bool panicBlackout = false;   // latched: all-zero frame into every DMX / ArtNet Out
+    bool panicMute     = false;   // latched: silence into every Audio Out + the host output
+    bool panicRelease  = false;   // this block only: consoles re-send their state (they only send on change)
     int  getNodeCount() const { return (int) nodes.size(); }
     const std::vector<std::unique_ptr<NodeProcessor>>& getNodes() const { return nodes; }
     std::vector<std::unique_ptr<NodeProcessor>>&       getNodes()       { return nodes; }

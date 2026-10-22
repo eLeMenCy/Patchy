@@ -62,6 +62,13 @@ void WebBridge::handleMessage (const juce::String& json)
         AppSettings::clearRecentFiles();
         pushRecentFiles();
     }
+    else if (type == "panic")   // v0.0.948
+        handlePanic();
+    else if (type == "setPanicOptions")   // v0.0.948 — Preferences → Panic
+    {
+        AppSettings::setPanicOptions ((bool) obj->getProperty ("blackout"), (bool) obj->getProperty ("mute"));
+        pushPanicState (getPanicLatched ? getPanicLatched() : false);
+    }
     else if (type == "setReopenLastProject")
     {
         AppSettings::setReopenLastProject ((bool) obj->getProperty ("enabled"));
@@ -141,6 +148,7 @@ void WebBridge::handleReady ()
         pushToUI ("onKeepRunningWhenHostPaused", getKeepRunning() ? "true" : "false");
     pushRecentFiles();     // v0.0.923
     pushAppSettings();
+    pushPanicState (getPanicLatched ? getPanicLatched() : false);   // v0.0.948
     handleLaunchActions();
     pushSerialPorts();
     pushGraphToUI();

@@ -35,6 +35,8 @@ namespace AppSettings
             int               reopen = -1;
             juce::String      lastSession;
             juce::String      wrapLibrary;   // v0.0.939 — "" = default (~/Documents/Patchy/Wraps)
+            bool              panicBlackout = true;   // v0.0.948 — ⚠ also blacks out DMX / ArtNet (default on)
+            bool              panicMute     = true;   // v0.0.948 — ⚠ also mutes audio (default on)
             bool              loaded = false;
         };
         inline State& state() { static State s; return s; }
@@ -61,6 +63,8 @@ namespace AppSettings
             s.reopen = r.isVoid() || r.isUndefined() ? -1 : ((bool) r ? 1 : 0);
             s.lastSession = v["lastSessionFile"].toString();
             s.wrapLibrary = v["wrapLibraryDir"].toString();
+            if (v.hasProperty ("panicBlackout")) s.panicBlackout = (bool) v["panicBlackout"];
+            if (v.hasProperty ("panicMute"))     s.panicMute     = (bool) v["panicMute"];
         }
 
         // Caller holds the lock.
@@ -73,6 +77,8 @@ namespace AppSettings
             if (s.reopen >= 0) obj->setProperty ("reopenLastProject", s.reopen == 1);
             obj->setProperty ("lastSessionFile", s.lastSession);
             if (s.wrapLibrary.isNotEmpty()) obj->setProperty ("wrapLibraryDir", s.wrapLibrary);
+            obj->setProperty ("panicBlackout", s.panicBlackout);
+            obj->setProperty ("panicMute",     s.panicMute);
             const auto f = file();
             f.getParentDirectory().createDirectory();
             f.replaceWithText (juce::JSON::toString (juce::var (obj), true));
@@ -161,6 +167,17 @@ namespace AppSettings
         auto& s = detail::state(); std::lock_guard<std::mutex> g (s.lock);
         detail::loadIfNeeded (s);
         s.reopen = on ? 1 : 0;
+        detail::save (s);
+    }
+
+    // v0.0.948 — Panic options (Preferences → Panic), app-wide, both on by default
+    inline bool getPanicBlackout() { auto& s = detail::state(); std::lock_guard<std::mutex> g (s.lock); detail::loadIfNeeded (s); return s.panicBlackout; }
+    inline bool getPanicMute()     { auto& s = detail::state(); std::lock_guard<std::mutex> g (s.lock); detail::loadIfNeeded (s); return s.panicMute; }
+    inline void setPanicOptions (bool blackout, bool mute)
+    {
+        auto& s = detail::state(); std::lock_guard<std::mutex> g (s.lock);
+        detail::loadIfNeeded (s);
+        s.panicBlackout = blackout; s.panicMute = mute;
         detail::save (s);
     }
 }

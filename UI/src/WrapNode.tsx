@@ -57,6 +57,9 @@ export interface WrapActions {
   playerTransport: (nodeId: string, cmd: 'toggle' | 'start', playing: boolean) => void;
   playerLevel:     (nodeId: string, level: number, commit: boolean) => void;
   consoleBlackout: (nodeId: string, kind: 'dmxConsole' | 'artNetConsole', on: boolean) => void;
+  // v0.0.950 — console faders (user's idea): channel 1-512, value 0-255
+  consoleFader:        (nodeId: string, kind: 'dmxConsole' | 'artNetConsole', ch: number, value: number, commit: boolean) => void;
+  consoleFaderChannel: (nodeId: string, faders: number[], commit: boolean) => void;   // the whole list (channels; length = count)
 }
 
 // v0.0.949 — a built-in node inside the wrap with controls worth reaching
@@ -70,9 +73,25 @@ export interface WrapBuiltin {
   accent:   string;
   settings: Record<string, unknown>;   // the node's settingsJson, parsed
 }
-export const BUILTIN_CONTROLS: Record<WrapBuiltin['kind'], string[]> = {
-  player: ['Transport', 'Level'], dmxConsole: ['Blackout'], artNetConsole: ['Blackout'],
+// v0.0.950 — a console also has 1-4 Faders (index 1-4), each on a channel of
+// your choice (◀ [ch] ▶), remembered in the console's settings ("wrapFaders")
+export const MAX_WRAP_FADERS = 4;
+export const fadersOf = (b: WrapBuiltin): number[] => {
+  const a = b.settings.wrapFaders;
+  return Array.isArray (a) && a.length > 0
+    ? a.slice (0, MAX_WRAP_FADERS).map (n => Math.max (1, Math.min (512, Math.round (Number (n) || 1))))
+    : [1];
 };
+export const controlsOf = (b: WrapBuiltin): string[] =>
+  b.kind === 'player' ? ['Transport', 'Level'] : ['Blackout', ...fadersOf (b).map ((_, k) => `Fader ${k + 1}`)];
+/** A console's 512 channel values from its settings (base64), zeros when never set. */
+export function consoleChannels (b: WrapBuiltin): Uint8Array {
+  const out = new Uint8Array (512);
+  const b64 = b.settings[b.kind === 'dmxConsole' ? 'dmxChannels' : 'artNetChannels'];
+  if (typeof b64 !== 'string') return out;
+  try { const bin = atob (b64); for (let i = 0; i < 512 && i < bin.length; i++) out[i] = bin.charCodeAt (i); } catch { /* zeros */ }
+  return out;
+}
 
 // v0.0.931 — a generic Pax inside the wrap, with its current values
 export interface WrapPax {
@@ -333,7 +352,7 @@ function BuiltinControl ({ b, i, actions, playing, labelNode }: {
 }) {
   const { setHint } = useContext (HintContext);
   const row: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 };
-  const label = labelNode ?? <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{BUILTIN_CONTROLS[b.kind][i]}</span>;
+  const label = labelNode ?? <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{controlsOf (b)[i]}</span>;
   const btn = (on: boolean, accent: string): React.CSSProperties => ({
     fontSize: 9, padding: '2px 8px', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
     border: `1px solid ${on ? accent : 'var(--border)'}`, color: on ? accent : 'var(--text-muted)',
@@ -372,6 +391,46 @@ function BuiltinControl ({ b, i, actions, playing, labelNode }: {
           onMouseUp={() => actions.playerLevel (b.nodeId, dbToLevel (db), true)}
           onDoubleClick={() => actions.playerLevel (b.nodeId, 0.1, true)}
           {...tip (`Level — ${b.name}`, `${fmtDb (db)} dB. Double-click to reset. Same control as on the node.`)}
+          style={{ width: '100%', display: 'block', ['--thumb-color' as any]: b.accent }} />
+      </div>
+    );
+  }
+
+  // DMX / ArtNet Console: Fader k (i = k + 1) — ◀ [channel] ▶, value, slider
+  if (i >= 1) {
+    const kind   = b.kind as 'dmxConsole' | 'artNetConsole';
+    const faders = fadersOf (b);
+    const k = i - 1, ch = faders[k] ?? 1;
+    const val = consoleChannels (b)[ch - 1] ?? 0;
+    const setCh = (c: number, commit: boolean) => {
+      const next = [...faders]; next[k] = Math.max (1, Math.min (512, Math.round (c)));
+      actions.consoleFaderChannel (b.nodeId, next, commit);
+    };
+    const arrow = (dir: -1 | 1) => (
+      <span onClick={() => setCh (ch + dir, true)} {...tip (dir < 0 ? 'Previous channel' : 'Next channel', 'Picks which console channel this fader drives (1-512); remembered with the project.')}
+        style={{ cursor: 'pointer', fontSize: 9, color: 'var(--text-muted)', padding: '0 2px', userSelect: 'none' }}>{dir < 0 ? '◀' : '▶'}</span>
+    );
+    return (
+      <div>
+        <div style={row}>{label}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            {arrow (-1)}
+            <ValueBox value={ch} min={1} max={512} format={c => `Ch ${c}`} accent={b.accent}
+              parse={t => parseInt (t.replace (/[^0-9]/g, ''), 10)}
+              onLive={c => setCh (c, false)} onCommit={c => setCh (c, true)}
+              width={46} style={{ fontSize: 9, padding: '1px 2px' }} />
+            {arrow (1)}
+            <ValueBox value={val} min={0} max={255} accent={b.accent}
+              onLive={v => actions.consoleFader (b.nodeId, kind, ch, v, false)}
+              onCommit={v => actions.consoleFader (b.nodeId, kind, ch, v, true)}
+              width={34} style={{ ...readoutBoxStyle ('var(--text-dim)'), fontSize: 9 }} />
+          </span>
+        </div>
+        <input type="range" className="nodrag" min={0} max={255} step={1} value={val}
+          onChange={e => actions.consoleFader (b.nodeId, kind, ch, Number (e.target.value), false)}
+          onMouseUp={() => actions.consoleFader (b.nodeId, kind, ch, val, true)}
+          onDoubleClick={() => actions.consoleFader (b.nodeId, kind, ch, 0, true)}
+          {...tip (`Ch ${ch} — ${b.name}`, `${val} (0-255). Double-click for 0. Same channel as on the console.`)}
           style={{ width: '100%', display: 'block', ['--thumb-color' as any]: b.accent }} />
       </div>
     );
@@ -433,7 +492,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
   // v0.0.949 — pinned built-in controls (kept in pin order with the Pax ones)
   const pinnedB = pins.flatMap (q => {
     const b = builtins.find (y => y.nodeId === q.nodeId);
-    return b && BUILTIN_CONTROLS[b.kind][q.index] ? [{ q, b }] : [];
+    return b && controlsOf (b)[q.index] ? [{ q, b }] : [];
   });
   const pinOrder = (k: string) => pins.findIndex (q => pinKey (q.nodeId, q.index) === k);
   const togglePin = (nodeId: string, index: number) =>
@@ -610,7 +669,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
               ); }) () })),
               // v0.0.949 — pinned built-in controls
               ...pinnedB.map (({ q, b }) => {
-                const def = `${BUILTIN_CONTROLS[b.kind][q.index]} · ${b.name}`;
+                const def = `${controlsOf (b)[q.index]} · ${b.name}`;
                 return { k: pinKey (q.nodeId, q.index), el: (
                   <div key={pinKey (q.nodeId, q.index)} style={{ paddingTop: 4, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
                     <span onClick={() => togglePin (q.nodeId, q.index)}
@@ -700,7 +759,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
             <div key={b.nodeId} style={{ paddingTop: 6 }}>
               <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', color: b.accent,
                             textTransform: 'uppercase', marginBottom: 2 }}>{b.name}</div>
-              {BUILTIN_CONTROLS[b.kind].map ((_, i) => {
+              {controlsOf (b).map ((_, i) => {
                 const on = pinnedSet.has (pinKey (b.nodeId, i));
                 return (
                   <div key={i} style={{ padding: '2px 4px', margin: '4px -4px 0', display: 'flex', alignItems: 'flex-start', gap: 6,
@@ -719,6 +778,23 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
                   </div>
                 );
               })}
+              {b.kind !== 'player' && (() => {   // v0.0.950 — 1 to 4 faders
+                const f = fadersOf (b);
+                const small: React.CSSProperties = { fontSize: 9, padding: '1px 6px', borderRadius: 3, cursor: 'pointer',
+                                                     border: '1px solid var(--border)', color: 'var(--text-muted)' };
+                return (
+                  <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 4 }}>
+                    {f.length > 1 && (
+                      <span style={small} onClick={() => actions.consoleFaderChannel (b.nodeId, f.slice (0, -1), true)}
+                        {...hint ('Remove a fader', 'Removes the last fader (its pin goes with it). Undoable.')}>− fader</span>
+                    )}
+                    {f.length < MAX_WRAP_FADERS && (
+                      <span style={small} onClick={() => actions.consoleFaderChannel (b.nodeId, [...f, Math.min (512, f[f.length - 1] + 1)], true)}
+                        {...hint ('Add a fader', `Up to ${MAX_WRAP_FADERS} faders, each on its own channel (it starts on the next one). Undoable.`)}>+ fader</span>
+                    )}
+                  </div>
+                );
+              }) ()}
             </div>
           ))}
         </div>

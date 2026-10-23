@@ -1415,6 +1415,28 @@ function FlowCanvas() {
       if (kind === 'dmxConsole') Bridge.setDmxBlackout(nodeId, on); else Bridge.setArtNetBlackout(nodeId, on);
       Bridge.commitSettingsChange(nodeId, merged);   // one undo step, like the console's own button
     },
+    // v0.0.950 — console faders: the console's own channel path (live) + its
+    // settings (base64, like its own faders) — one undo step per drag
+    consoleFader: (nodeId, kind, ch, value, commit) => {
+      const key = kind === 'dmxConsole' ? 'dmxChannels' : 'artNetChannels';
+      const n = nodesRef.current.find(m => m.id === nodeId);
+      let base: Record<string, unknown> = {};
+      try { base = n?.data?.settingsJson ? JSON.parse(n.data.settingsJson as string) : {}; } catch { /* {} */ }
+      const bytes = new Uint8Array(512);
+      if (typeof base[key] === 'string') { try { const bin = atob(base[key] as string); for (let i = 0; i < 512 && i < bin.length; i++) bytes[i] = bin.charCodeAt(i); } catch { /* zeros */ } }
+      bytes[ch - 1] = Math.max(0, Math.min(255, Math.round(value)));
+      let bin = ''; for (let i = 0; i < 512; i++) bin += String.fromCharCode(bytes[i]);
+      const merged = mergeNodeSettings(nodeId, { [key]: btoa(bin) });
+      Bridge.setNodeSettings(nodeId, merged);
+      if (kind === 'dmxConsole') Bridge.setDmxConsoleChannel(nodeId, ch - 1, bytes[ch - 1]);
+      else                       Bridge.setArtNetConsoleChannel(nodeId, ch - 1, bytes[ch - 1]);
+      if (commit) Bridge.commitNodeSettings(nodeId);
+    },
+    consoleFaderChannel: (nodeId, faders, commit) => {
+      const merged = mergeNodeSettings(nodeId, { wrapFaders: faders });
+      Bridge.setNodeSettings(nodeId, merged);
+      if (commit) Bridge.commitNodeSettings(nodeId);
+    },
     foldHeader: (wrapId) => {   // v0.0.941 — see headerFromOpen
       setHeaderFromOpen(s => new Set(s).add(wrapId));
       wrapActionsRef.current?.close(wrapId);

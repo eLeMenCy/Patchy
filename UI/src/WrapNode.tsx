@@ -53,7 +53,26 @@ export interface WrapActions {
   // v0.0.941 — open frame folded straight to its header (the box, header
   // only); unfolding that header goes back to the open frame
   foldHeader:  (wrapId: string) => void;
+  // v0.0.949 — built-in nodes' controls (batch 1: Audio Player, DMX / ArtNet Console)
+  playerTransport: (nodeId: string, cmd: 'toggle' | 'start', playing: boolean) => void;
+  playerLevel:     (nodeId: string, level: number, commit: boolean) => void;
+  consoleBlackout: (nodeId: string, kind: 'dmxConsole' | 'artNetConsole', on: boolean) => void;
 }
+
+// v0.0.949 — a built-in node inside the wrap with controls worth reaching
+// from the folded box. Controls by index (also the pin index):
+//   Audio Player: 0 Transport (play / pause, back to start), 1 Level
+//   DMX / ArtNet Console: 0 Blackout
+export interface WrapBuiltin {
+  nodeId:   string;
+  kind:     'player' | 'dmxConsole' | 'artNetConsole';
+  name:     string;
+  accent:   string;
+  settings: Record<string, unknown>;   // the node's settingsJson, parsed
+}
+export const BUILTIN_CONTROLS: Record<WrapBuiltin['kind'], string[]> = {
+  player: ['Transport', 'Level'], dmxConsole: ['Blackout'], artNetConsole: ['Blackout'],
+};
 
 // v0.0.931 — a generic Pax inside the wrap, with its current values
 export interface WrapPax {
@@ -73,6 +92,7 @@ export interface WrapNodeData {
   wrap:    RawWrap;
   ports:   WrapPort[];
   pax:     WrapPax[];
+  builtins?: WrapBuiltin[];   // v0.0.949
   actions: WrapActions;
   [key: string]: unknown;
 }
@@ -302,9 +322,78 @@ const titleStyle: React.CSSProperties = {
   fontFamily: "'Syne', sans-serif",
 };
 
+// ── v0.0.949 — one built-in node's control in the wrap (panel or pinned) ────
+const LEVEL_MIN_DB = -60;   // same mapping as the Audio Player's own level slider
+const levelToDb = (l: number) => l <= 0 ? LEVEL_MIN_DB : Math.max (LEVEL_MIN_DB, 20 * Math.log10 (l));
+const dbToLevel = (db: number) => db <= LEVEL_MIN_DB ? 0 : Math.pow (10, db / 20);
+const fmtDb = (db: number) => db <= LEVEL_MIN_DB ? '-∞' : db.toFixed (1);
+
+function BuiltinControl ({ b, i, actions, playing, labelNode }: {
+  b: WrapBuiltin; i: number; actions: WrapActions; playing: boolean; labelNode?: React.ReactNode;
+}) {
+  const { setHint } = useContext (HintContext);
+  const row: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 };
+  const label = labelNode ?? <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{BUILTIN_CONTROLS[b.kind][i]}</span>;
+  const btn = (on: boolean, accent: string): React.CSSProperties => ({
+    fontSize: 9, padding: '2px 8px', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+    border: `1px solid ${on ? accent : 'var(--border)'}`, color: on ? accent : 'var(--text-muted)',
+    background: on ? 'color-mix(in srgb, currentColor 15%, transparent)' : 'transparent',
+  });
+  const tip = (title: string, body: string) => ({ onMouseEnter: () => setHint ({ title, body }), onMouseLeave: () => setHint (null) });
+
+  if (b.kind === 'player' && i === 0)
+    return (
+      <div style={row}>{label}
+        <div style={{ display: 'flex', gap: 4 }}>
+          <span onClick={() => actions.playerTransport (b.nodeId, 'start', playing)} style={btn (false, b.accent)}
+            {...tip ('Back to start', `${b.name}: back to the beginning of the file.`)}>⏮</span>
+          <span onClick={() => actions.playerTransport (b.nodeId, 'toggle', playing)} style={btn (playing, b.accent)}
+            {...tip (playing ? 'Pause' : 'Play', `${b.name}: ${playing ? 'pause' : 'start'} playback — same as on the node.`)}>
+            {playing ? '❚❚ Pause' : '▶ Play'}
+          </span>
+        </div>
+      </div>
+    );
+
+  if (b.kind === 'player' && i === 1) {
+    const lvl = typeof b.settings.level === 'number' ? b.settings.level as number : 0.1;
+    const db  = levelToDb (lvl);
+    return (
+      <div>
+        <div style={row}>{label}
+          <ValueBox value={db} min={LEVEL_MIN_DB} max={0} step={0.5} fineStep={0.1} format={fmtDb} minWord="-∞" accent={b.accent}
+            parse={t => /inf|∞/i.test (t) ? LEVEL_MIN_DB : parseFloat (t.replace (',', '.'))}
+            onLive={v => actions.playerLevel (b.nodeId, dbToLevel (v), false)}
+            onCommit={v => actions.playerLevel (b.nodeId, dbToLevel (v), true)}
+            width={48} style={{ ...readoutBoxStyle ('var(--text-dim)'), fontSize: 9 }} />
+        </div>
+        <input type="range" className="nodrag" min={LEVEL_MIN_DB} max={0} step="any" value={db}
+          onChange={e => actions.playerLevel (b.nodeId, dbToLevel (parseFloat (e.target.value)), false)}
+          onMouseUp={() => actions.playerLevel (b.nodeId, dbToLevel (db), true)}
+          onDoubleClick={() => actions.playerLevel (b.nodeId, 0.1, true)}
+          {...tip (`Level — ${b.name}`, `${fmtDb (db)} dB. Double-click to reset. Same control as on the node.`)}
+          style={{ width: '100%', display: 'block', ['--thumb-color' as any]: b.accent }} />
+      </div>
+    );
+  }
+
+  // DMX / ArtNet Console: Blackout
+  const on = b.settings.blackout === true;
+  return (
+    <div style={row}>{label}
+      <span onClick={() => actions.consoleBlackout (b.nodeId, b.kind as 'dmxConsole' | 'artNetConsole', ! on)}
+        style={btn (on, '#ef4444')}
+        {...tip ('Blackout', `${b.name}: all of its channels to 0 while on — same as the console's own Blackout. Undoable.`)}>
+        {on ? '■ Blackout on' : 'Blackout'}
+      </span>
+    </div>
+  );
+}
+
 // ── Folded wrap ──────────────────────────────────────────────────────────────
 export function WrapNode ({ id, data, selected }: NodeProps) {
   const { wrap, ports, pax, actions } = data as WrapNodeData;
+  const builtins = (data as WrapNodeData).builtins ?? [];   // v0.0.949
   const { setHint } = useContext (HintContext);
   const updateNodeInternals = useUpdateNodeInternals();
   const [showSettings, setShowSettings] = useState (false);
@@ -341,6 +430,12 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
     const p = x?.params[q.index];
     return x && p && x.shown[q.index] !== false ? [{ q, x, p }] : [];
   });
+  // v0.0.949 — pinned built-in controls (kept in pin order with the Pax ones)
+  const pinnedB = pins.flatMap (q => {
+    const b = builtins.find (y => y.nodeId === q.nodeId);
+    return b && BUILTIN_CONTROLS[b.kind][q.index] ? [{ q, b }] : [];
+  });
+  const pinOrder = (k: string) => pins.findIndex (q => pinKey (q.nodeId, q.index) === k);
   const togglePin = (nodeId: string, index: number) =>
     actions.setPins (wrap.id, pinnedSet.has (pinKey (nodeId, index))
       ? pins.filter (q => pinKey (q.nodeId, q.index) !== pinKey (nodeId, index))
@@ -348,7 +443,27 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
   const renamePin = (nodeId: string, index: number, label: string) =>
     actions.setPins (wrap.id, pins.map (q => q.nodeId === nodeId && q.index === index ? { ...q, label } : q));
 
-  const summary = paxSummary (pax, live, pinnedSet);
+  const summary0 = paxSummary (pax, live, pinnedSet);
+  // v0.0.949 — built-ins in the summary: a playing Player, a console in blackout
+  const [playingMap, setPlayingMap] = useState<Map<string, boolean>> (new Map());
+  const playerKey = builtins.filter (b => b.kind === 'player').map (b => b.nodeId).join ('|');
+  useEffect (() => {
+    if (! playerKey) return;
+    const ids = new Set (playerKey.split ('|'));
+    return Bridge.onAudioPlayerStatus (st => {
+      const got = st.filter (x => ids.has (x.nodeId));
+      if (got.length === 0) return;
+      setPlayingMap (prev => {
+        if (got.every (x => prev.get (x.nodeId) === x.playing)) return prev;
+        const next = new Map (prev); got.forEach (x => next.set (x.nodeId, x.playing)); return next;
+      });
+    });
+  }, [playerKey]);
+  const builtinParts: SummaryPart[] = builtins.flatMap (b =>
+    b.kind === 'player' ? (pinnedSet.has (pinKey (b.nodeId, 0)) ? [] : [{ text: `${playingMap.get (b.nodeId) ? '▶' : '❚❚'} ${b.name}` }])
+    : b.settings.blackout === true && ! pinnedSet.has (pinKey (b.nodeId, 0)) ? [{ text: `■ ${b.name} blackout`, colour: '#ef4444' }] : []);
+  const summary = { parts: [...summary0.parts, ...builtinParts],
+                    full: [...summary0.parts, ...builtinParts].map (q => q.text).join (' · ') };
 
   // Hovering the summary shows it in full in the hint panel, refreshed with
   // the live values (a native title tooltip is a frozen snapshot)
@@ -425,7 +540,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
         <span style={{ fontSize: 9, color: 'var(--text-muted)', marginLeft: 2 }}>{wrap.nodeIds.length} nodes</span>
         <div style={{ flex: 1 }} />
         <div style={{ display: 'flex', gap: 4 }} onDoubleClick={e => e.stopPropagation()}>
-          {pax.length > 0 && ! collapsed && (
+          {(pax.length > 0 || builtins.length > 0) && ! collapsed && (
             <NodeHeaderButton onClick={() => setShowSettings (v => ! v)} active={showSettings} activeAccent={WRAP_ACCENT}
               onHint={hint ('Wrap settings', 'Every Pax parameter inside this wrap, grouped by node — the same controls as on the nodes themselves (one undo step per change).')}>
               <Settings size={11} color={showSettings ? WRAP_ACCENT : 'var(--text-muted)'} />
@@ -470,10 +585,10 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
         {/* 📌 Pinned controls (v0.0.932): working controls, renamable label,
             unpin with their own 📌. Hidden while ⚙ is open (like the summary)
             so pinning there never moves the list under the cursor. */}
-        {pinned.length > 0 && ! showSettings && (
+        {(pinned.length > 0 || pinnedB.length > 0) && ! showSettings && (
           <div className="nodrag" onDoubleClick={e => e.stopPropagation()}
             style={{ marginTop: ports.length > 0 ? 6 : 0, paddingTop: 4, borderTop: '1px dashed var(--border)', minWidth: 220 }}>
-            {pinned.map (({ q, x, p }) => {
+            {[...pinned.map (e => ({ k: pinKey (e.q.nodeId, e.q.index), el: (() => { const { q, x, p } = e;
               const def = `${pairRole (x, q.index) ? pairLabel (p) : p.name} · ${x.name}`;
               return (
                 <div key={pinKey (q.nodeId, q.index)} style={{ paddingTop: 4, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
@@ -492,8 +607,28 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
                     } />
                   </div>
                 </div>
-              );
-            })}
+              ); }) () })),
+              // v0.0.949 — pinned built-in controls
+              ...pinnedB.map (({ q, b }) => {
+                const def = `${BUILTIN_CONTROLS[b.kind][q.index]} · ${b.name}`;
+                return { k: pinKey (q.nodeId, q.index), el: (
+                  <div key={pinKey (q.nodeId, q.index)} style={{ paddingTop: 4, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                    <span onClick={() => togglePin (q.nodeId, q.index)}
+                      {...hint ('Unpin', 'Takes this control off the box (it stays in the ⚙ panel). Undoable.')}
+                      style={{ cursor: 'pointer', display: 'inline-flex', paddingTop: 1, flexShrink: 0, color: WRAP_ACCENT }}>
+                      <Pin size={10} fill="currentColor" />
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <BuiltinControl b={b} i={q.index} actions={actions} playing={playingMap.get (b.nodeId) ?? false}
+                        labelNode={
+                          <EditableTitle display={q.label || def} value={q.label} placeholder={def}
+                            onCommit={name => renamePin (q.nodeId, q.index, name)}
+                            textStyle={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.04em' }} />
+                        } />
+                    </div>
+                  </div>
+                ) };
+              })].sort ((a, b) => pinOrder (a.k) - pinOrder (b.k)).map (e => e.el)}
           </div>
         )}
 
@@ -554,6 +689,32 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
                     </span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <WrapParamControl x={x} p={p} i={i} live={live.get (pinKey (x.nodeId, i))} actions={actions} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+          {/* v0.0.949 — built-in nodes' controls */}
+          {builtins.map (b => (
+            <div key={b.nodeId} style={{ paddingTop: 6 }}>
+              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', color: b.accent,
+                            textTransform: 'uppercase', marginBottom: 2 }}>{b.name}</div>
+              {BUILTIN_CONTROLS[b.kind].map ((_, i) => {
+                const on = pinnedSet.has (pinKey (b.nodeId, i));
+                return (
+                  <div key={i} style={{ padding: '2px 4px', margin: '4px -4px 0', display: 'flex', alignItems: 'flex-start', gap: 6,
+                                        borderRadius: 3, background: on ? 'color-mix(in srgb, var(--generic) 10%, transparent)' : 'transparent' }}>
+                    <span onClick={() => togglePin (b.nodeId, i)}
+                      {...hint (on ? 'Unpin' : 'Pin on the box', on
+                        ? 'Takes this control off the folded box (it stays here). Undoable.'
+                        : 'Shows this control on the folded box itself (once ⚙ is closed), ready to use; rename it there with the ✎, unpin it there or here. Undoable.')}
+                      style={{ cursor: 'pointer', display: 'inline-flex', paddingTop: 1, flexShrink: 0,
+                               color: on ? WRAP_ACCENT : 'var(--text-muted)', opacity: on ? 1 : 0.45 }}>
+                      <Pin size={10} fill={on ? 'currentColor' : 'none'} />
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <BuiltinControl b={b} i={i} actions={actions} playing={playingMap.get (b.nodeId) ?? false} />
                     </div>
                   </div>
                 );

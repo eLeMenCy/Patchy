@@ -22,7 +22,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import { Bridge, RecentFile, FileMissing, FileState, AudioSettings, GraphState, RawNode, RawConnection, RawPort, PortActivityEntry, PaxParamInfo, PaxInfo, FragmentData, UndoState, AudioPlayerStatus, RawWrap, PanicState } from './Bridge';
-import { WrapNode, WrapFrame, WrapRail, WrapRouteEdge, WrapPort, WrapPax, WrapActions, FRAME_PAD, FRAME_HEAD, FRAME_PORT_TOP, FRAME_PORT_GAP } from './WrapNode';
+import { WrapNode, WrapFrame, WrapRail, WrapRouteEdge, WrapPort, WrapPax, WrapActions, WrapBuiltin, FRAME_PAD, FRAME_HEAD, FRAME_PORT_TOP, FRAME_PORT_GAP } from './WrapNode';
 import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
@@ -356,6 +356,24 @@ const paxNodeAccent = (n: Node<any>) =>
 
 // The Pax inside a wrap — generic ones and (v0.0.933) the bespoke ones,
 // through PAX_LAYOUTS
+// v0.0.949 — built-in nodes in a wrap whose controls the wrap's ⚙ panel shows
+// (batch 1: Audio Player, DMX / ArtNet Console), top to bottom
+function wrapBuiltinsOf (p: RawWrap, nodes: Node<any>[]): WrapBuiltin[] {
+  const ids = new Set(p.nodeIds);
+  const kindOf = (t: number): WrapBuiltin['kind'] | null => t === 26 ? 'player' : t === 17 ? 'dmxConsole' : t === 19 ? 'artNetConsole' : null;
+  const accentOf: Record<WrapBuiltin['kind'], string> = { player: 'var(--audio)', dmxConsole: 'var(--dmx)', artNetConsole: 'var(--artnet)' };
+  return nodes
+    .filter(n => ids.has(n.id) && kindOf(n.data?.nodeType) !== null)
+    .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x)
+    .map(n => {
+      const kind = kindOf(n.data.nodeType)!;
+      let settings: Record<string, unknown> = {};
+      try { settings = n.data.settingsJson ? JSON.parse(n.data.settingsJson as string) : {}; } catch { /* keep {} */ }
+      return { nodeId: n.id, kind, accent: accentOf[kind], settings,
+               name: (n.data.customName as string) || (settings.customName as string) || (n.data.label as string) || kind };
+    });
+}
+
 function wrapPaxOf (p: RawWrap, nodes: Node<any>[]): WrapPax[] {
   const ids = new Set(p.nodeIds);
   return nodes
@@ -1336,6 +1354,18 @@ function FlowCanvas() {
     setTimeout(() => { const vp = viewports.current.get(''); if (vp) setViewport(vp); }, 60);
   }, [getViewport, setViewport]);
 
+  // v0.0.949 — merge a patch into a node's settingsJson (local state + ref),
+  // returning the merged object (for setNodeSettings / commitSettingsChange)
+  const mergeNodeSettings = (nodeId: string, patch: Record<string, unknown>) => {
+    const n = nodesRef.current.find(m => m.id === nodeId);
+    let base: Record<string, unknown> = {};
+    try { base = n?.data?.settingsJson ? JSON.parse(n.data.settingsJson as string) : {}; } catch { /* keep {} */ }
+    const merged = { ...base, ...patch };
+    const json = JSON.stringify(merged);
+    nodesRef.current = nodesRef.current.map(m => m.id === nodeId ? { ...m, data: { ...m.data, settingsJson: json } } : m);
+    setNodes(ns => ns.map(m => m.id === nodeId ? { ...m, data: { ...m.data, settingsJson: json } } : m));
+    return merged;
+  };
   const wrapActions = useMemo<WrapActions>(() => ({
     enter: (wrapId) => enterWrap(wrapId),
     saveToLibrary: (wrapId) => Bridge.wrapSaveToLibrary(wrapId),
@@ -1367,6 +1397,24 @@ function FlowCanvas() {
     },
     unwrap: (wrapId) => Bridge.wrapUnwrap(wrapId),
     remove: (wrapId) => Bridge.wrapRemove(wrapId),
+    // v0.0.949 — built-in nodes' controls: the same messages as the nodes'
+    // own controls; settings changes also update the local settingsJson so
+    // the panel, the summary and the node itself (when shown) agree
+    playerTransport: (nodeId, cmd, playing) => {
+      if (cmd === 'start') Bridge.setNodeParam(nodeId, 'audioPlayerReturnToStart', '1');
+      else                 Bridge.setNodeParam(nodeId, 'audioPlayerPlaying', playing ? '0' : '1');
+    },
+    playerLevel: (nodeId, level, commit) => {
+      const merged = mergeNodeSettings(nodeId, { level });
+      Bridge.setNodeSettings(nodeId, merged);
+      Bridge.setNodeParam(nodeId, 'audioPlayerLevel', String(level));
+      if (commit) Bridge.commitNodeSettings(nodeId);
+    },
+    consoleBlackout: (nodeId, kind, on) => {
+      const merged = mergeNodeSettings(nodeId, { blackout: on });
+      if (kind === 'dmxConsole') Bridge.setDmxBlackout(nodeId, on); else Bridge.setArtNetBlackout(nodeId, on);
+      Bridge.commitSettingsChange(nodeId, merged);   // one undo step, like the console's own button
+    },
     foldHeader: (wrapId) => {   // v0.0.941 — see headerFromOpen
       setHeaderFromOpen(s => new Set(s).add(wrapId));
       wrapActionsRef.current?.close(wrapId);
@@ -1515,7 +1563,7 @@ function FlowCanvas() {
         boxes.push({
           id: WRAP_PREFIX + p.id, type: 'wrap', position: { x: p.x, y: p.y },
           deletable: false, selected: selectedWraps.has(p.id), measured: wrapMeasured[p.id],
-          data: { wrap: p, ports: wrapFacePorts(p, nodes, edges), pax: wrapPaxOf(p, nodes), actions: wrapActions,
+          data: { wrap: p, ports: wrapFacePorts(p, nodes, edges), pax: wrapPaxOf(p, nodes), builtins: wrapBuiltinsOf(p, nodes), actions: wrapActions,
                   _forceCollapsed: allCollapsed,     // v0.0.941 — global ⇕ fold
                   fromOpen: headerFromOpen.has(p.id) },
         });

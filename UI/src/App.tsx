@@ -358,10 +358,18 @@ const paxNodeAccent = (n: Node<any>) =>
 // through PAX_LAYOUTS
 // v0.0.949 — built-in nodes in a wrap whose controls the wrap's ⚙ panel shows
 // (batch 1: Audio Player, DMX / ArtNet Console), top to bottom
+// v0.0.951 — nodes with a ⏻ (Disable / Enable): every Pax and every built-in
+// except the monitors, the consoles and the MIDI Keyboard
+const NO_POWER = new Set([5, 6, 7, 16, 17, 18, 19, 20, 21, 24, 25]);
+const canDisable = (n: Node<any>) => !!n.data?.paxName || !NO_POWER.has(n.data?.nodeType);
+
 function wrapBuiltinsOf (p: RawWrap, nodes: Node<any>[]): WrapBuiltin[] {
   const ids = new Set(p.nodeIds);
-  const kindOf = (t: number): WrapBuiltin['kind'] | null => t === 26 ? 'player' : t === 17 ? 'dmxConsole' : t === 19 ? 'artNetConsole' : null;
-  const accentOf: Record<WrapBuiltin['kind'], string> = { player: 'var(--audio)', dmxConsole: 'var(--dmx)', artNetConsole: 'var(--artnet)' };
+  const kindOf = (t: number): WrapBuiltin['kind'] | null =>
+    t === 26 ? 'player' : t === 17 ? 'dmxConsole' : t === 19 ? 'artNetConsole'
+    : t === 2 ? 'midiOut' : t === 28 ? 'morpher' : null;   // v0.0.951 — + MIDI Out, Morpher (its ⏻)
+  const accentOf: Record<WrapBuiltin['kind'], string> = { player: 'var(--audio)', dmxConsole: 'var(--dmx)', artNetConsole: 'var(--artnet)',
+                                                          midiOut: 'var(--midi)', morpher: 'var(--midi)' };
   return nodes
     .filter(n => ids.has(n.id) && kindOf(n.data?.nodeType) !== null)
     .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x)
@@ -370,8 +378,16 @@ function wrapBuiltinsOf (p: RawWrap, nodes: Node<any>[]): WrapBuiltin[] {
       let settings: Record<string, unknown> = {};
       try { settings = n.data.settingsJson ? JSON.parse(n.data.settingsJson as string) : {}; } catch { /* keep {} */ }
       return { nodeId: n.id, kind, accent: accentOf[kind], settings,
+               disabled: !!n.data.disabled, canDisable: canDisable(n),
                name: (n.data.customName as string) || (settings.customName as string) || (n.data.label as string) || kind };
     });
+}
+
+// v0.0.951 — the wrap's ⏻: is any member with a ⏻ on, and how many have one
+function wrapPowerOf (p: RawWrap, nodes: Node<any>[]) {
+  const ids = new Set(p.nodeIds);
+  const members = nodes.filter(n => ids.has(n.id) && canDisable(n));
+  return { anyOn: members.some(n => !n.data.disabled), count: members.length };
 }
 
 function wrapPaxOf (p: RawWrap, nodes: Node<any>[]): WrapPax[] {
@@ -393,6 +409,7 @@ function wrapPaxOf (p: RawWrap, nodes: Node<any>[]): WrapPax[] {
                         const lo = raw?.[z[0]], hi = raw?.[z[1]];
                         return [typeof lo === 'number' ? lo : 20, typeof hi === 'number' ? hi : 20000] as [number, number]; })(),
       accent: paxNodeAccent(n),
+      disabled: !!n.data.disabled,   // v0.0.951 — its ⏻
       // live values = what the Pax sends out: its output wires' colour
       // (same label-based mapping as the edges); several output types →
       // the node's own colour
@@ -1437,6 +1454,25 @@ function FlowCanvas() {
       Bridge.setNodeSettings(nodeId, merged);
       if (commit) Bridge.commitNodeSettings(nodeId);
     },
+    // v0.0.951 — batch 2
+    midiOutChannels: (nodeId, channels) => {   // same message as the node's own filter (saved + undoable there)
+      mergeNodeSettings(nodeId, { channels });
+      Bridge.setNodeParam(nodeId, 'midiOutChannelFilter', JSON.stringify(channels));
+    },
+    setDisabled: (nodeId, disabled) => {       // the node's own ⏻ (live, one undo step)
+      setNodes(ns => ns.map(m => m.id === nodeId ? { ...m, data: { ...m.data, disabled } } : m));
+      Bridge.setNodeParam(nodeId, 'disabled', disabled ? '1' : '0');
+    },
+    wrapPower: (wrapId) => {                   // any member on → all off; all off → all on
+      const p = wrapsRef.current.find(q => q.id === wrapId);
+      if (!p) return;
+      const ids = new Set(p.nodeIds);
+      const members = nodesRef.current.filter(n => ids.has(n.id) && canDisable(n));
+      if (members.length === 0) return;
+      const off = members.some(n => !n.data.disabled);
+      setNodes(ns => ns.map(m => members.some(q => q.id === m.id) ? { ...m, data: { ...m.data, disabled: off } } : m));
+      Bridge.wrapSetDisabled(members.map(n => n.id), off);
+    },
     foldHeader: (wrapId) => {   // v0.0.941 — see headerFromOpen
       setHeaderFromOpen(s => new Set(s).add(wrapId));
       wrapActionsRef.current?.close(wrapId);
@@ -1579,13 +1615,13 @@ function FlowCanvas() {
           width: w, height: h, zIndex: -1, dragHandle: '.wrap-frame-drag',
           selectable: false, deletable: false, focusable: false,
           style: { width: w, height: h, pointerEvents: 'none' },
-          data: { wrap: p, actions: wrapActions, ports: fports, drop: dropHint[p.id] },
+          data: { wrap: p, actions: wrapActions, ports: fports, drop: dropHint[p.id], power: wrapPowerOf(p, nodes) },
         });
       } else {
         boxes.push({
           id: WRAP_PREFIX + p.id, type: 'wrap', position: { x: p.x, y: p.y },
           deletable: false, selected: selectedWraps.has(p.id), measured: wrapMeasured[p.id],
-          data: { wrap: p, ports: wrapFacePorts(p, nodes, edges), pax: wrapPaxOf(p, nodes), builtins: wrapBuiltinsOf(p, nodes), actions: wrapActions,
+          data: { wrap: p, ports: wrapFacePorts(p, nodes, edges), pax: wrapPaxOf(p, nodes), builtins: wrapBuiltinsOf(p, nodes), power: wrapPowerOf(p, nodes), actions: wrapActions,
                   _forceCollapsed: allCollapsed,     // v0.0.941 — global ⇕ fold
                   fromOpen: headerFromOpen.has(p.id) },
         });

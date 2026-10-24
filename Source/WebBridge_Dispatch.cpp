@@ -992,6 +992,28 @@ void WebBridge::handleWrapMessage (const juce::String& type, const juce::Dynamic
         graph.pushSnapshot();
         p->pins = std::move (pins);
     }
+    else if (type == "wrapSetDisabled")   // v0.0.951 — the wrap's ⏻: its nodes on / off, one undo step
+    {
+        // The UI sends the members that have a ⏻ (monitors, consoles and the
+        // keyboard don't); applied live like each node's own ⏻.
+        const bool on = (bool) obj->getProperty ("disabled");
+        juce::StringArray ids;
+        if (auto* a = obj->getProperty ("nodeIds").getArray())
+            for (auto& v : *a) ids.add (v.toString());
+        bool changed = false;
+        for (const auto& nid : ids)
+            if (auto* nd = graph.findNode (nid)) changed = changed || nd->disabled != on;
+        if (! changed) return;
+        pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
+        graph.pushSnapshot();
+        for (const auto& nid : ids)
+            if (auto* nd = graph.findNode (nid))
+            {
+                nd->disabled = on;
+                if (onSetNodeDisabled) onSetNodeDisabled (nid, on);
+            }
+        diagLog ("Wrap: " + juce::String (ids.size()) + " node(s) " + (on ? "disabled" : "enabled"));
+    }
     else if (type == "wrapRemove")   // delete the wrap AND its nodes — one undo step
     {
         auto* p = graph.findWrap (wrapId);

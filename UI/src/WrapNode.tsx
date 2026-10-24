@@ -18,7 +18,7 @@
 
 import { useContext, useEffect, useRef, useState } from 'react';
 import { NodeProps, EdgeProps, useUpdateNodeInternals, Handle, Position, BaseEdge, getBezierPath } from '@xyflow/react';
-import { Package, Maximize2, Minimize2, LogIn, Ungroup, X, Settings, Pin, BookmarkPlus } from 'lucide-react';
+import { Package, Maximize2, Minimize2, LogIn, Ungroup, X, Settings, Pin, BookmarkPlus, Power } from 'lucide-react';
 import { Bridge } from './Bridge';
 import type { RawWrap, RawWrapPin, PaxParamInfo } from './Bridge';
 import { HintContext } from './HintPanel';
@@ -60,6 +60,10 @@ export interface WrapActions {
   // v0.0.950 — console faders (user's idea): channel 1-512, value 0-255
   consoleFader:        (nodeId: string, kind: 'dmxConsole' | 'artNetConsole', ch: number, value: number, commit: boolean) => void;
   consoleFaderChannel: (nodeId: string, faders: number[], commit: boolean) => void;   // the whole list (channels; length = count)
+  // v0.0.951 — batch 2: MIDI Out channel filter, each node's ⏻, the wrap's ⏻
+  midiOutChannels: (nodeId: string, channels: number[]) => void;
+  setDisabled:     (nodeId: string, disabled: boolean) => void;
+  wrapPower:       (wrapId: string) => void;
 }
 
 // v0.0.949 — a built-in node inside the wrap with controls worth reaching
@@ -68,10 +72,12 @@ export interface WrapActions {
 //   DMX / ArtNet Console: 0 Blackout
 export interface WrapBuiltin {
   nodeId:   string;
-  kind:     'player' | 'dmxConsole' | 'artNetConsole';
+  kind:     'player' | 'dmxConsole' | 'artNetConsole' | 'midiOut' | 'morpher';   // v0.0.951 — + MIDI Out, Morpher
   name:     string;
   accent:   string;
   settings: Record<string, unknown>;   // the node's settingsJson, parsed
+  disabled?: boolean;     // v0.0.951 — its ⏻ is off
+  canDisable?: boolean;   // consoles have no ⏻
 }
 // v0.0.950 — a console also has 1-4 Faders (index 1-4), each on a channel of
 // your choice (◀ [ch] ▶), remembered in the console's settings ("wrapFaders")
@@ -83,7 +89,12 @@ export const fadersOf = (b: WrapBuiltin): number[] => {
     : [1];
 };
 export const controlsOf = (b: WrapBuiltin): string[] =>
-  b.kind === 'player' ? ['Transport', 'Level'] : ['Blackout', ...fadersOf (b).map ((_, k) => `Fader ${k + 1}`)];
+  b.kind === 'player'  ? ['Transport', 'Level']
+  : b.kind === 'midiOut' ? ['Channels']
+  : b.kind === 'morpher' ? []                       // its ⏻ (bypass) only, on its title
+  : ['Blackout', ...fadersOf (b).map ((_, k) => `Fader ${k + 1}`)];
+/** v0.0.951 — pin index of a node's ⏻ (any node with a ⏻ in the panel) */
+export const POWER_PIN = -1;
 /** A console's 512 channel values from its settings (base64), zeros when never set. */
 export function consoleChannels (b: WrapBuiltin): Uint8Array {
   const out = new Uint8Array (512);
@@ -105,6 +116,7 @@ export interface WrapPax {
   zoom?:   [number, number];           // the node's own display range for those pairs
   accent: string;            // the Pax's own colour (its node header's)
   liveColour: string;        // its output wires' colour (live values)
+  disabled?: boolean;        // v0.0.951 — its ⏻ is off
 }
 
 export interface WrapNodeData {
@@ -112,6 +124,7 @@ export interface WrapNodeData {
   ports:   WrapPort[];
   pax:     WrapPax[];
   builtins?: WrapBuiltin[];   // v0.0.949
+  power?:   { anyOn: boolean; count: number };   // v0.0.951 — the wrap's ⏻ (members that have one)
   actions: WrapActions;
   [key: string]: unknown;
 }
@@ -341,6 +354,22 @@ const titleStyle: React.CSSProperties = {
   fontFamily: "'Syne', sans-serif",
 };
 
+// ── v0.0.951 — a node's ⏻ in the wrap (its title in the panel, or pinned) ───
+function PowerToggle ({ disabled, name, onToggle, size = 10 }: {
+  disabled: boolean; name: string; onToggle: () => void; size?: number;
+}) {
+  const { setHint } = useContext (HintContext);
+  return (
+    <span onClick={onToggle}
+      onMouseEnter={() => setHint ({ title: disabled ? 'Enable' : 'Disable', body: `${name}: ${disabled ? 'switch back on' : 'switch off'} — same as the node's own ⏻ (cut or pass-through, depending on the node). Undoable.` })}
+      onMouseLeave={() => setHint (null)}
+      style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', color: disabled ? 'var(--text-muted)' : WRAP_ACCENT,
+               opacity: disabled ? 0.55 : 1 }}>
+      <Power size={size} />
+    </span>
+  );
+}
+
 // ── v0.0.949 — one built-in node's control in the wrap (panel or pinned) ────
 const LEVEL_MIN_DB = -60;   // same mapping as the Audio Player's own level slider
 const levelToDb = (l: number) => l <= 0 ? LEVEL_MIN_DB : Math.max (LEVEL_MIN_DB, 20 * Math.log10 (l));
@@ -392,6 +421,31 @@ function BuiltinControl ({ b, i, actions, playing, labelNode }: {
           onDoubleClick={() => actions.playerLevel (b.nodeId, 0.1, true)}
           {...tip (`Level — ${b.name}`, `${fmtDb (db)} dB. Double-click to reset. Same control as on the node.`)}
           style={{ width: '100%', display: 'block', ['--thumb-color' as any]: b.accent }} />
+      </div>
+    );
+  }
+
+  // v0.0.951 — MIDI Out: its channel filter (16 buttons; none = all channels)
+  if (b.kind === 'midiOut') {
+    const chans = Array.isArray (b.settings.channels) ? (b.settings.channels as number[]) : [];
+    return (
+      <div>
+        <div style={row}>{label}
+          <span style={{ fontSize: 9, color: 'var(--text-dim)' }}>{chans.length === 0 ? 'Omni' : `Ch ${chans.join (', ')}`}</span>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2, marginTop: 3 }}
+          {...tip (`Channels — ${b.name}`, 'Which channels reach the device; none lit = all channels (Omni). Same buttons as the node\'s own channel panel. Undoable.')}>
+          {Array.from ({ length: 16 }, (_, k) => k + 1).map (c => {
+            const on = chans.includes (c);
+            return (
+              <span key={c} onClick={() => actions.midiOutChannels (b.nodeId, on ? chans.filter (x => x !== c) : [...chans, c].sort ((x, y) => x - y))}
+                style={{ width: 17, height: 15, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8,
+                         borderRadius: 2, cursor: 'pointer', userSelect: 'none',
+                         background: on ? b.accent : 'var(--surface)', color: on ? '#000' : 'var(--text-muted)',
+                         border: `1px solid ${on ? b.accent : 'var(--border)'}` }}>{c}</span>
+            );
+          })}
+        </div>
       </div>
     );
   }
@@ -451,7 +505,7 @@ function BuiltinControl ({ b, i, actions, playing, labelNode }: {
 
 // ── Folded wrap ──────────────────────────────────────────────────────────────
 export function WrapNode ({ id, data, selected }: NodeProps) {
-  const { wrap, ports, pax, actions } = data as WrapNodeData;
+  const { wrap, ports, pax, actions, power } = data as WrapNodeData;
   const builtins = (data as WrapNodeData).builtins ?? [];   // v0.0.949
   const { setHint } = useContext (HintContext);
   const updateNodeInternals = useUpdateNodeInternals();
@@ -502,6 +556,37 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
   const renamePin = (nodeId: string, index: number, label: string) =>
     actions.setPins (wrap.id, pins.map (q => q.nodeId === nodeId && q.index === index ? { ...q, label } : q));
 
+  // v0.0.951 — a node's title in the panel: name, then its ⏻ and the 📌 to
+  // pin that ⏻ on the box (any node that has one)
+  const titleRow = (nodeId: string, name: string, accent: string, power: boolean, disabled: boolean) => {
+    const on = pinnedSet.has (pinKey (nodeId, POWER_PIN));
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+        {power && (
+          <span onClick={() => togglePin (nodeId, POWER_PIN)}
+            {...hint (on ? 'Unpin' : 'Pin on the box', on ? 'Takes this ⏻ off the folded box (it stays here). Undoable.'
+                                                         : 'Shows this node\'s ⏻ on the folded box itself. Undoable.')}
+            style={{ cursor: 'pointer', display: 'inline-flex', color: on ? WRAP_ACCENT : 'var(--text-muted)', opacity: on ? 1 : 0.45 }}>
+            <Pin size={10} fill={on ? 'currentColor' : 'none'} />
+          </span>
+        )}
+        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', color: accent, textTransform: 'uppercase',
+                       opacity: disabled ? 0.5 : 1 }}>{name}</span>
+        {power && <PowerToggle disabled={disabled} name={name} onToggle={() => actions.setDisabled (nodeId, ! disabled)} />}
+      </div>
+    );
+  };
+  // pinned ⏻s: any node of the wrap that's in the panel and has one
+  const powerNodes = [
+    ...pax.map (x => ({ nodeId: x.nodeId, name: x.name, disabled: !! x.disabled })),
+    ...builtins.filter (b => b.canDisable).map (b => ({ nodeId: b.nodeId, name: b.name, disabled: !! b.disabled })),
+  ];
+  const pinnedP = pins.flatMap (q => {
+    if (q.index !== POWER_PIN) return [];
+    const nd = powerNodes.find (y => y.nodeId === q.nodeId);
+    return nd ? [{ q, nd }] : [];
+  });
+
   const summary0 = paxSummary (pax, live, pinnedSet);
   // v0.0.949 — built-ins in the summary: a playing Player, a console in blackout
   const [playingMap, setPlayingMap] = useState<Map<string, boolean>> (new Map());
@@ -518,11 +603,16 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
       });
     });
   }, [playerKey]);
+  // v0.0.951 — nodes switched off (unless their ⏻ is pinned)
+  const offParts: SummaryPart[] = [
+    ...pax.filter (x => x.disabled).map (x => ({ nodeId: x.nodeId, name: x.name })),
+    ...builtins.filter (b => b.canDisable && b.disabled).map (b => ({ nodeId: b.nodeId, name: b.name })),
+  ].filter (z => ! pinnedSet.has (pinKey (z.nodeId, POWER_PIN))).map (z => ({ text: `○ ${z.name} off` }));
   const builtinParts: SummaryPart[] = builtins.flatMap (b =>
     b.kind === 'player' ? (pinnedSet.has (pinKey (b.nodeId, 0)) ? [] : [{ text: `${playingMap.get (b.nodeId) ? '▶' : '❚❚'} ${b.name}` }])
     : b.settings.blackout === true && ! pinnedSet.has (pinKey (b.nodeId, 0)) ? [{ text: `■ ${b.name} blackout`, colour: '#ef4444' }] : []);
-  const summary = { parts: [...summary0.parts, ...builtinParts],
-                    full: [...summary0.parts, ...builtinParts].map (q => q.text).join (' · ') };
+  const summary = { parts: [...offParts, ...summary0.parts, ...builtinParts],
+                    full: [...offParts, ...summary0.parts, ...builtinParts].map (q => q.text).join (' · ') };
 
   // Hovering the summary shows it in full in the hint panel, refreshed with
   // the live values (a native title tooltip is a frozen snapshot)
@@ -617,6 +707,13 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
             onHint={hint ('Enter', 'Shows only this wrap\'s nodes, its outside connections on rails at the sides (⌘↑). Back with "Main" at the top, ⌘↓ or Esc.')}>
             <LogIn size={13} />
           </NodeHeaderButton>
+          {power && power.count > 0 && (   // v0.0.951 — the wrap's ⏻
+            <NodeHeaderButton onClick={() => actions.wrapPower (wrap.id)} active={power.anyOn} activeAccent={WRAP_ACCENT}
+              onHint={hint (power.anyOn ? 'Switch the wrap off' : 'Switch the wrap on',
+                `${power.anyOn ? 'Switches off' : 'Switches back on'} every node inside that has a ⏻ (${power.count}) — each as its own ⏻ does (cut or pass-through). One undo step.`)}>
+              <Power size={11} />
+            </NodeHeaderButton>
+          )}
           <NodeHeaderButton onClick={() => actions.unwrap (wrap.id)}
             onHint={hint ('Unwrap', 'Removes the wrap and puts its nodes back on the canvas as they are (⌘⇧G). Undoable.')}>
             <Ungroup size={13} />
@@ -644,7 +741,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
         {/* 📌 Pinned controls (v0.0.932): working controls, renamable label,
             unpin with their own 📌. Hidden while ⚙ is open (like the summary)
             so pinning there never moves the list under the cursor. */}
-        {(pinned.length > 0 || pinnedB.length > 0) && ! showSettings && (
+        {(pinned.length > 0 || pinnedB.length > 0 || pinnedP.length > 0) && ! showSettings && (
           <div className="nodrag" onDoubleClick={e => e.stopPropagation()}
             style={{ marginTop: ports.length > 0 ? 6 : 0, paddingTop: 4, borderTop: '1px dashed var(--border)', minWidth: 220 }}>
             {[...pinned.map (e => ({ k: pinKey (e.q.nodeId, e.q.index), el: (() => { const { q, x, p } = e;
@@ -684,6 +781,25 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
                             onCommit={name => renamePin (q.nodeId, q.index, name)}
                             textStyle={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.04em' }} />
                         } />
+                    </div>
+                  </div>
+                ) };
+              }),
+              // v0.0.951 — pinned ⏻s
+              ...pinnedP.map (({ q, nd }) => {
+                const def = nd.name;
+                return { k: pinKey (q.nodeId, q.index), el: (
+                  <div key={pinKey (q.nodeId, q.index)} style={{ paddingTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span onClick={() => togglePin (q.nodeId, q.index)}
+                      {...hint ('Unpin', 'Takes this ⏻ off the box (it stays in the ⚙ panel). Undoable.')}
+                      style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0, color: WRAP_ACCENT }}>
+                      <Pin size={10} fill="currentColor" />
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <EditableTitle display={q.label || def} value={q.label} placeholder={def}
+                        onCommit={name => renamePin (q.nodeId, q.index, name)}
+                        textStyle={{ fontSize: 9, color: nd.disabled ? 'var(--text-muted)' : 'var(--text-dim)', letterSpacing: '0.04em' }} />
+                      <PowerToggle disabled={nd.disabled} name={nd.name} size={12} onToggle={() => actions.setDisabled (nd.nodeId, ! nd.disabled)} />
                     </div>
                   </div>
                 ) };
@@ -729,8 +845,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
           style={{ padding: '4px 10px 8px', borderTop: '1px solid var(--border)', minWidth: 240 }}>
           {pax.map (x => (
             <div key={x.nodeId} style={{ paddingTop: 6 }}>
-              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', color: x.accent,
-                            textTransform: 'uppercase', marginBottom: 2 }}>{x.name}</div>
+              {titleRow (x.nodeId, x.name, x.accent, true, !! x.disabled)}
               {x.params.map ((p, i) => {
                 if (x.shown[i] === false) return null;   // e.g. a Spectrumyser band not in use
                 if (pairRole (x, i)?.role === 'hi') return null;   // drawn with its Low (two-head slider)
@@ -757,8 +872,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
           {/* v0.0.949 — built-in nodes' controls */}
           {builtins.map (b => (
             <div key={b.nodeId} style={{ paddingTop: 6 }}>
-              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', color: b.accent,
-                            textTransform: 'uppercase', marginBottom: 2 }}>{b.name}</div>
+              {titleRow (b.nodeId, b.name, b.accent, !! b.canDisable, !! b.disabled)}
               {controlsOf (b).map ((_, i) => {
                 const on = pinnedSet.has (pinKey (b.nodeId, i));
                 return (
@@ -778,7 +892,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
                   </div>
                 );
               })}
-              {b.kind !== 'player' && (() => {   // v0.0.950 — 1 to 4 faders
+              {(b.kind === 'dmxConsole' || b.kind === 'artNetConsole') && (() => {   // v0.0.950 — 1 to 4 faders (consoles only)
                 const f = fadersOf (b);
                 const small: React.CSSProperties = { fontSize: 9, padding: '1px 6px', borderRadius: 3, cursor: 'pointer',
                                                      border: '1px solid var(--border)', color: 'var(--text-muted)' };
@@ -822,6 +936,7 @@ export interface WrapFrameData {
   actions: WrapActions;
   ports:   WrapPort[];   // v0.0.934 — border ports, ordered top to bottom
   drop?:   'join' | 'leave';   // v0.0.935 — ⌥-drag in progress: what a drop would do
+  power?:  { anyOn: boolean; count: number };   // v0.0.951 — the wrap's ⏻
   [key: string]: unknown;
 }
 
@@ -864,7 +979,7 @@ function FramePort ({ q, top }: { q: WrapPort; top: number }) {
 }
 
 export function WrapFrame ({ id, data }: NodeProps) {
-  const { wrap, actions, ports = [], drop } = data as WrapFrameData;
+  const { wrap, actions, ports = [], drop, power } = data as WrapFrameData;
   // ⌥-drag highlight: join = solid, brighter; leave = red dashed
   const dropCol = drop === 'join' ? 'var(--accent)' : drop === 'leave' ? '#f87171' : null;
   const { setHint } = useContext (HintContext);
@@ -910,6 +1025,13 @@ export function WrapFrame ({ id, data }: NodeProps) {
           onHint={{ onMouseEnter: () => setHint ({ title: 'Fold the wrap', body: 'Folds these nodes back into one box.' }), onMouseLeave: () => setHint (null) }}>
           <Minimize2 size={13} />
         </NodeHeaderButton>
+        {power && power.count > 0 && (   // v0.0.951 — the wrap's ⏻
+          <NodeHeaderButton onClick={() => actions.wrapPower (wrap.id)} active={power.anyOn} activeAccent={WRAP_ACCENT}
+            onHint={{ onMouseEnter: () => setHint ({ title: power.anyOn ? 'Switch the wrap off' : 'Switch the wrap on',
+              body: `${power.anyOn ? 'Switches off' : 'Switches back on'} every node inside that has a ⏻ (${power.count}). One undo step.` }), onMouseLeave: () => setHint (null) }}>
+            <Power size={11} />
+          </NodeHeaderButton>
+        )}
         <NodeHeaderButton onClick={() => actions.unwrap (wrap.id)}
           onHint={{ onMouseEnter: () => setHint ({ title: 'Unwrap', body: 'Removes the wrap; its nodes stay where they are. Undoable.' }), onMouseLeave: () => setHint (null) }}>
           <Ungroup size={13} />

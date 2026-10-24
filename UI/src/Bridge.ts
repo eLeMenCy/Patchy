@@ -942,6 +942,8 @@ export const Bridge = {
   setReopenLastProject(enabled: boolean) { sendToJuce({ type: 'setReopenLastProject', enabled }); },
   /** v0.0.948 — ⚠ panic (also ⌘. in the native window) and its Preferences options */
   panic() { sendToJuce({ type: 'panic' }); },
+  /** v0.0.951 — the wrap's ⏻: these nodes on / off in one undo step */
+  wrapSetDisabled(nodeIds: string[], disabled: boolean) { sendToJuce({ type: 'wrapSetDisabled', nodeIds, disabled }); },
   setPanicOptions(blackout: boolean, mute: boolean) { sendToJuce({ type: 'setPanicOptions', blackout, mute }); },
   onPanicState(cb: PanicCallback) {
     _panicSubscribers.push(cb); cb(_panicCache);

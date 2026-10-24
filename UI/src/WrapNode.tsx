@@ -346,7 +346,7 @@ function WrapParamControl ({ x, p, i, live, actions, labelNode, big = false }: {
         onDoubleClick={() => { actions.setParam (x.nodeId, i, p.defaultValue); actions.commitParam (x.nodeId); }}
         onMouseEnter={() => setHint ({ title: `${p.name} — ${x.name}`, body: `Range: ${p.min} to ${p.max}${p.step >= 1 ? ' (integer)' : ''}.\nDouble-click to reset to default (${p.defaultValue}). Same control as on the node inside the wrap.` })}
         onMouseLeave={() => setHint (null)}
-        style={{ width: '100%', display: 'block', ['--thumb-color' as any]: WRAP_ACCENT }} />
+        style={{ width: '100%', display: 'block', height: 18, margin: 0, ['--thumb-color' as any]: WRAP_ACCENT }} />
     </div>
   );
 }
@@ -422,7 +422,7 @@ function BuiltinControl ({ b, i, actions, playing, labelNode }: {
           onMouseUp={() => actions.playerLevel (b.nodeId, dbToLevel (db), true)}
           onDoubleClick={() => actions.playerLevel (b.nodeId, 0.1, true)}
           {...tip (`Level — ${b.name}`, `${fmtDb (db)} dB. Double-click to reset. Same control as on the node.`)}
-          style={{ width: '100%', display: 'block', ['--thumb-color' as any]: b.accent }} />
+          style={{ width: '100%', display: 'block', height: 18, margin: 0, ['--thumb-color' as any]: b.accent }} />
       </div>
     );
   }
@@ -487,7 +487,7 @@ function BuiltinControl ({ b, i, actions, playing, labelNode }: {
           onMouseUp={() => actions.consoleFader (b.nodeId, kind, ch, val, true)}
           onDoubleClick={() => actions.consoleFader (b.nodeId, kind, ch, 0, true)}
           {...tip (`Ch ${ch} — ${b.name}`, `${val} (0-255). Double-click for 0. Same channel as on the console.`)}
-          style={{ width: '100%', display: 'block', ['--thumb-color' as any]: b.accent }} />
+          style={{ width: '100%', display: 'block', height: 18, margin: 0, ['--thumb-color' as any]: b.accent }} />
       </div>
     );
   }
@@ -551,9 +551,20 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
     return b && controlsOf (b)[q.index] ? [{ q, b }] : [];
   });
   const pinOrder = (k: string) => pins.findIndex (q => pinKey (q.nodeId, q.index) === k);
-  // v0.0.952 — reorder the pinned controls: drag one onto another → it takes that place
-  const [grip,   setGrip]   = useState<string | null> (null);
-  const [dropAt, setDropAt] = useState<string | null> (null);
+  // v0.0.953 — reorder the pinned controls, list-style (user): the grabbed row
+  // follows the pointer, the others slide aside to open its gap; drop = one
+  // undo step. Pointer events (not HTML5 drag, which can't animate the rest).
+  const rowRefs = useRef<(HTMLDivElement | null)[]> ([]);
+  const [drag, setDrag] = useState<{ from: number; dy: number; heights: number[] } | null> (null);
+  const targetOf = (d: { from: number; dy: number; heights: number[] }) => {
+    const tops: number[] = []; let acc = 0;
+    for (const h of d.heights) { tops.push (acc); acc += h; }
+    const centre = tops[d.from] + d.heights[d.from] / 2 + d.dy;
+    let t = d.from;
+    for (let j = d.from + 1; j < d.heights.length; j++) if (centre > tops[j] + d.heights[j] / 2) t = j;
+    for (let j = d.from - 1; j >= 0; j--)               if (centre < tops[j] + d.heights[j] / 2) t = j;
+    return t;
+  };
   const movePin = (from: string, to: string) => {
     const fi = pinOrder (from), ti = pinOrder (to);
     if (fi < 0 || ti < 0 || fi === ti) return;
@@ -758,10 +769,10 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
             {[...pinned.map (e => ({ k: pinKey (e.q.nodeId, e.q.index), el: (() => { const { q, x, p } = e;
               const def = `${pairRole (x, q.index) ? pairLabel (p) : p.name} · ${x.name}`;
               return (
-                <div key={pinKey (q.nodeId, q.index)} style={{ paddingTop: 4, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                <div key={pinKey (q.nodeId, q.index)} style={{ padding: '3px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span onClick={() => togglePin (q.nodeId, q.index)}
                     {...hint ('Unpin', 'Takes this control off the box (it stays in the ⚙ panel). Undoable.')}
-                    style={{ cursor: 'pointer', display: 'inline-flex', paddingTop: 1, flexShrink: 0, color: WRAP_ACCENT }}>
+                    style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0, color: WRAP_ACCENT }}>
                     <Pin size={10} fill="currentColor" />
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -779,10 +790,10 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
               ...pinnedB.map (({ q, b }) => {
                 const def = `${controlsOf (b)[q.index]} · ${b.name}`;
                 return { k: pinKey (q.nodeId, q.index), el: (
-                  <div key={pinKey (q.nodeId, q.index)} style={{ paddingTop: 4, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                  <div key={pinKey (q.nodeId, q.index)} style={{ padding: '3px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span onClick={() => togglePin (q.nodeId, q.index)}
                       {...hint ('Unpin', 'Takes this control off the box (it stays in the ⚙ panel). Undoable.')}
-                      style={{ cursor: 'pointer', display: 'inline-flex', paddingTop: 1, flexShrink: 0, color: WRAP_ACCENT }}>
+                      style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0, color: WRAP_ACCENT }}>
                       <Pin size={10} fill="currentColor" />
                     </span>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -800,7 +811,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
               ...pinnedP.map (({ q, nd }) => {
                 const def = nd.name;
                 return { k: pinKey (q.nodeId, q.index), el: (
-                  <div key={pinKey (q.nodeId, q.index)} style={{ paddingTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div key={pinKey (q.nodeId, q.index)} style={{ padding: '3px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span onClick={() => togglePin (q.nodeId, q.index)}
                       {...hint ('Unpin', 'Takes this ⏻ off the box (it stays in the ⚙ panel). Undoable.')}
                       style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0, color: WRAP_ACCENT }}>
@@ -814,21 +825,54 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
                     </div>
                   </div>
                 ) };
-              })].sort ((a, b) => pinOrder (a.k) - pinOrder (b.k)).map (e => (
-                // v0.0.952 — drag a pinned row by its ⋮⋮ grip to reorder (one undo step)
-                <div key={e.k} draggable={grip === e.k}
-                  onDragStart={ev => { ev.stopPropagation(); ev.dataTransfer.setData ('text/x-patchy-pin', e.k); ev.dataTransfer.effectAllowed = 'move'; }}
-                  onDragEnd={() => { setGrip (null); setDropAt (null); }}
-                  onDragOver={ev => { if (! grip) return; ev.preventDefault(); ev.stopPropagation(); setDropAt (e.k); }}
-                  onDrop={ev => { ev.preventDefault(); ev.stopPropagation(); movePin (ev.dataTransfer.getData ('text/x-patchy-pin'), e.k); setGrip (null); setDropAt (null); }}
-                  style={{ display: 'flex', alignItems: 'flex-start', gap: 2,
-                           borderTop: dropAt === e.k && grip !== e.k ? `2px solid ${WRAP_ACCENT}` : '2px solid transparent' }}>
-                  <span onMouseDown={() => setGrip (e.k)} onMouseUp={() => setGrip (null)}
-                    {...hint ('Move', 'Drag to change this control\'s place on the box. Undoable.')}
-                    style={{ cursor: 'grab', color: 'var(--text-muted)', fontSize: 9, lineHeight: '12px', paddingTop: 4, userSelect: 'none', opacity: 0.6 }}>⋮⋮</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>{e.el}</div>
-                </div>
-              ))}
+              })].sort ((a, b) => pinOrder (a.k) - pinOrder (b.k)).map ((e, idx, all) => {
+                // v0.0.953 — the grabbed row follows the pointer; rows between
+                // its place and the target slide by its height to open the gap
+                let ty = 0;
+                if (drag) {
+                  const t = targetOf (drag), h = drag.heights[drag.from] ?? 0;
+                  if (idx === drag.from) ty = drag.dy;
+                  else if (drag.from < t && idx > drag.from && idx <= t) ty = -h;
+                  else if (drag.from > t && idx >= t && idx < drag.from) ty = h;
+                }
+                const grabbed = drag?.from === idx;
+                const onGrip = (ev: React.PointerEvent) => {
+                  ev.preventDefault(); ev.stopPropagation();
+                  // node pixels, not screen pixels: the canvas is zoomed (the row
+                  // followed the cursor too fast / too slow otherwise)
+                  const heights = all.map ((_, j) => rowRefs.current[j]?.offsetHeight ?? 0);
+                  const own = rowRefs.current[idx];
+                  const zoom = own && own.offsetHeight > 0 ? own.getBoundingClientRect().height / own.offsetHeight : 1;
+                  const y0 = ev.clientY;
+                  let cur = { from: idx, dy: 0, heights };
+                  setDrag (cur);
+                  const move = (m: PointerEvent) => { cur = { ...cur, dy: (m.clientY - y0) / zoom }; setDrag (cur); };
+                  const up = () => {
+                    window.removeEventListener ('pointermove', move, true);
+                    window.removeEventListener ('pointerup',   up,   true);
+                    const t = targetOf (cur);
+                    setDrag (null);
+                    if (t !== cur.from) movePin (all[cur.from].k, all[t].k);
+                  };
+                  window.addEventListener ('pointermove', move, true);
+                  window.addEventListener ('pointerup',   up,   true);
+                };
+                return (
+                  <div key={e.k} ref={el => { rowRefs.current[idx] = el; }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 3, position: 'relative',
+                             transform: `translateY(${ty}px)`,
+                             transition: grabbed || ! drag ? 'none' : 'transform 150ms ease',
+                             zIndex: grabbed ? 5 : 'auto',
+                             background: grabbed ? 'var(--surface2)' : 'transparent',
+                             boxShadow: grabbed ? '0 6px 18px rgba(0,0,0,.5)' : 'none', borderRadius: 4 }}>
+                    <span onPointerDown={onGrip}
+                      {...hint ('Move', 'Drag to change this control\'s place on the box — the others make room. Undoable.')}
+                      style={{ cursor: grabbed ? 'grabbing' : 'grab', color: grabbed ? WRAP_ACCENT : 'var(--text-dim)', fontSize: 12,
+                               lineHeight: 1, padding: '0 2px', userSelect: 'none', touchAction: 'none' }}>⋮⋮</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>{e.el}</div>
+                  </div>
+                );
+              })}
           </div>
         )}
 

@@ -81,11 +81,13 @@ export interface WrapBuiltin {
 }
 // v0.0.950 — a console also has 1-4 Faders (index 1-4), each on a channel of
 // your choice (◀ [ch] ▶), remembered in the console's settings ("wrapFaders")
-export const MAX_WRAP_FADERS = 4;
+// v0.0.952 — the maximum is a Preference (1-16, default 4): App sets it
+let maxWrapFaders = 4;
+export const setMaxWrapFaders = (n: number) => { maxWrapFaders = Math.max (1, Math.min (16, Math.round (n || 4))); };
 export const fadersOf = (b: WrapBuiltin): number[] => {
   const a = b.settings.wrapFaders;
   return Array.isArray (a) && a.length > 0
-    ? a.slice (0, MAX_WRAP_FADERS).map (n => Math.max (1, Math.min (512, Math.round (Number (n) || 1))))
+    ? a.slice (0, maxWrapFaders).map (n => Math.max (1, Math.min (512, Math.round (Number (n) || 1))))
     : [1];
 };
 export const controlsOf = (b: WrapBuiltin): string[] =>
@@ -549,6 +551,15 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
     return b && controlsOf (b)[q.index] ? [{ q, b }] : [];
   });
   const pinOrder = (k: string) => pins.findIndex (q => pinKey (q.nodeId, q.index) === k);
+  // v0.0.952 — reorder the pinned controls: drag one onto another → it takes that place
+  const [grip,   setGrip]   = useState<string | null> (null);
+  const [dropAt, setDropAt] = useState<string | null> (null);
+  const movePin = (from: string, to: string) => {
+    const fi = pinOrder (from), ti = pinOrder (to);
+    if (fi < 0 || ti < 0 || fi === ti) return;
+    const next = [...pins]; const [m] = next.splice (fi, 1); next.splice (ti, 0, m);
+    actions.setPins (wrap.id, next);
+  };
   const togglePin = (nodeId: string, index: number) =>
     actions.setPins (wrap.id, pinnedSet.has (pinKey (nodeId, index))
       ? pins.filter (q => pinKey (q.nodeId, q.index) !== pinKey (nodeId, index))
@@ -803,7 +814,21 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
                     </div>
                   </div>
                 ) };
-              })].sort ((a, b) => pinOrder (a.k) - pinOrder (b.k)).map (e => e.el)}
+              })].sort ((a, b) => pinOrder (a.k) - pinOrder (b.k)).map (e => (
+                // v0.0.952 — drag a pinned row by its ⋮⋮ grip to reorder (one undo step)
+                <div key={e.k} draggable={grip === e.k}
+                  onDragStart={ev => { ev.stopPropagation(); ev.dataTransfer.setData ('text/x-patchy-pin', e.k); ev.dataTransfer.effectAllowed = 'move'; }}
+                  onDragEnd={() => { setGrip (null); setDropAt (null); }}
+                  onDragOver={ev => { if (! grip) return; ev.preventDefault(); ev.stopPropagation(); setDropAt (e.k); }}
+                  onDrop={ev => { ev.preventDefault(); ev.stopPropagation(); movePin (ev.dataTransfer.getData ('text/x-patchy-pin'), e.k); setGrip (null); setDropAt (null); }}
+                  style={{ display: 'flex', alignItems: 'flex-start', gap: 2,
+                           borderTop: dropAt === e.k && grip !== e.k ? `2px solid ${WRAP_ACCENT}` : '2px solid transparent' }}>
+                  <span onMouseDown={() => setGrip (e.k)} onMouseUp={() => setGrip (null)}
+                    {...hint ('Move', 'Drag to change this control\'s place on the box. Undoable.')}
+                    style={{ cursor: 'grab', color: 'var(--text-muted)', fontSize: 9, lineHeight: '12px', paddingTop: 4, userSelect: 'none', opacity: 0.6 }}>⋮⋮</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>{e.el}</div>
+                </div>
+              ))}
           </div>
         )}
 
@@ -902,9 +927,9 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
                       <span style={small} onClick={() => actions.consoleFaderChannel (b.nodeId, f.slice (0, -1), true)}
                         {...hint ('Remove a fader', 'Removes the last fader (its pin goes with it). Undoable.')}>− fader</span>
                     )}
-                    {f.length < MAX_WRAP_FADERS && (
+                    {f.length < maxWrapFaders && (
                       <span style={small} onClick={() => actions.consoleFaderChannel (b.nodeId, [...f, Math.min (512, f[f.length - 1] + 1)], true)}
-                        {...hint ('Add a fader', `Up to ${MAX_WRAP_FADERS} faders, each on its own channel (it starts on the next one). Undoable.`)}>+ fader</span>
+                        {...hint ('Add a fader', `Up to ${maxWrapFaders} faders (Preferences → Wraps), each on its own channel (it starts on the next one). Undoable.`)}>+ fader</span>
                     )}
                   </div>
                 );

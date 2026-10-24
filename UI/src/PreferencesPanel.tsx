@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useContext } from 'react';
 import { Bridge, AudioSettings } from './Bridge';
 import { DawContext } from './DawContext';
+import ValueBox from './ValueBox';   // v0.0.952
 import { HintContext } from './HintPanel';
 
 // PreferencesPanel.tsx — the standalone/DAW preferences popover, with two
@@ -18,9 +19,10 @@ import { HintContext } from './HintPanel';
 // ── Graph preferences ─────────────────────────────────────────────────────────
 export interface GraphPreferences {
   invertZoom: boolean;
+  maxWrapFaders: number;   // v0.0.952 — console faders in a wrap's ⚙ panel (1-16)
 }
 
-export const DEFAULT_PREFS: GraphPreferences = { invertZoom: false };
+export const DEFAULT_PREFS: GraphPreferences = { invertZoom: false, maxWrapFaders: 4 };
 const STORAGE_KEY = 'nodegraph_prefs';
 
 export function loadPrefs(): GraphPreferences {
@@ -278,6 +280,16 @@ function GraphTab ({ prefs, onChange }: {
         value={panicMute}
         onChange={v => Bridge.setPanicOptions(panicBlackout, v)}
       />
+      {/* v0.0.952 — how many console faders a wrap's ⚙ panel can hold */}
+      <SectionHeader label="Wraps" />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--text)' }}>Console faders per wrap (max)</div>
+          <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>How many faders "+ fader" can add for a DMX / ArtNet console in a wrap's ⚙ panel. Default 4.</div>
+        </div>
+        <ValueBox value={prefs.maxWrapFaders ?? 4} min={1} max={16} accent="var(--accent)" width={40}
+          onCommit={v => patch({ maxWrapFaders: v })} />
+      </div>
       {/* v0.0.939 — where the wrap library lives */}
       <SectionHeader label="Wrap library" />
       <div style={{ marginBottom: 10 }}>

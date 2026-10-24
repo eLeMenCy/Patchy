@@ -22,7 +22,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import { Bridge, RecentFile, FileMissing, FileState, AudioSettings, GraphState, RawNode, RawConnection, RawPort, PortActivityEntry, PaxParamInfo, PaxInfo, FragmentData, UndoState, AudioPlayerStatus, RawWrap, PanicState } from './Bridge';
-import { WrapNode, WrapFrame, WrapRail, WrapRouteEdge, WrapPort, WrapPax, WrapActions, WrapBuiltin, FRAME_PAD, FRAME_HEAD, FRAME_PORT_TOP, FRAME_PORT_GAP } from './WrapNode';
+import { WrapNode, WrapFrame, WrapRail, WrapRouteEdge, WrapPort, WrapPax, WrapActions, WrapBuiltin, setMaxWrapFaders, FRAME_PAD, FRAME_HEAD, FRAME_PORT_TOP, FRAME_PORT_GAP } from './WrapNode';
 import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
@@ -1025,6 +1025,7 @@ function FlowCanvas() {
   const prefsBtnRef     = useRef<HTMLButtonElement>(null);
   const updateNodeInternals = useUpdateNodeInternals();
   const [prefs, setPrefs]       = useState<GraphPreferences>(loadPrefs);
+  setMaxWrapFaders(prefs.maxWrapFaders ?? 4);   // v0.0.952 — read by the wrap's ⚙ panel
   const [showPrefs, setShowPrefs] = useState(false);
   const [allCollapsed, setAllCollapsed] = useState(false);
   // v0.0.948 — Panic state (latched + Preferences options), pushed by the engine
@@ -1674,7 +1675,7 @@ function FlowCanvas() {
       }
     }
     return { nodes: [...frames, ...shown, ...boxes], edges: viewEdges };
-  }, [nodes, edges, wraps, selectedWraps, wrapActions, wrapMeasured, dropHint, frozenFrames, entered, railMeasured, allCollapsed, headerFromOpen]);
+  }, [nodes, edges, wraps, selectedWraps, wrapActions, wrapMeasured, dropHint, frozenFrames, entered, railMeasured, allCollapsed, headerFromOpen, prefs.maxWrapFaders]);
 
   // ── ⌥-drag: nodes join / leave open wraps (v0.0.935) ──────────────────────
   // Plain drags are unchanged. With ⌥ held, a node whose centre is dropped

@@ -42,3 +42,5 @@ Pax/**/*.dll
 # ── Patchy patch files (user data) ────────────────────────────────────────────
 *.patchy
 
+/Pax/html/
+/Pax/Doxyfile

@@ -15,6 +15,7 @@ const BUILTIN_GROUPS = [
       { type: 7 as const, label: 'MIDI Keyboard',   desc: 'Virtual keyboard / viewer', icon: '♩' },
       { type: 27 as const, label: 'MIDI CH. Matrix', desc: 'Remap/fan-out MIDI channels', icon: '▦' },
       { type: 28 as const, label: 'MIDI Morpher',    desc: 'Turn one MIDI event into another', icon: '⤳' },
+      { type: 29 as const, label: 'MIDI File Player', desc: 'Play a .mid file', icon: '▷' },
     ],
   },
   {

@@ -128,6 +128,12 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
     // why this differs from the DMX Console callback above, which needs
     // the live node instance itself since setChannel() is a node method,
     // not shared state).
+    // MidiFilePlayerNode (v0.0.954) — all live, on the shared MidiFilePlayerState
+    bridge.onMidiFilePlayerParam    = [&p](const juce::String& nid, const juce::String& key, const juce::String& value)
+                                      { p.setMidiFilePlayerParam (nid, key, value); };
+    bridge.onMidiFilePlayerLoadFile = [&p](const juce::String& nid, const juce::String& path)
+                                      { p.loadMidiFile (nid, juce::File (path)); };
+    bridge.getMidiFilePlayerStatus  = [&p]() { return p.getMidiFilePlayerStatus(); };
     bridge.onAudioPlayerLoadFile      = [&p, this](const juce::String& nid, const juce::String& filePath)
                                        {
                                            auto* state = p.getOrCreateAudioPlayerState (nid);

@@ -270,3 +270,28 @@ void WebBridge::handleAudioPlayerRequestFileInfo (const juce::DynamicObject* obj
     if (nodeId.isEmpty()) return;
     if (onAudioPlayerRequestFileInfo) onAudioPlayerRequestFileInfo (nodeId);
 }
+
+void WebBridge::handleMidiFilePlayerLoadFile (const juce::DynamicObject* obj)
+{
+    juce::String nodeId = obj->getProperty ("nodeId").toString();
+    if (nodeId.isEmpty()) return;
+
+    auto chooser = std::make_shared<juce::FileChooser> (
+        "Load MIDI File",
+        lastOpenDir.isDirectory() ? lastOpenDir
+                                   : juce::File::getSpecialLocation (juce::File::userDocumentsDirectory),
+        "*.mid;*.midi;*.smf");
+
+    chooser->launchAsync (juce::FileBrowserComponent::openMode
+                        | juce::FileBrowserComponent::canSelectFiles,
+        [this, chooser, nodeId] (const juce::FileChooser& fc)
+        {
+            auto result = fc.getResult();
+            if (result != juce::File{} && result.existsAsFile())
+            {
+                lastOpenDir = result.getParentDirectory();
+                if (onMidiFilePlayerLoadFile)
+                    onMidiFilePlayerLoadFile (nodeId, result.getFullPathName());
+            }
+        });
+}

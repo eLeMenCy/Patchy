@@ -72,7 +72,7 @@ export interface WrapActions {
 //   DMX / ArtNet Console: 0 Blackout
 export interface WrapBuiltin {
   nodeId:   string;
-  kind:     'player' | 'dmxConsole' | 'artNetConsole' | 'midiOut' | 'morpher';   // v0.0.951 — + MIDI Out, Morpher
+  kind:     'player' | 'dmxConsole' | 'artNetConsole' | 'midiOut' | 'morpher' | 'midiPlayer';   // v0.0.951 — + MIDI Out, Morpher; v0.0.954 MIDI File Player
   name:     string;
   accent:   string;
   settings: Record<string, unknown>;   // the node's settingsJson, parsed
@@ -92,6 +92,7 @@ export const fadersOf = (b: WrapBuiltin): number[] => {
 };
 export const controlsOf = (b: WrapBuiltin): string[] =>
   b.kind === 'player'  ? ['Transport', 'Level']
+  : b.kind === 'midiPlayer' ? ['Transport']
   : b.kind === 'midiOut' ? ['Channels']
   : b.kind === 'morpher' ? []                       // its ⏻ (bypass) only, on its title
   : ['Blackout', ...fadersOf (b).map ((_, k) => `Fader ${k + 1}`)];
@@ -391,7 +392,7 @@ function BuiltinControl ({ b, i, actions, playing, labelNode }: {
   });
   const tip = (title: string, body: string) => ({ onMouseEnter: () => setHint ({ title, body }), onMouseLeave: () => setHint (null) });
 
-  if (b.kind === 'player' && i === 0)
+  if ((b.kind === 'player' || b.kind === 'midiPlayer') && i === 0)
     return (
       <div style={row}>{label}
         <div style={{ display: 'flex', gap: 4 }}>
@@ -612,18 +613,21 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
   const summary0 = paxSummary (pax, live, pinnedSet);
   // v0.0.949 — built-ins in the summary: a playing Player, a console in blackout
   const [playingMap, setPlayingMap] = useState<Map<string, boolean>> (new Map());
-  const playerKey = builtins.filter (b => b.kind === 'player').map (b => b.nodeId).join ('|');
+  const playerKey = builtins.filter (b => b.kind === 'player' || b.kind === 'midiPlayer').map (b => b.nodeId).join ('|');
   useEffect (() => {
     if (! playerKey) return;
     const ids = new Set (playerKey.split ('|'));
-    return Bridge.onAudioPlayerStatus (st => {
+    const onStatus = (st: { nodeId: string; playing: boolean }[]) => {
       const got = st.filter (x => ids.has (x.nodeId));
       if (got.length === 0) return;
       setPlayingMap (prev => {
         if (got.every (x => prev.get (x.nodeId) === x.playing)) return prev;
         const next = new Map (prev); got.forEach (x => next.set (x.nodeId, x.playing)); return next;
       });
-    });
+    };
+    const u1 = Bridge.onAudioPlayerStatus (onStatus);
+    const u2 = Bridge.onMidiFilePlayerStatus (onStatus);   // v0.0.954
+    return () => { u1(); u2(); };
   }, [playerKey]);
   // v0.0.951 — nodes switched off (unless their ⏻ is pinned)
   const offParts: SummaryPart[] = [
@@ -631,7 +635,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
     ...builtins.filter (b => b.canDisable && b.disabled).map (b => ({ nodeId: b.nodeId, name: b.name })),
   ].filter (z => ! pinnedSet.has (pinKey (z.nodeId, POWER_PIN))).map (z => ({ text: `○ ${z.name} off` }));
   const builtinParts: SummaryPart[] = builtins.flatMap (b =>
-    b.kind === 'player' ? (pinnedSet.has (pinKey (b.nodeId, 0)) ? [] : [{ text: `${playingMap.get (b.nodeId) ? '▶' : '❚❚'} ${b.name}` }])
+    b.kind === 'player' || b.kind === 'midiPlayer' ? (pinnedSet.has (pinKey (b.nodeId, 0)) ? [] : [{ text: `${playingMap.get (b.nodeId) ? '▶' : '❚❚'} ${b.name}` }])
     : b.settings.blackout === true && ! pinnedSet.has (pinKey (b.nodeId, 0)) ? [{ text: `■ ${b.name} blackout`, colour: '#ef4444' }] : []);
   const summary = { parts: [...offParts, ...summary0.parts, ...builtinParts],
                     full: [...offParts, ...summary0.parts, ...builtinParts].map (q => q.text).join (' · ') };

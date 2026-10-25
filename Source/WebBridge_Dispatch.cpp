@@ -115,6 +115,8 @@ void WebBridge::handleMessage (const juce::String& json)
         handleAudioPlayerLoadFile (obj);
     else if (type == "audioPlayerRequestFileInfo")
         handleAudioPlayerRequestFileInfo (obj);
+    else if (type == "midiFilePlayerLoadFile")
+        handleMidiFilePlayerLoadFile (obj);
     else if (type == "exportSelection")
         handleExportSelection (obj);
     else if (type == "importFragment")
@@ -496,7 +498,8 @@ void WebBridge::handleSetNodeParam (const juce::DynamicObject* obj)
     if (key != "dmxConsoleChannel" && key != "artNetConsoleChannel"
         && key != "dmxBlackout"    && key != "artNetBlackout"
         && key != "audioInStartupFade"   // app-wide device list, not graph state — never undoable
-        && ! key.startsWith ("audioPlayer"))
+        && ! key.startsWith ("audioPlayer")
+        && ! key.startsWith ("midiFilePlayer"))   // transport / live controls; settings come via commitSettingsChange
     {
         // Clear any pending settings snapshot — device change is a new action
         pendingSettingsSnapshot = juce::var();
@@ -590,6 +593,11 @@ void WebBridge::handleSetNodeParam (const juce::DynamicObject* obj)
     else if (key == "artNetUniverseFilter")
     {
         handleSetNodeParam_ArtNetUniverseFilter (nodeId, value);
+        return;
+    }
+    else if (key.startsWith ("midiFilePlayer"))
+    {
+        if (onMidiFilePlayerParam) onMidiFilePlayerParam (nodeId, key, value);
         return;
     }
     else if (key == "audioPlayerPlaying" && onAudioPlayerSetPlaying)

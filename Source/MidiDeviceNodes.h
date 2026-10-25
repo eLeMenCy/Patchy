@@ -80,7 +80,19 @@ public:
             juce::SpinLock::ScopedLockType sl (outputLock);
             old = std::move (output);
         }
-        if (old) old->stopBackgroundThread();
+        if (old)
+        {
+            // v0.0.954 — quitting (or switching device) while notes sound:
+            // release them on the device first, or they stay stuck on the synth
+            for (int c = 0; c < 16; ++c)
+            {
+                if (held[(size_t) c].none()) continue;
+                for (int n = 0; n < 128; ++n)
+                    if (held[(size_t) c].test ((size_t) n)) old->sendMessageNow (juce::MidiMessage::noteOff (c + 1, n));
+                old->sendMessageNow (juce::MidiMessage::controllerEvent (c + 1, 64, 0));
+            }
+            old->stopBackgroundThread();
+        }
     }
 
     // Real fix, 2026-09-02 — same reasoning as DmxIn/OutDeviceNode's own

@@ -6,6 +6,8 @@
 #include "GraphModel.h"
 #include "PatchyLog.h"
 #include "ProcessingGraph.h"
+#include "MidiFilePlayerNode.h"   // v0.0.954
+#include "DiagLog.h"
 #include "MidiDeviceNodes.h"
 #include "MidiMonitorNode.h"
 #include "DmxConsoleNode.h"
@@ -800,6 +802,114 @@ public:
         }
     }
 
+    // ── v0.0.954 — MIDI File Player ──────────────────────────────────────
+    /** Settings → its state, once per rebuild; a remembered file is loaded
+        when this session hasn't loaded it yet (e.g. a project just opened). */
+    void restoreMidiFilePlayerSettings (const juce::String& nodeId, const juce::String& settingsJson)
+    {
+        auto* st = getOrCreateMidiFilePlayerState (nodeId);
+        const auto v = juce::JSON::parse (settingsJson);
+        if (! v.isObject()) return;
+        const auto mode = v["tempoMode"].toString();
+        st->tempoMode.store (mode == "host" ? MidiFilePlayerState::TempoMode::Host
+                           : mode == "manual" ? MidiFilePlayerState::TempoMode::Manual : MidiFilePlayerState::TempoMode::File);
+        if (v.hasProperty ("manualBpm"))    st->manualBpm.store ((double) v["manualBpm"]);
+        if (v.hasProperty ("loop"))         st->looping.store ((bool) v["loop"]);
+        if (v.hasProperty ("forceChannel")) st->forceChannel.store ((int) v["forceChannel"]);
+        std::uint64_t mask = 0;
+        if (auto* a = v["muted"].getArray()) for (auto& t : *a) if ((int) t >= 0 && (int) t < 64) mask |= (std::uint64_t) 1 << (int) t;
+        st->muteMask.store (mask);
+        const auto path = v["filePath"].toString();
+        bool loaded;
+        { const juce::SpinLock::ScopedLockType sl (st->lock); loaded = st->seq != nullptr && st->seq->filePath == path; }
+        if (path.isNotEmpty() && ! loaded && juce::File (path).existsAsFile()) st->loadFile (juce::File (path));
+    }
+
+    /** Live controls (message thread): key "midiFilePlayer…" + value. */
+    void setMidiFilePlayerParam (const juce::String& nodeId, const juce::String& key, const juce::String& value)
+    {
+        auto* st = getOrCreateMidiFilePlayerState (nodeId);
+        const bool on = value == "1" || value == "true";
+        if      (key == "midiFilePlayerPlaying")       { if (on) st->panicHold.store (false); st->playing.store (on); if (! on) st->notesOffRequest.store (true); }
+        else if (key == "midiFilePlayerReturnToStart") st->seekFraction.store (0.0);
+        else if (key == "midiFilePlayerSeek")          st->seekFraction.store (juce::jlimit (0.0, 1.0, value.getDoubleValue()));
+        else if (key == "midiFilePlayerLoop")          st->looping.store (on);
+        else if (key == "midiFilePlayerTempoMode")
+            st->panicHold.store (false), st->tempoMode.store (value == "host" ? MidiFilePlayerState::TempoMode::Host
+                               : value == "manual" ? MidiFilePlayerState::TempoMode::Manual : MidiFilePlayerState::TempoMode::File);
+        else if (key == "midiFilePlayerManualBpm")     st->manualBpm.store (juce::jlimit (1.0, 999.0, value.getDoubleValue()));
+        else if (key == "midiFilePlayerForceChannel")  { st->forceChannel.store (juce::jlimit (0, 16, value.getIntValue())); st->notesOffRequest.store (true); }
+        else if (key == "midiFilePlayerMuted")
+        {
+            // the parsed var must outlive the loop (getArray() on a temporary dangled:
+            // the mask came out random — mutes ignored, notes left hanging)
+            const auto parsed = juce::JSON::parse (value);
+            std::uint64_t mask = 0;
+            if (auto* a = parsed.getArray()) for (auto& t : *a) if ((int) t >= 0 && (int) t < 64) mask |= (std::uint64_t) 1 << (int) t;
+            st->muteMask.store (mask);   // the audio thread releases the newly muted tracks' notes only
+        }
+        else if (key == "midiFilePlayerRequestInfo")   st->needsUIPush.store (true);
+    }
+
+    bool loadMidiFile (const juce::String& nodeId, const juce::File& f)
+    {
+        const bool ok = getOrCreateMidiFilePlayerState (nodeId)->loadFile (f);
+        diagLog ("MIDI File Player: " + juce::String (ok ? "loaded " : "could not read ") + f.getFullPathName());
+        return ok;
+    }
+
+    /** The 30 Hz status push: every live player's playhead / state, plus the
+        file info of any player whose file (re)loaded or was asked for. */
+    juce::var getMidiFilePlayerStatus()
+    {
+        juce::Array<juce::var> arr;
+        for (auto& node : processingGraph.getNodes())
+            if (auto* mp = dynamic_cast<MidiFilePlayerNode*> (node.get()))
+            {
+                auto* o = new juce::DynamicObject();
+                o->setProperty ("nodeId",   mp->id);
+                o->setProperty ("fraction", mp->getFraction());
+                o->setProperty ("playing",  mp->isPlaying());
+                o->setProperty ("bpm",      mp->getBpm());
+                o->setProperty ("host",     mp->isFollowingHost());
+                auto* st = getOrCreateMidiFilePlayerState (mp->id);
+                if (st->needsUIPush.exchange (false))
+                {
+                    const juce::SpinLock::ScopedLockType sl (st->lock);
+                    auto* f = new juce::DynamicObject();
+                    if (st->seq != nullptr)
+                    {
+                        const auto& q = *st->seq;
+                        f->setProperty ("fileName", q.fileName);
+                        f->setProperty ("filePath", q.filePath);
+                        f->setProperty ("fileBpm",  q.fileBpmAt (0.0));
+                        double secs = 0.0;   // length at the file's own tempo map
+                        for (size_t i = 0; i < q.tempos.size(); ++i)
+                        {
+                            const double from = q.tempos[i].tick, to = i + 1 < q.tempos.size() ? std::min (q.tempos[i + 1].tick, q.lengthTicks) : q.lengthTicks;
+                            if (to > from) secs += (to - from) / q.ppq * q.tempos[i].usPerQuarter / 1000000.0;
+                        }
+                        f->setProperty ("seconds", secs);
+                        juce::Array<juce::var> tracks;
+                        for (const auto& t : q.tracks)
+                        {
+                            auto* to = new juce::DynamicObject();
+                            to->setProperty ("name", t.name);
+                            juce::Array<juce::var> chans;
+                            for (int c = 0; c < 16; ++c) if (t.channels & (1u << c)) chans.add (c + 1);
+                            to->setProperty ("channels", chans);
+                            to->setProperty ("notes", t.notes);
+                            tracks.add (juce::var (to));
+                        }
+                        f->setProperty ("tracks", tracks);
+                    }
+                    o->setProperty ("file", juce::var (f));
+                }
+                arr.add (juce::var (o));
+            }
+        return arr;
+    }
+
     void setPaxParameter (const juce::String& nodeId, int index, float value)
     {
         for (auto& node : processingGraph.getNodes())
@@ -1557,6 +1667,7 @@ public:
     MidiMonitorBuffer*  getOrCreateKeyboardMonitorBuffer (const juce::String& id) { return getOrCreateBuffer (keyboardMonitorBuffers,  id); }
     AudioMonitorBuffer* getOrCreateAudioMonitorBuffer    (const juce::String& id) { return getOrCreateBuffer (audioMonitorBuffers,     id); }
     AudioPlayerState*   getOrCreateAudioPlayerState      (const juce::String& id) { return getOrCreateBuffer (audioPlayerStates,       id); }
+    MidiFilePlayerState* getOrCreateMidiFilePlayerState  (const juce::String& id) { return getOrCreateBuffer (midiFilePlayerStates,    id); }   // v0.0.954
     double getLastSampleRate() const { return lastSampleRate; }
     DmxMonitorBuffer*      getOrCreateDmxMonitorBuffer      (const juce::String& id) { return getOrCreateBuffer (dmxMonitorBuffers,       id); }
     DmxMonitorBuffer*      getOrCreateDmxConsoleBuffer      (const juce::String& id) { return getOrCreateBuffer (dmxConsoleBuffers,       id); }
@@ -1597,6 +1708,7 @@ private:
     std::unordered_map<juce::String, std::unique_ptr<MidiMonitorBuffer>>  keyboardMonitorBuffers;
     std::unordered_map<juce::String, std::unique_ptr<AudioMonitorBuffer>> audioMonitorBuffers;
     std::unordered_map<juce::String, std::unique_ptr<AudioPlayerState>>   audioPlayerStates;
+    std::unordered_map<juce::String, std::unique_ptr<MidiFilePlayerState>> midiFilePlayerStates;   // v0.0.954
     std::unordered_map<juce::String, std::unique_ptr<DmxMonitorBuffer>>      dmxMonitorBuffers;
     std::unordered_map<juce::String, std::unique_ptr<DmxMonitorBuffer>>      dmxConsoleBuffers;
     std::unordered_map<juce::String, std::unique_ptr<ArtNetMonitorBuffer>>   artNetMonitorBuffers;

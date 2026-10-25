@@ -222,6 +222,11 @@ std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
         mk ("MIDI In",  PortType::Midi, PortDirection::Input);
         mk ("MIDI Out", PortType::Midi, PortDirection::Output);
     }
+    else if (t == 29)
+    {
+        // MidiFilePlayerNode (v0.0.954): plays a .mid file, one MIDI Out
+        mk ("MIDI Out", PortType::Midi, PortDirection::Output);
+    }
     else if (t >= 100)
     {
         // Dynamic Pax node — ports based on Pax nodeType (t - 100)
@@ -330,6 +335,7 @@ static juce::String labelForType (int t, const juce::String& paxName)
         case 26: return "Audio Player";
         case 27: return "Matrix";
         case 28: return "MIDI Morpher";
+        case 29: return "MIDI File Player";
         default: return "Pax Node";
     }
 }

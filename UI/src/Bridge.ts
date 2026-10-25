@@ -121,6 +121,19 @@ export interface AudioPlayerStatus {
 type AudioPlayerStatusCallback = (statuses: AudioPlayerStatus[]) => void;
 const _audioPlayerStatusSubscribers: AudioPlayerStatusCallback[] = [];
 
+// v0.0.954 — MIDI File Player: 30 Hz status, `file` only after a (re)load or a request
+export interface MidiFilePlayerTrack { name: string; channels: number[]; notes: number }
+export interface MidiFilePlayerFileInfo {
+  fileName?: string; filePath?: string; fileBpm?: number; seconds?: number;
+  tracks?: MidiFilePlayerTrack[];
+}
+export interface MidiFilePlayerStatus {
+  nodeId: string; fraction: number; playing: boolean; bpm: number; host: boolean;
+  file?: MidiFilePlayerFileInfo;
+}
+type MidiFilePlayerStatusCallback = (statuses: MidiFilePlayerStatus[]) => void;
+const _midiFilePlayerStatusSubscribers: MidiFilePlayerStatusCallback[] = [];
+
 // ── Monitor types ─────────────────────────────────────────────────────────────
 export interface RawMidiMonitorEvent {
   ts: number;   // timestamp ms
@@ -470,6 +483,16 @@ function _dispatchClaimed() {
       console.error('Bridge audioPlayerFileLoaded parse error', e);
     }
   },
+  onMidiFilePlayerStatus: (json: string) => {
+    try {
+      const statuses: MidiFilePlayerStatus[] = JSON.parse(json);
+      _midiFilePlayerStatusSubscribers.forEach(cb => {
+        try { cb(statuses); } catch (e) { console.error('midiFilePlayerStatus subscriber error', e); }
+      });
+    } catch (e) {
+      console.error('Bridge midiFilePlayerStatus parse error', e);
+    }
+  },
   onAudioPlayerStatus: (json: string) => {
     try {
       const statuses: AudioPlayerStatus[] = JSON.parse(json);
@@ -785,6 +808,7 @@ export const Bridge = {
   fileNew()     { sendToJuce({ type: 'fileNew' }); },
   audioPlayerLoadFile(nodeId: string) { sendToJuce({ type: 'audioPlayerLoadFile', nodeId }); },
   audioPlayerRequestFileInfo(nodeId: string) { sendToJuce({ type: 'audioPlayerRequestFileInfo', nodeId }); },
+  midiFilePlayerLoadFile(nodeId: string) { sendToJuce({ type: 'midiFilePlayerLoadFile', nodeId }); },
 
   /** Export selected nodes to a fragment file.
    *  selectedNodeIds: ReactFlow node IDs currently selected.
@@ -857,6 +881,13 @@ export const Bridge = {
     return () => {
       const idx = _audioPlayerStatusSubscribers.indexOf(cb);
       if (idx !== -1) _audioPlayerStatusSubscribers.splice(idx, 1);
+    };
+  },
+  onMidiFilePlayerStatus(cb: MidiFilePlayerStatusCallback) {
+    _midiFilePlayerStatusSubscribers.push(cb);
+    return () => {
+      const idx = _midiFilePlayerStatusSubscribers.indexOf(cb);
+      if (idx !== -1) _midiFilePlayerStatusSubscribers.splice(idx, 1);
     };
   },
   onMidiMonitorEvents(cb: MidiMonitorCallback) {

@@ -5,6 +5,7 @@
 #include "MidiMonitorNode.h"   // for MidiMonitorEvent and MidiMonitorNode
 #include "AudioMonitorNode.h"  // for AudioMonitorBuffer and AudioMonitorNode
 #include "AudioPlayerNode.h"   // for AudioPlayerState and AudioPlayerNode
+#include "MidiFilePlayerNode.h"   // v0.0.954
 #include "OscMonitorNode.h"    // for OscMonitorBuffer and OscMonitorNode
 #include "UdpMonitorNode.h"    // for UdpMonitorBuffer and UdpMonitorNode
 #include "MqttDeviceNodes.h"   // for MqttSubscribeNode and MqttDeviceManager
@@ -58,7 +59,8 @@ public:
                  std::function<OscMonitorBuffer*(const juce::String&)>     getOscMonitorBuffer    = nullptr,
                  std::function<UdpMonitorBuffer*(const juce::String&)>     getUdpMonitorBuffer    = nullptr,
                  std::function<MqttMonitorBuffer*(const juce::String&)>    getMqttMonitorBuffer   = nullptr,
-                 std::function<AudioPlayerState*(const juce::String&)>     getAudioPlayerState    = nullptr);
+                 std::function<AudioPlayerState*(const juce::String&)>     getAudioPlayerState    = nullptr,
+                 std::function<MidiFilePlayerState*(const juce::String&)>  getMidiFilePlayerState = nullptr);   // v0.0.954
     void prepare (double sampleRate, int maxBlockSize);
 
     // Real bug found 2026-09-18, following the prepareToPlay()/
@@ -121,6 +123,9 @@ public:
     bool panicMidi     = false;   // this block only: MIDI panic into every MIDI Out
     bool panicBlackout = false;   // latched: all-zero frame into every DMX / ArtNet Out
     bool panicMute     = false;   // latched: silence into every Audio Out + the host output
+    // v0.0.954 — the host's transport for this block (MIDI File Player, Host tempo)
+    bool   hostValid = false, hostPlaying = false;
+    double hostBpm = 120.0, hostPpq = 0.0;
     bool panicRelease  = false;   // this block only: consoles re-send their state (they only send on change)
     int  getNodeCount() const { return (int) nodes.size(); }
     const std::vector<std::unique_ptr<NodeProcessor>>& getNodes() const { return nodes; }

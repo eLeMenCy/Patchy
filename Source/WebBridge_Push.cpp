@@ -240,6 +240,7 @@ void WebBridge::timerCallback()
         pushMqttMonitorEvents();
         pushAudioPlayerStatus();
         pushPendingAudioPlayerFileLoads();
+        pushMidiFilePlayerStatus();
     }
 }
 
@@ -773,4 +774,12 @@ void WebBridge::pushPendingAudioPlayerFileLoads()
 
         pushToUI ("onAudioPlayerFileLoaded", juce::JSON::toString (juce::var (result), true));
     }
+}
+
+void WebBridge::pushMidiFilePlayerStatus()
+{
+    if (! connected || ! getMidiFilePlayerStatus || webView == nullptr) return;
+    auto v = getMidiFilePlayerStatus();
+    if (! v.isArray() || v.size() == 0) return;
+    pushToUI ("onMidiFilePlayerStatus", juce::JSON::toString (v, true));
 }

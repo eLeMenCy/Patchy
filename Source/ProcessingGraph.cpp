@@ -33,7 +33,8 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                                std::function<OscMonitorBuffer*(const juce::String&)>     getOscMonitorBuffer,
                                std::function<UdpMonitorBuffer*(const juce::String&)>     getUdpMonitorBuffer,
                                std::function<MqttMonitorBuffer*(const juce::String&)>    getMqttMonitorBuffer,
-                               std::function<AudioPlayerState*(const juce::String&)>     getAudioPlayerState)
+                               std::function<AudioPlayerState*(const juce::String&)>     getAudioPlayerState,
+                               std::function<MidiFilePlayerState*(const juce::String&)>  getMidiFilePlayerState)
 {
     auto snapshot = model.toVar();
     auto* root    = snapshot.getDynamicObject();
@@ -106,6 +107,7 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                 case 26: proc = std::make_unique<AudioPlayerNode>     (id, getAudioPlayerState ? getAudioPlayerState(id) : nullptr); break;
                 case 27: proc = std::make_unique<MidiChMatrixNode>    (id); break;
                 case 28: proc = std::make_unique<MidiMorpherNode>     (id); break;   // v0.0.925
+                case 29: proc = std::make_unique<MidiFilePlayerNode>  (id, getMidiFilePlayerState ? getMidiFilePlayerState(id) : nullptr); break;   // v0.0.954
                 default:
                     juce::Logger::writeToLog ("ProcessingGraph: unknown built-in type " + juce::String (type));
                     break;
@@ -624,6 +626,13 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
             // already empty before this block even runs.
             n->inputArtNetFrame.fill (0);
             n->inputArtNetFrameValid = false;
+        }
+
+        // v0.0.954 — the MIDI File Player follows the host in Host tempo mode
+        if (auto* mfp = dynamic_cast<MidiFilePlayerNode*> (n))
+        {
+            mfp->setHost (hostValid, hostPlaying, hostBpm, hostPpq);
+            if (panicMidi) mfp->panicStop();   // the main Panic stops it (it plays before the MIDI Outs)
         }
 
         // v0.0.948 — Panic: applied to the output nodes' inputs, right before

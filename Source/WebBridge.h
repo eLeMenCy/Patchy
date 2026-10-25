@@ -266,6 +266,11 @@ public:
     // which would also be needlessly disruptive, destroying and
     // recreating every node in the graph just to toggle one.
     std::function<void(const juce::String&, bool)>                                                 onSetNodeDisabled;   // (nodeId, disabled)
+    // MidiFilePlayerNode (v0.0.954): every midiFilePlayer* key is live (no rebuild, no undo step);
+    // the file comes from a native chooser; status (position, bpm, file info) is pulled by the timer
+    std::function<void(const juce::String&, const juce::String&, const juce::String&)>             onMidiFilePlayerParam;     // (nodeId, key, value)
+    std::function<void(const juce::String&, const juce::String&)>                                onMidiFilePlayerLoadFile;  // (nodeId, file path)
+    std::function<juce::var()>                                                                     getMidiFilePlayerStatus;
     std::function<void(const juce::String&, bool)>                                               onSetDmxBlackout;
     std::function<void(const juce::String&, bool)>                                               onRestoreDmxBlackout;
     std::function<void(const juce::String&, const juce::String&)>                                onRestoreDmxConsoleChannels;
@@ -391,6 +396,7 @@ private:
     void pushPortActivity();
     void pushAudioPlayerStatus();
     void pushPendingAudioPlayerFileLoads();
+    void pushMidiFilePlayerStatus();
     void pushDmxSnapshots();
     void pushArtNetSnapshots();
     void pushOscMonitorEvents();
@@ -412,6 +418,7 @@ private:
     void handleLaunchActions();               // Standalone, once per process: ask / reopen / report missing
     void handleAudioPlayerLoadFile (const juce::DynamicObject* obj);
     void handleAudioPlayerRequestFileInfo (const juce::DynamicObject* obj);
+    void handleMidiFilePlayerLoadFile (const juce::DynamicObject* obj);
 
     // ── Fragment export / import ──────────────────────────────────────────────
     void showExportDialog (const juce::StringArray& selectedNodeIds,

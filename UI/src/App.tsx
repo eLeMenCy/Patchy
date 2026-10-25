@@ -27,6 +27,7 @@ import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
 import AudioPlayerNode,    { AudioPlayerNodeData }    from './AudioPlayerNode';
+import MidiFilePlayerNode, { MidiFilePlayerNodeData } from './MidiFilePlayerNode';   // v0.0.954
 import MidiChMatrixNode,   { MidiChMatrixNodeData }   from './MidiChMatrixNode';
 import MidiMorpherNode,    { MidiMorpherNodeData }    from './MidiMorpherNode';
 import MidiKeyboardNode,  { MidiKeyboardNodeData }  from './MidiKeyboardNode';
@@ -52,7 +53,7 @@ import { _paxInfoMap, detectPaxTheme } from './NodeUtils';
 
 // ── Node type registry ────────────────────────────────────────────────────────
 const edgeTypes = { wrapRoute: WrapRouteEdge };   // v0.0.934 — a wire drawn through open-wrap frame ports
-const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, audioPlayer: AudioPlayerNode, midiChMatrix: MidiChMatrixNode, midiMorpher: MidiMorpherNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, channelFilterPax: ChannelFilterPaxNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode, wrap: WrapNode, wrapFrame: WrapFrame, wrapRail: WrapRail, ghost: GhostNode };
+const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, audioPlayer: AudioPlayerNode, midiFilePlayer: MidiFilePlayerNode, midiChMatrix: MidiChMatrixNode, midiMorpher: MidiMorpherNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, channelFilterPax: ChannelFilterPaxNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode, wrap: WrapNode, wrapFrame: WrapFrame, wrapRail: WrapRail, ghost: GhostNode };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 // _paxInfoMap lives in NodeUtils.tsx (not declared here) — GenericNode.tsx
@@ -80,6 +81,7 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
   const isAudioPlayer    = raw.nodeType === 26;
   const isMidiChMatrix   = raw.nodeType === 27;
   const isMidiMorpher    = raw.nodeType === 28;
+  const isMidiFilePlayer = raw.nodeType === 29;   // v0.0.954
   const isGhost          = !!raw.paxName && _paxListLoaded && !(paxInfoMap?.has(raw.paxName) ?? true);
   return {
     id:       raw.id,
@@ -97,6 +99,7 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
             : isAudioPlayer    ? 'audioPlayer'
             : isMidiChMatrix   ? 'midiChMatrix'
             : isMidiMorpher    ? 'midiMorpher'
+            : isMidiFilePlayer ? 'midiFilePlayer'
             : isGhost          ? 'ghost'      // v0.0.941 — Pax not installed
             : raw.paxName === 'Spectrumyser' ? 'spectrumyser'
             : raw.paxName === 'Channel Filter' ? 'channelFilterPax'
@@ -130,6 +133,8 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
       ? { label: raw.label, nodeType: 26, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as AudioPlayerNodeData
       : isMidiChMatrix
       ? { label: raw.label, nodeType: 27, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson, customName: raw.customName } as MidiChMatrixNodeData
+      : isMidiFilePlayer
+      ? { label: raw.label, nodeType: 29, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as MidiFilePlayerNodeData
       : isMidiMorpher
       ? { label: raw.label, nodeType: 28, ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson, customName: raw.customName } as MidiMorpherNodeData
       : { label: raw.label, nodeType: raw.nodeType,
@@ -367,9 +372,9 @@ function wrapBuiltinsOf (p: RawWrap, nodes: Node<any>[]): WrapBuiltin[] {
   const ids = new Set(p.nodeIds);
   const kindOf = (t: number): WrapBuiltin['kind'] | null =>
     t === 26 ? 'player' : t === 17 ? 'dmxConsole' : t === 19 ? 'artNetConsole'
-    : t === 2 ? 'midiOut' : t === 28 ? 'morpher' : null;   // v0.0.951 — + MIDI Out, Morpher (its ⏻)
+    : t === 2 ? 'midiOut' : t === 28 ? 'morpher' : t === 29 ? 'midiPlayer' : null;   // v0.0.951 — + MIDI Out, Morpher (its ⏻); v0.0.954 MIDI File Player
   const accentOf: Record<WrapBuiltin['kind'], string> = { player: 'var(--audio)', dmxConsole: 'var(--dmx)', artNetConsole: 'var(--artnet)',
-                                                          midiOut: 'var(--midi)', morpher: 'var(--midi)' };
+                                                          midiOut: 'var(--midi)', morpher: 'var(--midi)', midiPlayer: 'var(--midi)' };
   return nodes
     .filter(n => ids.has(n.id) && kindOf(n.data?.nodeType) !== null)
     .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x)
@@ -1298,11 +1303,16 @@ function FlowCanvas() {
   // a second Space press within 400ms is treated as a double-press,
   // returning to the start and stopping instead of toggling again.
   const audioPlayerStatusesRef = useRef<AudioPlayerStatus[]>([]);
+  const midiPlayerStatusesRef  = useRef<{ nodeId: string; playing: boolean }[]>([]);
   useEffect(() => {
     const unsub = Bridge.onAudioPlayerStatus((statuses: AudioPlayerStatus[]) => {
       audioPlayerStatusesRef.current = statuses;
     });
-    return () => { try { unsub(); } catch {} };
+    // v0.0.954 — the MIDI File Player answers Space too (same statuses list: nodeId + playing)
+    const unsub2 = Bridge.onMidiFilePlayerStatus(st => {
+      midiPlayerStatusesRef.current = st;
+    });
+    return () => { try { unsub(); unsub2(); } catch {} };
   }, []);
 
   const lastSpacePressRef = useRef(0);
@@ -1313,8 +1323,10 @@ function FlowCanvas() {
           document.activeElement instanceof HTMLTextAreaElement)
         return;
 
-      const selectedPlayer = nodes.find(n => n.selected && n.type === 'audioPlayer');
+      const selectedPlayer = nodes.find(n => n.selected && (n.type === 'audioPlayer' || n.type === 'midiFilePlayer'));
       if (!selectedPlayer) return;
+      const pre = selectedPlayer.type === 'midiFilePlayer' ? 'midiFilePlayer' : 'audioPlayer';
+      const statuses = pre === 'midiFilePlayer' ? midiPlayerStatusesRef.current : audioPlayerStatusesRef.current;
 
       e.preventDefault();   // avoid scrolling the canvas or re-triggering a focused button
 
@@ -1323,12 +1335,12 @@ function FlowCanvas() {
       lastSpacePressRef.current = now;
 
       if (isDoublePress) {
-        Bridge.setNodeParam(selectedPlayer.id, 'audioPlayerPlaying', '0');
-        Bridge.setNodeParam(selectedPlayer.id, 'audioPlayerReturnToStart', '1');
+        Bridge.setNodeParam(selectedPlayer.id, `${pre}Playing`, '0');
+        Bridge.setNodeParam(selectedPlayer.id, `${pre}ReturnToStart`, '1');
       } else {
-        const status = audioPlayerStatusesRef.current.find(s => s.nodeId === selectedPlayer.id);
+        const status = statuses.find(s => s.nodeId === selectedPlayer.id);
         const currentlyPlaying = status?.playing ?? false;
-        Bridge.setNodeParam(selectedPlayer.id, 'audioPlayerPlaying', currentlyPlaying ? '0' : '1');
+        Bridge.setNodeParam(selectedPlayer.id, `${pre}Playing`, currentlyPlaying ? '0' : '1');
       }
     };
     window.addEventListener('keydown', handler);
@@ -1419,8 +1431,10 @@ function FlowCanvas() {
     // own controls; settings changes also update the local settingsJson so
     // the panel, the summary and the node itself (when shown) agree
     playerTransport: (nodeId, cmd, playing) => {
-      if (cmd === 'start') Bridge.setNodeParam(nodeId, 'audioPlayerReturnToStart', '1');
-      else                 Bridge.setNodeParam(nodeId, 'audioPlayerPlaying', playing ? '0' : '1');
+      // v0.0.954 — the MIDI File Player shares the Audio Player's transport row
+      const pre = nodesRef.current.find(m => m.id === nodeId)?.data?.nodeType === 29 ? 'midiFilePlayer' : 'audioPlayer';
+      if (cmd === 'start') Bridge.setNodeParam(nodeId, `${pre}ReturnToStart`, '1');
+      else                 Bridge.setNodeParam(nodeId, `${pre}Playing`, playing ? '0' : '1');
     },
     playerLevel: (nodeId, level, commit) => {
       const merged = mergeNodeSettings(nodeId, { level });

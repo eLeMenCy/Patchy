@@ -343,6 +343,19 @@ void PatchyProcessor::processGraphBlock (juce::AudioBuffer<float>& buffer,
     // v0.0.948 — Panic: hand this block's flags to the current graph (the
     // MIDI request is consumed once; blackout / mute follow the latch and
     // the user's Preferences options)
+    // v0.0.954 — the host's transport, for the MIDI File Player's Host tempo
+    // mode (plugin only; the Standalone has no real playhead)
+    processingGraph.hostValid = false;
+    if (! isStandalone)
+        if (auto* ph = getPlayHead())
+            if (auto pos = ph->getPosition())
+            {
+                processingGraph.hostValid   = pos->getBpm().hasValue() && pos->getPpqPosition().hasValue();
+                processingGraph.hostPlaying = pos->getIsPlaying();
+                processingGraph.hostBpm     = pos->getBpm().orFallback (120.0);
+                processingGraph.hostPpq     = pos->getPpqPosition().orFallback (0.0);
+            }
+
     const bool latched = panicLatched.load (std::memory_order_relaxed);
     processingGraph.panicMidi     = panicMidiRequest.exchange (false, std::memory_order_relaxed);
     processingGraph.panicBlackout = latched && panicOptBlackout.load (std::memory_order_relaxed);
@@ -473,7 +486,8 @@ void PatchyProcessor::rebuildProcessingGraph()
                        [this](const juce::String& nid) { return getOrCreateOscMonitorBuffer(nid); },
                        [this](const juce::String& nid) { return getOrCreateUdpMonitorBuffer(nid); },
                        [this](const juce::String& nid) { return getOrCreateMqttMonitorBuffer(nid); },
-                       [this](const juce::String& nid) { return getOrCreateAudioPlayerState(nid); });
+                       [this](const juce::String& nid) { return getOrCreateAudioPlayerState(nid); },
+                       [this](const juce::String& nid) { return getOrCreateMidiFilePlayerState(nid); });   // v0.0.954
 
     // Transfer existing open audio device connections to the new graph nodes
     // rather than closing and reopening — this avoids the ~1 second audio gap.
@@ -681,6 +695,14 @@ void PatchyProcessor::rebuildProcessingGraph()
             if (n.settingsJson.isNotEmpty())
                 channelRestores.push_back ({ n.id, n.settingsJson, 27 });
         }
+        else if (n.nodeType == 29)
+        {
+            // v0.0.954 — MIDI File Player: file path, tempo mode / BPM, loop,
+            // force channel, muted tracks (the loaded file itself survives
+            // rebuilds in its MidiFilePlayerState)
+            if (n.settingsJson.isNotEmpty())
+                channelRestores.push_back ({ n.id, n.settingsJson, 29 });
+        }
         else if (n.nodeType == 28)
         {
             // v0.0.925 — MIDI Morpher's rule lives entirely in settingsJson;
@@ -824,6 +846,8 @@ void PatchyProcessor::rebuildProcessingGraph()
             restoreMidiChMatrixState (r.nodeId, r.settingsJson, newGraph.get());
         else if (r.nodeType == 28)
             applyMidiMorpherSettings (r.nodeId, r.settingsJson, newGraph.get());
+        else if (r.nodeType == 29)
+            restoreMidiFilePlayerSettings (r.nodeId, r.settingsJson);   // v0.0.954
         else if (r.nodeType == 18)
         {
             // Fix, v0.0.916 — see the nodeType 18 branch above. Same keys and

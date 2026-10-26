@@ -39,6 +39,7 @@ struct MidiFileSequence
     double ppq         = 480.0;   // ticks per quarter note
     double lengthTicks = 0.0;
     juce::String fileName, filePath;
+    bool isDemo = false;          // v0.0.955 — the built-in demo (no file set)
 
     double usPerQuarterAt (double tick) const
     {
@@ -102,6 +103,97 @@ struct MidiFileSequence
     }
 };
 
+// v0.0.955 — the built-in demo, "Catchy Patchy", played when no file is set: 8 bars of
+// melodic trance in A minor at 138 BPM (Am – F – C – G, 2 bars each), five
+// tracks on their own channels, so mute / force channel can be tried at once.
+inline std::unique_ptr<MidiFileSequence> makeDemoSequence()
+{
+    auto seq = std::make_unique<MidiFileSequence>();
+    seq->ppq = 480.0;
+    seq->fileName = "Catchy Patchy";   // the project's mascot tune (named by the user)
+    seq->isDemo = true;
+    seq->tempos.push_back ({ 0.0, 60000000.0 / 138.0 });
+    const double Q = seq->ppq;              // one beat
+    const int bars = 8;
+    seq->lengthTicks = bars * 4 * Q;
+
+    auto note = [&] (int track, int ch, double beat, double len, int n, int vel)
+    {
+        MidiFileSequence::Event on {}, off {};
+        on.tick  = beat * Q;                 on.size  = 3; on.track  = track;
+        off.tick = (beat + len) * Q;         off.size = 3; off.track = track;
+        on.bytes[0]  = (juce::uint8) (0x90 | (ch - 1)); on.bytes[1]  = (juce::uint8) n; on.bytes[2]  = (juce::uint8) vel;
+        off.bytes[0] = (juce::uint8) (0x80 | (ch - 1)); off.bytes[1] = (juce::uint8) n; off.bytes[2] = 0;
+        seq->events.push_back (on);
+        seq->events.push_back (off);
+        auto& t = seq->tracks[(size_t) track];
+        t.channels |= (std::uint16_t) (1u << (ch - 1));
+        ++t.notes;
+    };
+    for (auto* name : { "Drums", "Bass", "Pad", "Arp", "Lead" })
+    {
+        MidiFileSequence::Track t; t.name = name; seq->tracks.push_back (t);
+    }
+
+    // chords per 2 bars: root (bass, octave 1) and pad voicing
+    struct Chord { int root; int pad[3]; int arp[4]; };
+    const Chord chords[4] = {
+        { 33, { 57, 60, 64 }, { 69, 72, 76, 81 } },   // Am
+        { 29, { 57, 60, 65 }, { 65, 69, 72, 77 } },   // F
+        { 36, { 55, 60, 64 }, { 67, 72, 76, 79 } },   // C
+        { 31, { 55, 59, 62 }, { 67, 71, 74, 79 } },   // G
+    };
+
+    for (int bar = 0; bar < bars; ++bar)
+    {
+        const Chord& c = chords[bar / 2];
+        for (int b = 0; b < 4; ++b)
+        {
+            const double beat = bar * 4 + b;
+            // Drums (ch 10): four-on-the-floor kick, clap on 2 & 4, offbeat open hat, 16th closed hats
+            note (0, 10, beat, 0.25, 36, 112);
+            if (b == 1 || b == 3) note (0, 10, beat, 0.25, 39, 96);
+            note (0, 10, beat + 0.5, 0.25, 46, 78);
+            for (int s : { 1, 3 }) note (0, 10, beat + s * 0.25, 0.125, 42, 52);
+            // Bass (ch 2): rolling offbeat 16ths (the kick takes the beat)
+            for (int s = 1; s < 4; ++s) note (1, 2, beat + s * 0.25, 0.2, c.root + (s == 2 ? 12 : 0), s == 2 ? 104 : 92);
+            // Arp (ch 4): 16ths up and down the chord
+            static const int pat[4] = { 0, 1, 2, 3 };
+            for (int s = 0; s < 4; ++s)
+            {
+                const int idx = (b % 2 == 0) ? pat[s] : 3 - pat[s];
+                note (3, 4, beat + s * 0.25, 0.2, c.arp[idx], s == 0 ? 92 : 70);
+            }
+        }
+        // Pad (ch 3): the chord held over its 2 bars
+        if (bar % 2 == 0)
+            for (int n : c.pad) note (2, 3, bar * 4, 7.9, n, 64);
+    }
+    // Snare roll into the loop (bar 8, beats 3-4, rising)
+    for (int s = 0; s < 8; ++s) note (0, 10, 30 + s * 0.25, 0.125, 38, 60 + s * 8);
+
+    // Lead (ch 5): the hook — {beat, length, note}
+    const double lead[][3] = {
+        { 0, 1, 76 }, { 1, .5, 74 }, { 1.5, .5, 72 }, { 2, 1, 74 }, { 3, 1, 76 },
+        { 4, 2, 81 }, { 6, 1, 79 }, { 7, 1, 76 },
+        { 8, 1, 77 }, { 9, 1, 76 }, { 10, 1, 72 }, { 11, 1, 69 },
+        { 12, 2, 72 }, { 14, 1, 74 }, { 15, 1, 76 },
+        { 16, 1, 79 }, { 17, 1, 76 }, { 18, 1, 72 }, { 19, 1, 76 },
+        { 20, 2, 79 }, { 22, 1, 81 }, { 23, 1, 79 },
+        { 24, 1, 74 }, { 25, 1, 71 }, { 26, 1, 74 }, { 27, 1, 79 },
+        { 28, 4, 76 },
+    };
+    for (const auto& l : lead) note (4, 5, l[0], l[1] * 0.9, (int) l[2], 100);
+
+    // note-offs before note-ons at the same tick (a repeated note restarts cleanly)
+    std::stable_sort (seq->events.begin(), seq->events.end(), [] (const MidiFileSequence::Event& a, const MidiFileSequence::Event& b)
+    {
+        if (a.tick < b.tick || b.tick < a.tick) return a.tick < b.tick;   // (no float ==: -Wfloat-equal)
+        return (a.bytes[0] & 0xF0) == 0x80 && (b.bytes[0] & 0xF0) != 0x80;
+    });
+    return seq;
+}
+
 struct MidiFilePlayerState
 {
     enum class TempoMode { File = 0, Host = 1, Manual = 2 };
@@ -135,11 +227,28 @@ struct MidiFilePlayerState
     bool   wasPlaying = false;
     double expectedHostTick = -1.0;
 
+    MidiFilePlayerState() { install (makeDemoSequence()); }   // no file set: the demo
+
     /** Message thread. */
     bool loadFile (const juce::File& f)
     {
         auto next = MidiFileSequence::load (f);
         if (next == nullptr) return false;
+        install (std::move (next));
+        return true;
+    }
+    /** Message thread — back to the built-in demo. */
+    void loadDemo() { install (makeDemoSequence()); }
+
+    bool isDemo()
+    {
+        const juce::SpinLock::ScopedLockType sl (lock);
+        return seq != nullptr && seq->isDemo;
+    }
+
+private:
+    void install (std::unique_ptr<MidiFileSequence> next)
+    {
         lengthTicks.store (next->lengthTicks);
         {
             const juce::SpinLock::ScopedLockType sl (lock);
@@ -148,7 +257,6 @@ struct MidiFilePlayerState
         seekFraction.store (0.0);
         notesOffRequest.store (true);
         needsUIPush.store (true);
-        return true;
     }
 };
 

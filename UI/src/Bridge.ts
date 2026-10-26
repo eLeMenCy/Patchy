@@ -125,6 +125,7 @@ const _audioPlayerStatusSubscribers: AudioPlayerStatusCallback[] = [];
 export interface MidiFilePlayerTrack { name: string; channels: number[]; notes: number }
 export interface MidiFilePlayerFileInfo {
   fileName?: string; filePath?: string; fileBpm?: number; seconds?: number;
+  demo?: boolean;   // v0.0.955 — the built-in demo (no file set)
   tracks?: MidiFilePlayerTrack[];
 }
 export interface MidiFilePlayerStatus {

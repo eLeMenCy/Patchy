@@ -119,14 +119,16 @@ function MidiFilePlayerNode ({ id, data, selected }: NodeProps) {
       setTracks (s.file.tracks ?? []);
       setFileBpm (s.file.fileBpm ?? 120);
       setSeconds (s.file.seconds ?? 0);
-      // A newly chosen file: remember it (one undo step); its tracks are new, so no mutes
-      const path = s.file.filePath ?? '';
-      if (path && path !== settingsRef.current.filePath)
-        commitPatch ({ filePath: path, fileName: s.file.fileName ?? '', muted: [] });
+      // A newly chosen file (or back to the demo): remember it (one undo
+      // step); its tracks are new, so no mutes
+      const path = s.file.demo ? '' : (s.file.filePath ?? '');
+      if (path !== settingsRef.current.filePath && (path || s.file.demo))
+        commitPatch ({ filePath: path, fileName: s.file.demo ? '' : s.file.fileName ?? '', muted: [] });
     }
   }), [id, commitPatch]);
 
-  const hasFile    = !! settings.filePath;
+  const hasFile    = true;   // v0.0.955 — no file set = the built-in demo, always playable
+  const fileLabel  = settings.filePath ? settings.fileName : 'Catchy Patchy — melodic trance';
   const hostDriven = settings.tempoMode === 'host' && host;   // the DAW plays / stops it
   const togglePlay = () => Bridge.setNodeParam (id, 'midiFilePlayerPlaying', playing ? '0' : '1');
   const toStart    = () => Bridge.setNodeParam (id, 'midiFilePlayerReturnToStart', '1');
@@ -166,7 +168,7 @@ function MidiFilePlayerNode ({ id, data, selected }: NodeProps) {
       <NodeHandle nodeId={id} label="MIDI Out" direction="out" colour={ACCENT} index={0} total={1} anchor="bar" portBodyRef={portBodyRef} />
 
       <NodeHeader title={settings.customName || 'MIDI FILE PLAYER'}
-        subtitle={collapsed && settings.fileName ? `${playing ? '▶' : '❚❚'} ${settings.fileName}` : undefined}
+        subtitle={collapsed ? `${playing ? '▶' : '❚❚'} ${settings.filePath ? settings.fileName : 'Catchy Patchy'}` : undefined}
         rename={{ value: settings.customName ?? '', placeholder: 'MIDI File Player', onCommit: v => commitPatch ({ customName: v }) }}
         accent={ACCENT} showSettings={showSettings} onToggleSettings={toggleSettings}
         onDelete={handleDelete} collapsed={collapsed} onToggleCollapsed={toggleCollapsed}
@@ -177,12 +179,13 @@ function MidiFilePlayerNode ({ id, data, selected }: NodeProps) {
              style={{ padding: '6px 8px 8px', display: 'flex', flexDirection: 'column', gap: 6 }}>
           {/* File */}
           <button onClick={() => Bridge.midiFilePlayerLoadFile (id)}
-            {...tip ('MIDI file', hasFile ? `${settings.filePath}\nClick to choose another .mid file.` : 'Choose a standard MIDI file (.mid).')}
+            {...tip ('MIDI file', settings.filePath ? `${settings.filePath}\nClick to choose another .mid file. (⚙: back to the demo)`
+                                                    : 'No file set: the built-in demo plays — Catchy Patchy, 8 bars of melodic trance, 5 tracks. Click to choose a .mid file.')}
             style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--surface2)', border: '1px solid var(--border)',
                      borderRadius: 3, color: hasFile ? 'var(--text)' : 'var(--text-muted)', fontSize: 10, padding: '4px 8px',
                      cursor: 'pointer', width: '100%', minWidth: 0, fontFamily: "'JetBrains Mono', monospace" }}>
             <FolderOpen size={12} style={{ flexShrink: 0 }} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{settings.fileName || 'Load a MIDI file…'}</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontStyle: settings.filePath ? 'normal' : 'italic' }}>{fileLabel}</span>
           </button>
 
           {/* Position (click to seek) */}
@@ -228,15 +231,16 @@ function MidiFilePlayerNode ({ id, data, selected }: NodeProps) {
 
       {showSettings && ! collapsed && (
         <SettingsPanel s={settings} tracks={tracks} onChange={commitPatch} onClose={closeSettings}
+          onUseDemo={() => { commitPatch ({ filePath: '', fileName: '', muted: [] }); Bridge.setNodeParam (id, 'midiFilePlayerUseDemo', '1'); }}
           onReset={() => commitPatch ({ tempoMode: 'file', manualBpm: 120, loop: false, forceChannel: 0, muted: [] })} />
       )}
     </div>
   );
 }
 
-function SettingsPanel ({ s, tracks, onChange, onClose, onReset }: {
+function SettingsPanel ({ s, tracks, onChange, onClose, onReset, onUseDemo }: {
   s: MidiFilePlayerSettings; tracks: MidiFilePlayerTrack[];
-  onChange: (p: Partial<MidiFilePlayerSettings>) => void; onClose: () => void; onReset: () => void;
+  onChange: (p: Partial<MidiFilePlayerSettings>) => void; onClose: () => void; onReset: () => void; onUseDemo: () => void;
 }) {
   const { setHint } = useContext (HintContext);
   const tip = (title: string, body: string) => ({ onMouseEnter: () => setHint ({ title, body }), onMouseLeave: () => setHint (null) });
@@ -261,6 +265,22 @@ function SettingsPanel ({ s, tracks, onChange, onClose, onReset }: {
                boxShadow: '0 8px 32px rgba(0,0,0,.6)', fontFamily: "'JetBrains Mono', monospace", userSelect: 'none' }}>
       <SettingsPanelHeader title="MIDI File Player" onReset={onReset} onClose={onClose} />
 
+      {section ('Source')}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 0, fontSize: 10, color: s.filePath ? 'var(--text)' : 'var(--text-dim)',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontStyle: s.filePath ? 'normal' : 'italic' }}>
+          {s.filePath ? s.fileName : 'Catchy Patchy — melodic trance (138 BPM)'}
+        </div>
+        {s.filePath && (
+          <button onClick={onUseDemo}
+            {...tip ('Back to the demo', 'Forget the file and play the built-in demo (Catchy Patchy) again. Undoable (⌘Z).')}
+            style={{ fontSize: 9, padding: '2px 8px', borderRadius: 3, cursor: 'pointer', background: 'transparent',
+                     border: '1px solid var(--border)', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono', monospace" }}>
+            Demo
+          </button>
+        )}
+      </div>
+
       {section ('Output')}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}
         {...tip ('Force channel', 'Off: every event keeps the channel it has in the file. 1-16: everything goes out on that channel.')}>
@@ -271,7 +291,7 @@ function SettingsPanel ({ s, tracks, onChange, onClose, onReset }: {
 
       {section (`Tracks${tracks.length ? ` (${playable.length})` : ''}`)}
       {playable.length === 0
-        ? <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{tracks.length ? 'No notes or controllers in this file.' : 'No file loaded.'}</div>
+        ? <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{tracks.length ? 'No notes or controllers in this file.' : '…'}</div>
         : <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 220, overflowY: 'auto' }}>
             {playable.map (({ t, i }) => {
               const on = ! muted.has (i);

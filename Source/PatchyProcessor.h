@@ -823,6 +823,7 @@ public:
         bool loaded;
         { const juce::SpinLock::ScopedLockType sl (st->lock); loaded = st->seq != nullptr && st->seq->filePath == path; }
         if (path.isNotEmpty() && ! loaded && juce::File (path).existsAsFile()) st->loadFile (juce::File (path));
+        if (path.isEmpty() && ! st->isDemo()) st->loadDemo();   // v0.0.955 — no file (e.g. undo of a load): the demo
     }
 
     /** Live controls (message thread): key "midiFilePlayer…" + value. */
@@ -849,6 +850,7 @@ public:
             st->muteMask.store (mask);   // the audio thread releases the newly muted tracks' notes only
         }
         else if (key == "midiFilePlayerRequestInfo")   st->needsUIPush.store (true);
+        else if (key == "midiFilePlayerUseDemo")       st->loadDemo();   // v0.0.955
     }
 
     bool loadMidiFile (const juce::String& nodeId, const juce::File& f)
@@ -882,6 +884,7 @@ public:
                         const auto& q = *st->seq;
                         f->setProperty ("fileName", q.fileName);
                         f->setProperty ("filePath", q.filePath);
+                        f->setProperty ("demo",     q.isDemo);
                         f->setProperty ("fileBpm",  q.fileBpmAt (0.0));
                         double secs = 0.0;   // length at the file's own tempo map
                         for (size_t i = 0; i < q.tempos.size(); ++i)

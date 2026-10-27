@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.955
+> Version 0.0.956
 
 ---
 
@@ -90,7 +90,7 @@
 - **Note names** — Yamaha (C3 = 60) or Roland (C4 = 60) convention, per node, in MIDI Monitor, MIDI Keyboard and MIDI Morpher
 - **In-place rename** — hover a node's title, click the ✎ pencil and type a name (Enter / click away to keep, Escape to cancel); one undo step; saved with the project
 - **Parameter persistence** — Pax parameters (sliders, steps) survive graph rebuilds, file loads and app restarts
-- **Built-in nodes** — MIDI In/Out, Audio In/Out, MIDI Monitor, Audio Monitor (oscilloscope), Audio Player (file/sine/noise source), MIDI File Player (.mid), MIDI Keyboard, MIDI CH. Matrix (resizable channel-remap matrix), MIDI Morpher (one MIDI rule per node, Basic/Advanced, Learn), UDP In/Out, OSC In/Out, ArtNet In/Out, DMX In/Out, DMX Monitor, DMX Console, ArtNet Monitor, ArtNet Console, OSC Monitor, UDP Monitor, MQTT Subscribe, MQTT Publish, MQTT Monitor, MQTT Console
+- **Built-in nodes** — MIDI In/Out, Audio In/Out, MIDI Monitor, Audio Monitor (oscilloscope), Audio Player (file/sine/noise source), MIDI File Player (.mid), MIDI Keyboard (faders, aftertouch, glide), MIDI CH. Matrix (resizable channel-remap matrix), MIDI Morpher (one MIDI rule per node, Basic/Advanced, Learn), UDP In/Out, OSC In/Out, ArtNet In/Out, DMX In/Out, DMX Monitor, DMX Console, ArtNet Monitor, ArtNet Console, OSC Monitor, UDP Monitor, MQTT Subscribe, MQTT Publish, MQTT Monitor, MQTT Console
 - **Protocol device nodes** — Phase 3 built-in nodes for network and hardware protocols; UDP, OSC 1.0, Art-Net (ArtDmx), DMX USB (Enttec Pro/Mk2); live byte-rate labels; change-driven activity flash
 - **DMX Monitor + Console** — vertical fader bank and bargraph display for all 512 DMX channels; configurable visible count (8/16/24/32); page navigation; dec/pct/hex format; custom name; Blackout button; full undo/redo; Console is output-only
 - **ArtNet Monitor + Console** — same 512-channel fader/bargraph as DMX; universe selector (0–32767); universe filter on Monitor (show all or filter by universe, "--" on mismatch); Blackout button; full undo/redo; Console is output-only
@@ -204,6 +204,7 @@ Patchy/
 │       ├── MidiMonitorNode.tsx      MIDI Monitor node (type 5)
 │       ├── AudioMonitorNode.tsx     Audio Monitor node (type 6)
 │       ├── MidiKeyboardNode.tsx     MIDI Keyboard node (type 7)
+│       ├── KbdFaders.ts             MIDI Keyboard faders — types, labels, MIDI out (shared with the wrap panel)
 │       ├── MidiDeviceUI.tsx         MIDI In/Out device summary + MIDI Out channel filter panel
 │       ├── MidiChMatrixNode.tsx     MIDI CH. Matrix node (type 27)
 │       ├── MidiMorpherNode.tsx      MIDI Morpher node (type 28) — Basic/Advanced faces, live feedback, Learn
@@ -269,7 +270,7 @@ Patchy/
 | 4 | Audio Out Device | Audio In | Sends to physical device or DAW track; channel-selectable |
 | 5 | MIDI Monitor | MIDI In + Out | Inspects MIDI events; pass-through; event table with filters; note names Yamaha (C3) / Roland (C4) |
 | 6 | Audio Monitor | Audio In | Stereo oscilloscope; trigger modes; VU zoom |
-| 7 | MIDI Keyboard | MIDI In + Out | Virtual keyboard; pitch/mod wheels; upstream note display; note names Yamaha (C3) / Roland (C4) |
+| 7 | MIDI Keyboard | MIDI In + Out | Virtual keyboard; pitch/mod wheels; glide (drag across the keys); aftertouch, channel or poly (drag down on a held key, or Force Touch / pen pressure); faders (CC, program, 14-bit CC, NRPN) with Learn, pinnable in a wrap; upstream note display; note names Yamaha (C3) / Roland (C4) |
 | 8 | UDP In Device | UDP Out | Listens on a UDP port; Unicast · Multicast · Broadcast; live byte-rate |
 | 9 | UDP Out Device | UDP In | Sends datagrams to a configured host:port; Unicast · Multicast · Broadcast |
 | 10 | OSC In Device | OSC Out | Listens on a UDP port; parses OSC 1.0 messages; live byte-rate |
@@ -829,4 +830,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.955 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.956 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

@@ -16,6 +16,7 @@
 //   WrapFrame — the open frame: dashed outline + title bar (fold, unwrap);
 //               dragging the title bar moves the wrap's nodes (v0.0.930).
 
+import { fadersOfSettings, faderLabel, maxValue } from './KbdFaders';   // v0.0.956
 import { useContext, useEffect, useRef, useState } from 'react';
 import { NodeProps, EdgeProps, useUpdateNodeInternals, Handle, Position, BaseEdge, getBezierPath } from '@xyflow/react';
 import { Package, Maximize2, Minimize2, LogIn, Ungroup, X, Settings, Pin, BookmarkPlus, Power } from 'lucide-react';
@@ -60,6 +61,7 @@ export interface WrapActions {
   // v0.0.950 — console faders (user's idea): channel 1-512, value 0-255
   consoleFader:        (nodeId: string, kind: 'dmxConsole' | 'artNetConsole', ch: number, value: number, commit: boolean) => void;
   consoleFaderChannel: (nodeId: string, faders: number[], commit: boolean) => void;   // the whole list (channels; length = count)
+  kbdFader:            (nodeId: string, k: number, value: number, commit: boolean) => void;   // v0.0.956 — MIDI Keyboard fader k
   // v0.0.951 — batch 2: MIDI Out channel filter, each node's ⏻, the wrap's ⏻
   midiOutChannels: (nodeId: string, channels: number[]) => void;
   setDisabled:     (nodeId: string, disabled: boolean) => void;
@@ -72,7 +74,7 @@ export interface WrapActions {
 //   DMX / ArtNet Console: 0 Blackout
 export interface WrapBuiltin {
   nodeId:   string;
-  kind:     'player' | 'dmxConsole' | 'artNetConsole' | 'midiOut' | 'morpher' | 'midiPlayer';   // v0.0.951 — + MIDI Out, Morpher; v0.0.954 MIDI File Player
+  kind:     'player' | 'dmxConsole' | 'artNetConsole' | 'midiOut' | 'morpher' | 'midiPlayer' | 'keyboard';   // v0.0.956 + MIDI Keyboard (faders)   // v0.0.951 — + MIDI Out, Morpher; v0.0.954 MIDI File Player
   name:     string;
   accent:   string;
   settings: Record<string, unknown>;   // the node's settingsJson, parsed
@@ -93,6 +95,7 @@ export const fadersOf = (b: WrapBuiltin): number[] => {
 export const controlsOf = (b: WrapBuiltin): string[] =>
   b.kind === 'player'  ? ['Transport', 'Level']
   : b.kind === 'midiPlayer' ? ['Transport']
+  : b.kind === 'keyboard' ? fadersOfSettings (b.settings).map (faderLabel)   // v0.0.956 — its faders
   : b.kind === 'midiOut' ? ['Channels']
   : b.kind === 'morpher' ? []                       // its ⏻ (bypass) only, on its title
   : ['Blackout', ...fadersOf (b).map ((_, k) => `Fader ${k + 1}`)];
@@ -449,6 +452,29 @@ function BuiltinControl ({ b, i, actions, playing, labelNode }: {
             );
           })}
         </div>
+      </div>
+    );
+  }
+
+  // v0.0.956 — MIDI Keyboard: fader i (label, value, slider)
+  if (b.kind === 'keyboard') {
+    const f = fadersOfSettings (b.settings)[i];
+    if (! f) return null;
+    const max = maxValue (f.type);
+    return (
+      <div>
+        <div style={row}>{label}
+          <ValueBox value={f.value} min={0} max={max} accent={b.accent} coarse={max > 127 ? 64 : 1}
+            onLive={v => actions.kbdFader (b.nodeId, i, v, false)}
+            onCommit={v => actions.kbdFader (b.nodeId, i, v, true)}
+            width={max > 127 ? 44 : 34} style={{ ...readoutBoxStyle ('var(--text-dim)'), fontSize: 9 }} />
+        </div>
+        <input type="range" className="nodrag" min={0} max={max} step={1} value={f.value}
+          onChange={e => actions.kbdFader (b.nodeId, i, Number (e.target.value), false)}
+          onMouseUp={() => actions.kbdFader (b.nodeId, i, f.value, true)}
+          onDoubleClick={() => actions.kbdFader (b.nodeId, i, 0, true)}
+          {...tip (`${faderLabel (f)} — ${b.name}`, `${f.value} (0-${max}). Double-click for 0. Same fader as on the Keyboard.`)}
+          style={{ width: '100%', display: 'block', height: 18, margin: 0, ['--thumb-color' as any]: b.accent }} />
       </div>
     );
   }

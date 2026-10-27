@@ -139,7 +139,7 @@ export const NODE_HINTS: Record<string, { title: string; body: string }> = {
   'AUDIO OUT DEVICE': { title: 'Audio Out Device', body: 'Sends audio to a hardware output or system destination. Select your speakers or interface.' },
   'MIDI MONITOR':     { title: 'MIDI Monitor',     body: 'Displays incoming MIDI events in real time. Filter by channel or event type. Double-click header to fold.' },
   'AUDIO MONITOR':    { title: 'Audio Monitor',    body: 'Oscilloscope view of the audio signal. Supports L/R overlay, separate channels, amplitude zoom and clip detection.' },
-  'MIDI KEYBOARD':    { title: 'MIDI Keyboard',    body: 'On-screen MIDI keyboard. Click or drag to play notes. Supports pitch bend, mod wheel and configurable velocity.' },
+  'MIDI KEYBOARD':    { title: 'MIDI Keyboard',    body: 'On-screen MIDI keyboard. Click to play, drag across the keys to glide. Pitch bend, mod wheel, velocity from the click position, aftertouch (drag down on a held key, or trackpad / pen pressure). Faders (CC, program, 14-bit CC, NRPN) added from the cog, pinnable in a wrap.' },
   'UDP IN DEVICE':       { title: 'UDP In Device',       body: 'Listens for UDP datagrams on a configured port. Supports unicast, multicast and broadcast. Set the port in the node settings to activate.' },
   'UDP OUT DEVICE':      { title: 'UDP Out Device',      body: 'Sends incoming graph values as UDP datagrams to a configured target. Supports unicast (host:port), multicast and broadcast.' },
   'ARTNET IN DEVICE':   { title: 'ArtNet In Device',    body: 'Listens for Art-Net ArtDmx packets on UDP port 6454. Outputs the DMX universe blob as a PAX_Value. Configure the universe number to filter.' },

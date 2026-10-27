@@ -20,9 +20,10 @@ import { HintContext } from './HintPanel';
 export interface GraphPreferences {
   invertZoom: boolean;
   maxWrapFaders: number;   // v0.0.952 — console faders in a wrap's ⚙ panel (1-16)
+  maxKbdFaders:  number;   // v0.0.956 — faders per MIDI Keyboard (1-16)
 }
 
-export const DEFAULT_PREFS: GraphPreferences = { invertZoom: false, maxWrapFaders: 4 };
+export const DEFAULT_PREFS: GraphPreferences = { invertZoom: false, maxWrapFaders: 4, maxKbdFaders: 4 };
 const STORAGE_KEY = 'nodegraph_prefs';
 
 export function loadPrefs(): GraphPreferences {
@@ -290,6 +291,16 @@ function GraphTab ({ prefs, onChange }: {
         <ValueBox value={prefs.maxWrapFaders ?? 4} min={1} max={16} accent="var(--accent)" width={40}
           onCommit={v => patch({ maxWrapFaders: v })} />
       </div>
+      {/* v0.0.956 — the MIDI Keyboard's faders */}
+      <SectionHeader label="MIDI Keyboard" />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--text)' }}>Faders per keyboard (max)</div>
+          <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>How many faders "+ fader" can add in a MIDI Keyboard's ⚙ panel. Default 4.</div>
+        </div>
+        <ValueBox value={prefs.maxKbdFaders ?? 4} min={1} max={16} accent="var(--accent)" width={40}
+          onCommit={v => patch({ maxKbdFaders: v })} />
+      </div>
       {/* v0.0.939 — where the wrap library lives */}
       <SectionHeader label="Wrap library" />
       <div style={{ marginBottom: 10 }}>
@@ -375,6 +386,8 @@ export default function PreferencesPanel ({
       style={{
         position: 'absolute', top: 48, right: 0,
         width: 300, zIndex: 99999,
+        // v0.0.956 — never taller than the window: the tab content scrolls
+        maxHeight: 'calc(100vh - 60px)', display: 'flex', flexDirection: 'column',
         background: 'var(--surface2)',
         border: '1px solid var(--border-hi)',
         borderRadius: 'var(--radius)',
@@ -410,7 +423,7 @@ export default function PreferencesPanel ({
       </div>
 
       {/* Tab content */}
-      <div style={{ padding: '0 14px 14px' }}>
+      <div style={{ padding: '0 14px 14px', overflowY: 'auto', minHeight: 0, flex: '1 1 auto' }}>
         {activeTab === 'audio' && isStandalone && <AudioTab settings={audioSettings} />}
         {activeTab === 'graph' && <GraphTab prefs={prefs} onChange={onChange} />}
       </div>

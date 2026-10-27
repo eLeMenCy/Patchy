@@ -28,6 +28,7 @@ import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNod
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
 import AudioPlayerNode,    { AudioPlayerNodeData }    from './AudioPlayerNode';
 import MidiFilePlayerNode, { MidiFilePlayerNodeData } from './MidiFilePlayerNode';   // v0.0.954
+import { setKbdFaderPrefs, fadersOfSettings, kbdChannel, sendKbdFader, maxValue } from './KbdFaders';   // v0.0.956
 import MidiChMatrixNode,   { MidiChMatrixNodeData }   from './MidiChMatrixNode';
 import MidiMorpherNode,    { MidiMorpherNodeData }    from './MidiMorpherNode';
 import MidiKeyboardNode,  { MidiKeyboardNodeData }  from './MidiKeyboardNode';
@@ -372,9 +373,9 @@ function wrapBuiltinsOf (p: RawWrap, nodes: Node<any>[]): WrapBuiltin[] {
   const ids = new Set(p.nodeIds);
   const kindOf = (t: number): WrapBuiltin['kind'] | null =>
     t === 26 ? 'player' : t === 17 ? 'dmxConsole' : t === 19 ? 'artNetConsole'
-    : t === 2 ? 'midiOut' : t === 28 ? 'morpher' : t === 29 ? 'midiPlayer' : null;   // v0.0.951 — + MIDI Out, Morpher (its ⏻); v0.0.954 MIDI File Player
+    : t === 2 ? 'midiOut' : t === 28 ? 'morpher' : t === 29 ? 'midiPlayer' : t === 7 ? 'keyboard' : null;   // v0.0.956 + Keyboard faders   // v0.0.951 — + MIDI Out, Morpher (its ⏻); v0.0.954 MIDI File Player
   const accentOf: Record<WrapBuiltin['kind'], string> = { player: 'var(--audio)', dmxConsole: 'var(--dmx)', artNetConsole: 'var(--artnet)',
-                                                          midiOut: 'var(--midi)', morpher: 'var(--midi)', midiPlayer: 'var(--midi)' };
+                                                          midiOut: 'var(--midi)', morpher: 'var(--midi)', midiPlayer: 'var(--midi)', keyboard: 'var(--midi)' };
   return nodes
     .filter(n => ids.has(n.id) && kindOf(n.data?.nodeType) !== null)
     .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x)
@@ -385,7 +386,8 @@ function wrapBuiltinsOf (p: RawWrap, nodes: Node<any>[]): WrapBuiltin[] {
       return { nodeId: n.id, kind, accent: accentOf[kind], settings,
                disabled: !!n.data.disabled, canDisable: canDisable(n),
                name: (n.data.customName as string) || (settings.customName as string) || (n.data.label as string) || kind };
-    });
+    })
+    .filter(b => b.kind !== 'keyboard' || fadersOfSettings(b.settings).length > 0);   // v0.0.956 — a Keyboard shows only with faders
 }
 
 // v0.0.951 — the wrap's ⏻: is any member with a ⏻ on, and how many have one
@@ -1031,6 +1033,7 @@ function FlowCanvas() {
   const updateNodeInternals = useUpdateNodeInternals();
   const [prefs, setPrefs]       = useState<GraphPreferences>(loadPrefs);
   setMaxWrapFaders(prefs.maxWrapFaders ?? 4);   // v0.0.952 — read by the wrap's ⚙ panel
+  setKbdFaderPrefs(prefs.maxKbdFaders ?? 4);   // v0.0.956 — read by the MIDI Keyboard
   const [showPrefs, setShowPrefs] = useState(false);
   const [allCollapsed, setAllCollapsed] = useState(false);
   // v0.0.948 — Panic state (latched + Preferences options), pushed by the engine
@@ -1462,6 +1465,19 @@ function FlowCanvas() {
       Bridge.setNodeSettings(nodeId, merged);
       if (kind === 'dmxConsole') Bridge.setDmxConsoleChannel(nodeId, ch - 1, bytes[ch - 1]);
       else                       Bridge.setArtNetConsoleChannel(nodeId, ch - 1, bytes[ch - 1]);
+      if (commit) Bridge.commitNodeSettings(nodeId);
+    },
+    // v0.0.956 — a MIDI Keyboard fader: its MIDI now, its value saved (one undo step per drag)
+    kbdFader: (nodeId, k, value, commit) => {
+      const n = nodesRef.current.find(m => m.id === nodeId);
+      let base: Record<string, unknown> = {};
+      try { base = n?.data?.settingsJson ? JSON.parse(n.data.settingsJson as string) : {}; } catch { /* {} */ }
+      const faders = fadersOfSettings(base);
+      if (! faders[k]) return;
+      faders[k] = { ...faders[k], value: Math.max(0, Math.min(maxValue(faders[k].type), Math.round(value))) };
+      const merged = mergeNodeSettings(nodeId, { faders });
+      Bridge.setNodeSettings(nodeId, merged);
+      sendKbdFader(nodeId, kbdChannel(base), k, faders[k], commit);
       if (commit) Bridge.commitNodeSettings(nodeId);
     },
     consoleFaderChannel: (nodeId, faders, commit) => {

@@ -1,9 +1,14 @@
 import { memo, useContext, useCallback, useEffect, useRef, useState } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { Bridge, PortActivityEntry } from './Bridge';
-import { useNodeSettings, useNodeDelete, NodeHeader, NodeHandle, useNodeCollapsed, Checkbox, SettingsPanelHeader } from './NodeUtils';
+import { useNodeSettings, useNodeDelete, NodeHeader, NodeHandle, useNodeCollapsed, Checkbox, SettingsPanelHeader, readoutBoxStyle } from './NodeUtils';
 import { HintContext } from './HintPanel';
 import { NodeSelect } from './NodeSelect';
+import ValueBox from './ValueBox';
+import { LearnButton } from './LearnButton';
+import { useMidiLearn } from './Learn';
+import { KbdFader, KbdFaderType, TYPE_NAMES, faderLabel, fadersOfSettings, maxValue, maxNum, hasNum, isWide,
+         getMaxKbdFaders, sendKbdFader, resendKbdFaders } from './KbdFaders';   // v0.0.956
 
 // MidiKeyboardNode.tsx — a fully interactive, mouse-playable piano keyboard
 // (click-drag across keys, velocity from click position, pitch + mod
@@ -29,6 +34,11 @@ export interface MidiKeyboardSettings {
   noteOctave: 'yamaha' | 'roland';   // v0.0.928 — middle C (60) = C3 / C4, as in the MIDI Monitor
   customName: string;
   modWheel:   number;
+  // v0.0.956 — faders (between the header and the keyboard), aftertouch, glide
+  faders:     KbdFader[];
+  aftertouch: 'off' | 'channel' | 'poly';
+  atSource:   'mouse' | 'pressure';   // mouse: drag down on a held key; pressure: Force Touch trackpad / pen
+  glide:      boolean;                // dragging across the keys plays each key it reaches
 }
 
 export interface MidiKeyboardNodeData {
@@ -48,7 +58,12 @@ const DEFAULT_SETTINGS: MidiKeyboardSettings = {
   noteOctave: 'yamaha',
   customName: '',
   modWheel:   0,
+  faders:     [],
+  aftertouch: 'off',
+  atSource:   'mouse',
+  glide:      true,
 };
+const AT_DRAG_PX = 40;   // mouse aftertouch: this many pixels down = full pressure
 
 // ── Note layout ───────────────────────────────────────────────────────────────
 // White key pattern in an octave: C D E F G A B
@@ -64,13 +79,37 @@ const noteLabel = (n: number, conv: 'yamaha' | 'roland') =>
 function isBlack (note: number) { return BLACK_NOTES.includes(note % 12); }
 
 // ── Settings panel ────────────────────────────────────────────────────────────
-function SettingsPanel ({ s, onChange, onDiscreteChange, onClose, onReset }: {
+function SettingsPanel ({ s, onChange, onDiscreteChange, onClose, onReset, learnTarget, onLearn }: {
   s: MidiKeyboardSettings;
   onChange: (p: Partial<MidiKeyboardSettings>) => void;
   onDiscreteChange: (p: Partial<MidiKeyboardSettings>) => void;
   onClose: () => void;
   onReset: () => void;
+  learnTarget: string | null;
+  onLearn: (k: number) => void;
 }) {
+  const { setHint } = useContext (HintContext);
+  const tip = (title: string, body: string) => ({ onMouseEnter: () => setHint ({ title, body }), onMouseLeave: () => setHint (null) });
+  const faders = s.faders ?? [];
+  const setFader = (k: number, p: Partial<KbdFader>) => {
+    const next = faders.map ((f, i) => {
+      if (i !== k) return f;
+      const m = { ...f, ...p };
+      m.num   = Math.min (m.num, maxNum (m.type));
+      m.value = Math.min (m.value, maxValue (m.type));
+      if (p.type && isWide (p.type) !== isWide (f.type))   // keep the position when the resolution changes
+        m.value = isWide (p.type) ? Math.min (16383, f.value << 7) : f.value >> 7;
+      return m;
+    });
+    onDiscreteChange ({ faders: next });
+  };
+  const typeOptions = (['cc', 'pc', 'cc14', 'nrpn'] as KbdFaderType[]).map (t => ({ id: t, name: TYPE_NAMES[t] }));
+  const nextNum = () => {   // a new CC fader starts on an unused CC (1, 2, 3…)
+    const used = new Set (faders.filter (f => f.type === 'cc').map (f => f.num));
+    let n = 1; while (used.has (n) && n < 127) n++;
+    return n;
+  };
+
   const startNoteOptions = [];
   for (let n = 0; n <= 108; n += 12)
     startNoteOptions.push({ id: String(n), name: noteLabel(n, s.noteOctave ?? 'yamaha') });
@@ -132,6 +171,57 @@ function SettingsPanel ({ s, onChange, onDiscreteChange, onClose, onReset }: {
           onChange={v => onDiscreteChange({ showNames: v })}
           label="Show" accent="var(--midi)" />
       ))}
+      {/* v0.0.956 — glide and aftertouch */}
+      <div {...tip ('Glide', 'On: dragging across the keys with the button held plays each key you reach (the previous one is released). Off: only the key you clicked plays.')}>
+        {row('Glide', (
+          <Checkbox checked={s.glide ?? true} onChange={v => onDiscreteChange({ glide: v })} label="Drag plays the keys" accent="var(--midi)" />
+        ))}
+      </div>
+      <div {...tip ('Aftertouch', 'Pressure on a held key. Channel: one value for the whole channel. Poly: per note. Off: none sent.')}>
+        {row('Aftertouch', (
+          <NodeSelect value={s.aftertouch ?? 'off'} showEmpty={false} accent="var(--midi)"
+            onChange={v => onDiscreteChange({ aftertouch: v as MidiKeyboardSettings['aftertouch'] })}
+            options={[{id:'off',name:'Off'},{id:'channel',name:'Channel'},{id:'poly',name:'Poly'}]} />
+        ))}
+      </div>
+      {(s.aftertouch ?? 'off') !== 'off' && (
+        <div {...tip ('Aftertouch source', `Mouse: hold a key and drag down (${AT_DRAG_PX} px = full), back up to release. Pressure: press harder on a Force Touch trackpad (Mac), or a pen's pressure.`)}>
+          {row('Pressure', (
+            <NodeSelect value={s.atSource ?? 'mouse'} showEmpty={false} accent="var(--midi)"
+              onChange={v => onDiscreteChange({ atSource: v as MidiKeyboardSettings['atSource'] })}
+              options={[{id:'mouse',name:'Mouse ↕'},{id:'pressure',name:'Trackpad / pen'}]} />
+          ))}
+        </div>
+      )}
+
+      {/* v0.0.956 — faders */}
+      <div style={{ fontSize:9, color:'var(--text-dim)', textTransform:'uppercase', letterSpacing:0.5, margin:'10px 0 4px', opacity:0.7 }}>
+        Faders ({faders.length}/{getMaxKbdFaders()})
+      </div>
+      {faders.map ((f, k) => (
+        <div key={k} style={{ display:'flex', alignItems:'center', gap:4, marginBottom:4 }}>
+          <span style={{ width:12, fontSize:9, color:'var(--text-muted)' }}>{k + 1}</span>
+          <div style={{ width:92 }}>
+            <NodeSelect value={f.type} showEmpty={false} accent="var(--midi)"
+              onChange={v => setFader (k, { type: v as KbdFaderType })} options={typeOptions} />
+          </div>
+          {hasNum (f.type)
+            ? <ValueBox value={f.num} min={0} max={maxNum (f.type)} accent="var(--midi)" width={42}
+                title={f.type === 'nrpn' ? 'NRPN number (0-16383) — drag / double-click to type' : f.type === 'cc14' ? 'CC number (0-31; its LSB is CC +32)' : 'CC number (0-127)'}
+                onCommit={v => setFader (k, { num: v })} />
+            : <span style={{ width:42 }} />}
+          <LearnButton armed={learnTarget === String (k)} onClick={() => onLearn (k)} what="this fader (CC number or program change)" />
+          <span onClick={() => onDiscreteChange ({ faders: faders.filter ((_, i) => i !== k) })}
+            {...tip ('Remove fader', 'Removes this fader. Undoable (⌘Z).')}
+            style={{ marginLeft:'auto', cursor:'pointer', fontSize:10, color:'var(--text-muted)', padding:'0 2px' }}>✕</span>
+        </div>
+      ))}
+      {faders.length < getMaxKbdFaders() && (
+        <span onClick={() => onDiscreteChange ({ faders: [...faders, { type: 'cc', num: nextNum(), value: 0 }] })}
+          {...tip ('Add a fader', `Up to ${getMaxKbdFaders()} faders (Preferences → MIDI Keyboard). Each sends on the Keyboard's channel: CC, Program, CC 14-bit or NRPN. Undoable.`)}
+          style={{ display:'inline-block', fontSize:9, padding:'2px 8px', borderRadius:3, cursor:'pointer',
+                   border:'1px solid var(--border)', color:'var(--text-muted)' }}>+ fader</span>
+      )}
     </div>
   );
 }
@@ -142,18 +232,23 @@ const WHITE_H = 70;
 const BLACK_W = 13;
 const BLACK_H = 44;
 
-function Keyboard ({ nodeId, settings, activeNotes, onNoteOn, onNoteOff }: {
+function Keyboard ({ nodeId, settings, activeNotes, onNoteOn, onNoteOff, onAftertouch }: {
   nodeId:     string;
   settings:   MidiKeyboardSettings;
   activeNotes: Set<number>;
   onNoteOn:   (note: number, vel: number) => void;
   onNoteOff:  (note: number) => void;
+  onAftertouch: (note: number, value: number) => void;   // v0.0.956
 }) {
   const { octaves, startNote, showNames } = settings;
   const totalWhites = octaves * 7;   // C to B per octave — the extra final C was dropped 2026-09-25 (user's request)
   const W = totalWhites * WHITE_W;
   const H = WHITE_H;
   const pressedRef = useRef<number | null>(null);
+  const atRef      = useRef ({ startY: 0, last: 0 });   // v0.0.956 — aftertouch: where the key was taken, last value sent
+  const settingsRef = useRef (settings); settingsRef.current = settings;
+  const cbRef = useRef ({ onNoteOn, onNoteOff, onAftertouch });
+  cbRef.current = { onNoteOn, onNoteOff, onAftertouch };
 
   // Build key list
   const keys: { note: number; white: boolean; x: number; w: number; h: number }[] = [];
@@ -174,31 +269,54 @@ function Keyboard ({ nodeId, settings, activeNotes, onNoteOn, onNoteOff }: {
       keys.push({ note, white: false, x: baseX - BLACK_W / 2, w: BLACK_W, h: BLACK_H });
     }
   }
+  const keysRef = useRef (keys); keysRef.current = keys;
+
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  // v0.0.956 — which key is under the pointer (black keys first), in the
+  // keyboard's own pixels: the canvas zoom is divided out
+  const keyAt = (clientX: number, clientY: number) => {
+    const svg = svgRef.current;
+    if (! svg) return null;
+    const r = svg.getBoundingClientRect();
+    const scale = r.width / (svg.width.baseVal.value || 1) || 1;
+    const x = (clientX - r.left) / scale, y = (clientY - r.top) / scale;
+    if (x < 0 || y < 0 || y > H || x >= svg.width.baseVal.value) return null;
+    const ks = keysRef.current;
+    const k = ks.find (q => ! q.white && x >= q.x && x < q.x + q.w && y < q.h)
+           ?? ks.find (q => q.white && x >= q.x && x < q.x + q.w);
+    return k ? { k, y, scale } : null;
+  };
 
   // Simulates touch-sensitivity with a mouse, which has no pressure/velocity
   // of its own: in 'mouse' mode, where you click within the key's height
   // stands in for how hard you'd have struck a real key — near the top
   // (rel≈0) reads as soft, near the bottom (rel≈1) as hard.
-  const getVelocity = (e: React.MouseEvent, keyH: number, keyY: number) => {
-    if (settings.velocity !== 'mouse') return Number(settings.velocity);
-    const rel = (e.clientY - keyY) / keyH;
-    return Math.max(1, Math.min(127, Math.round(rel * 127)));
+  const velocityAt = (y: number, keyH: number) => {
+    const sv = settingsRef.current.velocity;
+    if (sv !== 'mouse') return Number(sv);
+    return Math.max(1, Math.min(127, Math.round((y / keyH) * 127)));
   };
 
-  const svgRef = useRef<SVGSVGElement>(null);
+  const releaseAt = () => {
+    const note = pressedRef.current;
+    if (note !== null && atRef.current.last > 0) { cbRef.current.onAftertouch (note, 0); atRef.current.last = 0; }
+  };
 
-  // A mouse can only "press" one key at a time, unlike real hands on a
-  // real keyboard — so dragging across keys while the button stays down
-  // (a glissando-style sweep) needs the previous note explicitly released
-  // before the new one starts, or notes would pile up as still "on".
-  const handleMouseDown = (e: React.MouseEvent, note: number, h: number) => {
+  const take = (note: number, vel: number, clientY: number) => {
+    releaseAt();
+    if (pressedRef.current !== null) cbRef.current.onNoteOff (pressedRef.current);
+    pressedRef.current = note;
+    atRef.current = { startY: clientY, last: 0 };
+    cbRef.current.onNoteOn (note, vel);
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    if (pressedRef.current !== null) onNoteOff(pressedRef.current);
-    const rect = (e.target as SVGElement).getBoundingClientRect();
-    const vel  = getVelocity(e, h, rect.top);
-    pressedRef.current = note;
-    onNoteOn(note, vel);
+    if (e.button !== 0) return;
+    const hit = keyAt (e.clientX, e.clientY);
+    if (hit) take (hit.k.note, velocityAt (hit.y, hit.k.h), e.clientY);
   };
 
   // Listens on window, not the key element itself, since the mouse can be
@@ -206,29 +324,77 @@ function Keyboard ({ nodeId, settings, activeNotes, onNoteOn, onNoteOff }: {
   // settings panel, wherever — and a note left "on" because its release
   // happened outside the original element would be a real, audible stuck
   // note, not just a cosmetic bug.
+  // v0.0.956 — moving with the button held: glide to the key under the
+  // pointer, and (mouse aftertouch) the distance dragged down = pressure.
+  // Force Touch / pen pressure arrive as their own events.
   useEffect(() => {
     const up = () => {
       if (pressedRef.current !== null) {
-        onNoteOff(pressedRef.current);
+        releaseAt();
+        cbRef.current.onNoteOff(pressedRef.current);
         pressedRef.current = null;
       }
     };
+    const sendAt = (v: number) => {
+      const note = pressedRef.current;
+      if (note === null) return;
+      v = Math.max (0, Math.min (127, Math.round (v)));
+      if (v === atRef.current.last) return;
+      atRef.current.last = v;
+      cbRef.current.onAftertouch (note, v);
+    };
+    const move = (e: MouseEvent) => {
+      if (pressedRef.current === null) return;
+      const st = settingsRef.current;
+      if (st.glide ?? true) {
+        const hit = keyAt (e.clientX, e.clientY);
+        if (hit && hit.k.note !== pressedRef.current) { take (hit.k.note, velocityAt (hit.y, hit.k.h), e.clientY); return; }
+      }
+      if ((st.aftertouch ?? 'off') !== 'off' && (st.atSource ?? 'mouse') === 'mouse') {
+        const svg = svgRef.current;
+        const scale = svg ? (svg.getBoundingClientRect().width / (svg.width.baseVal.value || 1) || 1) : 1;
+        sendAt ((e.clientY - atRef.current.startY) / scale / AT_DRAG_PX * 127);
+      }
+    };
+    const pressureOn = () => (settingsRef.current.aftertouch ?? 'off') !== 'off' && settingsRef.current.atSource === 'pressure';
+    // Force Touch trackpad (WebKit, macOS): webkitForce 1 (a click) … 3 (full)
+    const force = (e: Event) => {
+      if (! pressureOn()) return;
+      const f = (e as any).webkitForce as number | undefined;
+      if (typeof f === 'number') sendAt ((f - 1) / 2 * 127);
+    };
+    // A pen's pressure (0-1), wherever the web view reports it
+    const pen = (e: PointerEvent) => { if (pressureOn() && e.pointerType === 'pen' && e.buttons) sendAt (e.pressure * 127); };
+    // No force-click "Look Up" while playing
+    const noForceClick = (e: Event) => { if (pressedRef.current !== null || pressureOn()) e.preventDefault(); };
+    const svg = svgRef.current;
     window.addEventListener('mouseup', up);
-    return () => window.removeEventListener('mouseup', up);
-  }, [onNoteOff]);
+    window.addEventListener('mousemove', move);
+    window.addEventListener('pointermove', pen);
+    svg?.addEventListener('webkitmouseforcechanged', force);
+    svg?.addEventListener('webkitmouseforcewillbegin', noForceClick);
+    return () => {
+      window.removeEventListener('mouseup', up);
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('pointermove', pen);
+      svg?.removeEventListener('webkitmouseforcechanged', force);
+      svg?.removeEventListener('webkitmouseforcewillbegin', noForceClick);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <svg ref={svgRef} width={W} height={H}
       style={{ display:'block', cursor:'pointer', userSelect:'none' }}
       className="nodrag"
-      onMouseDown={e => e.stopPropagation()}
+      onMouseDown={handleMouseDown}
     >
       {/* White keys first */}
       {keys.filter(k => k.white).map(k => {
         const active = activeNotes.has(k.note);
         const isC    = k.note % 12 === 0;
         return (
-          <g key={k.note} onMouseDown={e => handleMouseDown(e, k.note, k.h)}>
+          <g key={k.note}>
             <rect x={k.x + 0.5} y={0.5} width={k.w - 1} height={k.h - 1}
               rx={2}
               fill={active ? '#4FC3F7' : '#f0f0f0'}
@@ -251,7 +417,7 @@ function Keyboard ({ nodeId, settings, activeNotes, onNoteOn, onNoteOff }: {
       {keys.filter(k => !k.white).map(k => {
         const active = activeNotes.has(k.note);
         return (
-          <g key={k.note} onMouseDown={e => handleMouseDown(e, k.note, k.h)}>
+          <g key={k.note}>
             <rect x={k.x} y={0} width={k.w} height={k.h}
               rx={2}
               fill={active ? '#4FC3F7' : '#1a1d23'}
@@ -263,6 +429,34 @@ function Keyboard ({ nodeId, settings, activeNotes, onNoteOn, onNoteOff }: {
         );
       })}
     </svg>
+  );
+}
+
+// ── Faders (v0.0.956) ─────────────────────────────────────────────────────────
+// One row each: label, slider, value box — between the header and the keyboard.
+function FaderRow ({ f, k, onValue, onHint }: {
+  f: KbdFader; k: number;
+  onValue: (k: number, v: number, final: boolean) => void;
+  onHint: (h: { title: string; body: string } | null) => void;
+}) {
+  const max = maxValue (f.type);
+  const label = faderLabel (f);
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:6, height:18 }}
+      onMouseEnter={() => onHint ({ title: label, body: `Fader ${k + 1}: ${label} on the Keyboard's channel, 0-${max}. Double-click the slider for 0.${f.type === 'pc' ? ' The program is sent when you let go.' : ''} ⚙ to change, add or remove faders.` })}
+      onMouseLeave={() => onHint (null)}>
+      <span style={{ width:86, flexShrink:0, fontSize:9, color:'var(--text-dim)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis',
+                     fontFamily:"'JetBrains Mono', monospace" }}>{label}</span>
+      <input type="range" className="nodrag" min={0} max={max} step={1} value={f.value}
+        onChange={e => onValue (k, Number (e.target.value), false)}
+        onMouseUp={() => onValue (k, f.value, true)} onKeyUp={() => onValue (k, f.value, true)}
+        onDoubleClick={e => { e.stopPropagation(); onValue (k, 0, true); }}
+        style={{ flex:1, minWidth:0, height:18, margin:0, cursor:'pointer', ['--thumb-color' as any]: 'var(--midi)' }} />
+      <ValueBox value={f.value} min={0} max={max} accent="var(--midi)" width={isWide (f.type) ? 44 : 34}
+        coarse={isWide (f.type) ? 64 : 1}
+        onLive={v => onValue (k, v, false)} onCommit={v => onValue (k, v, true)}
+        style={{ ...readoutBoxStyle ('var(--text-dim)'), fontSize: 9 }} />
+    </div>
   );
 }
 
@@ -321,6 +515,7 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
     ...DEFAULT_SETTINGS,
     ...(d.settingsJson ? JSON.parse(d.settingsJson) as Partial<MidiKeyboardSettings> : {}),
   }));
+  const settingsRef = useRef(settings); settingsRef.current = settings;   // v0.0.956
   const [activeNotes, setActiveNotes]   = useState<Set<number>>(new Set());
   const [pitchWheel, setPitchWheel]     = useState(8192);   // centre — not saved (transient)
   const modWheel    = settings.modWheel;
@@ -413,6 +608,8 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
       const modVal = restored.modWheel ?? DEFAULT_SETTINGS.modWheel;
       const chVal  = (restored.channel ?? DEFAULT_SETTINGS.channel) || 1;
       Bridge.sendMidiKeyEvent(id, 0xB0 | (chVal - 1), 1, modVal);
+      // v0.0.956 — and the faders whose values changed (project opened, undo / redo)
+      resendKbdFaders(id, chVal, fadersOfSettings(restored));
     } catch {}
   }, [(data as any)?.settingsJson]);
 
@@ -449,6 +646,36 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
     Bridge.sendMidiKeyEvent(id, 0xB0 | (ch - 1), 1, v); // CC1 = mod wheel
   }, [id, ch]);
 
+  // v0.0.956 — aftertouch: channel (0xD0, one value) or poly (0xA0, per note)
+  const onAftertouch = useCallback((note: number, v: number) => {
+    if (settingsRef.current.aftertouch === 'poly') Bridge.sendMidiKeyEvent(id, 0xA0 | (ch - 1), note, v);
+    else if (settingsRef.current.aftertouch === 'channel') Bridge.sendMidiKeyEvent(id, 0xD0 | (ch - 1), v, 0);
+  }, [id, ch]);
+
+  // v0.0.956 — faders: live while dragging (no undo step), one undo step on release
+  const onFaderValue = useCallback((k: number, v: number, final: boolean) => {
+    const cur = settingsRef.current.faders ?? [];
+    if (! cur[k]) return;
+    const faders = cur.map((f, i) => i === k ? { ...f, value: Math.max(0, Math.min(maxValue(f.type), Math.round(v))) } : f);
+    settingsRef.current = { ...settingsRef.current, faders };
+    patch({ faders });
+    sendKbdFader(id, ch, k, faders[k], final);
+    if (final) Bridge.commitNodeSettings(id);
+  }, [id, ch]);
+
+  // v0.0.956 — Learn a fader from a controller on the MIDI In: a CC sets the
+  // CC number (a 14-bit fader keeps its type for CC 0-31), a program change
+  // sets the type
+  const learn = useMidiLearn<string>(id, (t, ev) => {
+    const k = Number(t), cur = settingsRef.current.faders ?? [];
+    if (! cur[k]) return;
+    const f = cur[k];
+    let next: KbdFader | null = null;
+    if (ev.type === 4) next = f.type === 'cc14' && ev.d1 < 32 ? { ...f, num: ev.d1 } : { type: 'cc', num: ev.d1, value: isWide(f.type) ? f.value >> 7 : f.value };
+    else if (ev.type === 5) next = { ...f, type: 'pc', value: isWide(f.type) ? f.value >> 7 : f.value };
+    if (next) commitPatch({ faders: cur.map((x, i) => i === k ? next! : x) });
+  });
+
 
 
   const totalWhites = settings.octaves * 7;   // C to B (no final C), 2026-09-25
@@ -479,6 +706,13 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
         onDelete={handleDelete} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
 
       {!collapsed && <>
+      {/* v0.0.956 — faders, between the header and the keyboard */}
+      {(settings.faders ?? []).length > 0 && (
+        <div className="nodrag" onMouseDown={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}
+          style={{ display:'flex', flexDirection:'column', gap:2, padding:'5px 8px 0' }}>
+          {(settings.faders ?? []).map((f, k) => <FaderRow key={k} f={f} k={k} onValue={onFaderValue} onHint={setHint} />)}
+        </div>
+      )}
       {/* Body — sliders + keyboard */}
       <div ref={portBodyRef} className="nodrag" onMouseDown={e => e.stopPropagation()}
            onPointerDown={e => e.stopPropagation()}
@@ -504,6 +738,7 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
           activeNotes={activeNotes}
           onNoteOn={onNoteOn}
           onNoteOff={onNoteOff}
+          onAftertouch={onAftertouch}
         />
       </div>
 
@@ -522,7 +757,9 @@ function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
 
       {/* Settings panel */}
       {showSettings && (
-        <SettingsPanel s={settings} onChange={patch} onDiscreteChange={commitPatch} onClose={() => closeSettings()} onReset={() => commitPatch(DEFAULT_SETTINGS)} />
+        <SettingsPanel s={settings} onChange={patch} onDiscreteChange={commitPatch} onClose={() => closeSettings()}
+          onReset={() => commitPatch({ ...DEFAULT_SETTINGS, faders: settings.faders ?? [] })}
+          learnTarget={learn.target} onLearn={k => learn.start(String(k))} />
       )}
       </>}
     </div>

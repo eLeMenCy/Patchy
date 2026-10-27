@@ -17,7 +17,7 @@
 class MidiKeyboardNode : public NodeProcessor
 {
 public:
-    static constexpr int kQueueSize = 64;
+    static constexpr int kQueueSize = 256;   // v0.0.956 — was 64: NRPN faders send 4 messages per move
 
     struct UIEvent
     {
@@ -48,8 +48,13 @@ public:
 
     void process (int /*numSamples*/) override
     {
+        // v0.0.956 — Learn (a fader's CC): while armed, upstream MIDI is held
+        // back (the learned control doesn't reach the output); the
+        // keyboard's own events still go out
+        const bool learning = captureLearn (inputMidi);
+
         // Pass through upstream MIDI + push to shared monitor buffer for UI
-        outputMidi = inputMidi;
+        outputMidi = learning ? juce::MidiBuffer() : inputMidi;
         if (inputMidi.getNumEvents() > 0)
         {
             recordMidiActivity (inputMidi.getNumEvents());
@@ -89,8 +94,11 @@ public:
             auto& ev = queue[static_cast<size_t>(rp)];
             if (ev.valid)
             {
-                outputMidi.addEvent (
-                    juce::MidiMessage (ev.status, ev.data1, ev.data2), 0);
+                // v0.0.956 — the message's real length: aftertouch and
+                // program change (faders) are 2 bytes, not 3
+                const juce::uint8 raw[3] = { ev.status, ev.data1, ev.data2 };
+                const int len = juce::jlimit (1, 3, juce::MidiMessage::getMessageLengthFromFirstByte (ev.status));
+                outputMidi.addEvent (raw, len, 0);
                 recordMidiActivity (1);
                 ev.valid = false;
             }

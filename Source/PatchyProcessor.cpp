@@ -986,6 +986,22 @@ void PatchyProcessor::setStateInformation (const void* data, int sizeInBytes)
     }
     if (root == nullptr) return;
 
+    // v0.0.957 — a project (re)opened in the same session keeps its node IDs,
+    // so the players' states (kept across rebuilds) would carry on playing:
+    // every player starts stopped, back at the start
+    for (auto& [nodeId, st] : midiFilePlayerStates)
+    {
+        st->playing.store (false);
+        st->panicHold.store (false);
+        st->seekFraction.store (0.0);
+        st->notesOffRequest.store (true);
+    }
+    for (auto& [nodeId, st] : audioPlayerStates)
+    {
+        st->playing.store (false);
+        st->seekRequest.store (0);
+    }
+
     // Suspend onChange — resumeNotifications() MUST be called before any return.
     // We use a ScopeGuard to guarantee this even on early exit.
     graphModel.suspendNotifications();

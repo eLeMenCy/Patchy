@@ -783,3 +783,13 @@ void WebBridge::pushMidiFilePlayerStatus()
     if (! v.isArray() || v.size() == 0) return;
     pushToUI ("onMidiFilePlayerStatus", juce::JSON::toString (v, true));
 }
+
+// v0.0.958 — a short message in the corner (Pax folder changes)
+void WebBridge::pushToast (const juce::String& text, const juce::String& kind)
+{
+    if (! connected || webView == nullptr) return;
+    auto* o = new juce::DynamicObject();
+    o->setProperty ("text", text);
+    o->setProperty ("kind", kind);
+    pushToUI ("onToast", juce::JSON::toString (juce::var (o), true));
+}

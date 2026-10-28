@@ -41,6 +41,6 @@ public:
     /** Platform extension: ".dylib" / ".so" / ".dll" */
     static juce::String getPaxExtension();
 
-private:
+    /** v0.0.958 — check one file (the autoscan uses it for new files). */
     static ScanResult tryLoad (const juce::File& file);
 };

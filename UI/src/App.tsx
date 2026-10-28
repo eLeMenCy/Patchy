@@ -27,6 +27,7 @@ import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
 import AudioPlayerNode,    { AudioPlayerNodeData }    from './AudioPlayerNode';
+import Toasts from './Toasts';   // v0.0.958
 import MidiFilePlayerNode, { MidiFilePlayerNodeData } from './MidiFilePlayerNode';   // v0.0.954
 import { setKbdFaderPrefs, fadersOfSettings, kbdChannel, sendKbdFader, maxValue } from './KbdFaders';   // v0.0.956
 import MidiChMatrixNode,   { MidiChMatrixNodeData }   from './MidiChMatrixNode';
@@ -66,6 +67,7 @@ const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMoni
 // v0.0.941 — set once the Pax list has arrived (it's pushed before the graph),
 // so a Pax node is only shown as a ghost when its Pax is really not installed.
 let _paxListLoaded = false;
+let _paxScanModeSent = false;   // v0.0.958
 
 function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<NodeData | MidiMonitorNodeData | DmxMonitorNodeData | OscMonitorNodeData | UdpMonitorNodeData | MqttMonitorNodeData | MqttConsoleNodeData | MidiChMatrixNodeData | MidiMorpherNodeData> {
   const isMidiMonitor    = raw.nodeType === 5;
@@ -1892,8 +1894,10 @@ function FlowCanvas() {
 
 
     Bridge.onPaxList((paxItems) => {
+      _paxInfoMap.clear();   // v0.0.958 — the list can now change while running (Pax folder autoscan)
       paxItems.forEach(a => _paxInfoMap.set(a.name, a));
       _paxListLoaded = true;   // v0.0.941
+      if (!_paxScanModeSent) { _paxScanModeSent = true; Bridge.setPaxAutoScan(!(loadPrefs().paxManualRescan ?? false)); }   // v0.0.958 — the backend learns the Preference once the UI is up
     });
     Bridge.ready();
     return () => unsubGraph();
@@ -2757,6 +2761,7 @@ export default function App() {
       <Sidebar />
             <FlowCanvas />
           </ReactFlowProvider>
+          <Toasts />   {/* v0.0.958 */}
         </div>
       </HintProvider>
     </DawContext.Provider>

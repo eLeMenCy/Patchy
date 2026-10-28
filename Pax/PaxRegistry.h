@@ -33,6 +33,12 @@ public:
     /** Populate from a completed scan. Call once on startup. */
     void load (const std::vector<PaxScanner::ScanResult>& scanResults);
 
+    // v0.0.958 — Pax folder autoscan (message thread). add(): the names
+    // actually added (a name already loaded is skipped); removeFile(): the
+    // names that came from that file.
+    std::vector<juce::String> add (const std::vector<PaxScanner::ScanResult>& scanResults);
+    std::vector<juce::String> removeFile (const juce::File& file);
+
     /** Create a NodeProcessor that wraps a loaded Pax.
      *  Returns nullptr if paxName is not registered. */
     std::unique_ptr<NodeProcessor> createNode (const juce::String& nodeId,
@@ -95,8 +101,10 @@ public:
     };
 
     const std::vector<Entry>& getEntries() const { return entries; }
+    const Entry* findByFile (const juce::File& file) const;   // v0.0.958 — nullptr if none
 
 private:
+    bool addOne (const PaxScanner::ScanResult& r);
     std::vector<Entry> entries;
 
     // Keep libs alive by name for quick lookup

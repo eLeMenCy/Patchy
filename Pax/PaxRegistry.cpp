@@ -23,17 +23,60 @@ void PaxRegistry::load (const std::vector<PaxScanner::ScanResult>& results)
 {
     entries.clear();
     nameToIndex.clear();
-
     for (const auto& r : results)
+        addOne (r);
+}
+
+// v0.0.958 — Pax folder autoscan: Pax added / removed while Patchy runs
+std::vector<juce::String> PaxRegistry::add (const std::vector<PaxScanner::ScanResult>& results)
+{
+    std::vector<juce::String> added;
+    for (const auto& r : results)
+        if (addOne (r)) added.push_back (r.name);
+    return added;
+}
+
+std::vector<juce::String> PaxRegistry::removeFile (const juce::File& file)
+{
+    std::vector<juce::String> removed;
+    for (auto it = entries.begin(); it != entries.end();)
     {
-        if (! r.valid) continue;
+        if (it->file == file) { removed.push_back (it->name); it = entries.erase (it); }
+        else ++it;
+    }
+    if (! removed.empty())
+    {
+        // Nodes still running keep their own reference to the library (a
+        // shared_ptr): it closes when the last of them is gone (next rebuild)
+        nameToIndex.clear();
+        for (size_t i = 0; i < entries.size(); ++i) nameToIndex[entries[i].name] = (int) i;
+        for (const auto& n : removed) juce::Logger::writeToLog ("Registry: removed Pax '" + n + "'");
+    }
+    return removed;
+}
+
+const PaxRegistry::Entry* PaxRegistry::findByFile (const juce::File& file) const
+{
+    for (const auto& e : entries) if (e.file == file) return &e;
+    return nullptr;
+}
+
+bool PaxRegistry::addOne (const PaxScanner::ScanResult& r)
+{
+    {
+        if (! r.valid) return false;
+        if (nameToIndex.count (r.name) > 0)
+        {
+            juce::Logger::writeToLog ("Registry: '" + r.name + "' already loaded — " + r.file.getFileName() + " ignored");
+            return false;
+        }
 
         // Open the library and resolve all function pointers
         auto lib = std::make_shared<juce::DynamicLibrary>();
         if (! lib->open (r.file.getFullPathName()))
         {
             juce::Logger::writeToLog ("Registry: failed to reopen " + r.file.getFileName());
-            continue;
+            return false;
         }
 
         Entry e;
@@ -113,12 +156,13 @@ void PaxRegistry::load (const std::vector<PaxScanner::ScanResult>& results)
         if (! e.create || ! e.destroy || ! e.prepare || ! e.process)
         {
             juce::Logger::writeToLog ("Registry: symbol missing in " + r.file.getFileName());
-            continue;
+            return false;
         }
 
         nameToIndex[e.name] = static_cast<int>(entries.size());
         entries.push_back (std::move (e));
         juce::Logger::writeToLog ("Registry: loaded Pax '" + r.name + "'");
+        return true;
     }
 }
 

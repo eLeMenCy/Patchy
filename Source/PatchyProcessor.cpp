@@ -35,6 +35,11 @@ PatchyProcessor::PatchyProcessor()
         + juce::String ((int) registry.getEntries().size())
         + juce::String (" Pax loaded"));
 
+    // v0.0.958 — what the startup scan saw; the autoscan then reacts to changes
+    for (const auto& r : scanResults)
+        paxKnown[r.file.getFullPathName()] = { r.file.getSize(), r.file.getLastModificationTime().toMilliseconds() };
+    setPaxAutoScan (true);
+
     // When the graph changes: rebuild processing graph AND push to UI
     graphModel.onChange = [this]
     {
@@ -176,6 +181,7 @@ struct PatchyProcessor::HostIdleDriver : public juce::Thread
 PatchyProcessor::~PatchyProcessor()
 {
     diagLog ("PatchyProcessor: destroyed");   // v0.0.919 — lifecycle visibility (hosts)
+    paxWatch.reset();       // v0.0.958 — no more folder checks
     stopHostIdleDriver();   // before any member it uses goes away
 }
 
@@ -1117,4 +1123,158 @@ void PatchyProcessor::setStateInformation (const void* data, int sizeInBytes)
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new PatchyProcessor();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  v0.0.958 — Pax folder autoscan
+//
+//  Every 2 s (message thread) the Pax folders are listed and compared with
+//  what was handled before (path → size + modification time):
+//   • a new file is loaded once it has stopped changing (two checks with the
+//     same stamp — a copy in progress isn't read half-written); its Pax goes
+//     into the registry and the sidebar, and its ghost nodes come back;
+//   • a file that disappeared unloads its Pax: the graph is rebuilt without
+//     it, its nodes turn into ghosts (settings and wires kept). Nodes still
+//     running hold the library until that rebuild, so nothing is pulled from
+//     under the audio thread;
+//   • a loaded Pax whose file changed (rebuilt) keeps running the version
+//     already loaded until Patchy restarts — said in a toast (hot-reload is
+//     the next step). A file that had failed to load is simply tried again.
+//  Manual mode (Preferences): no timer; "Rescan Pax now" does the same check
+//  at once, without waiting for files to settle.
+// ─────────────────────────────────────────────────────────────────────────────
+
+struct PatchyProcessor::PaxWatchTimer : public juce::Timer
+{
+    explicit PaxWatchTimer (PatchyProcessor& o) : owner (o) {}
+    void timerCallback() override { owner.checkPaxFolders (false); }
+    PatchyProcessor& owner;
+};
+
+void PatchyProcessor::setPaxAutoScan (bool on)
+{
+    if (on)
+    {
+        if (paxWatch == nullptr) paxWatch = std::make_unique<PaxWatchTimer> (*this);
+        if (! paxWatch->isTimerRunning()) paxWatch->startTimer (2000);
+    }
+    else if (paxWatch != nullptr)
+    {
+        paxWatch->stopTimer();
+    }
+    paxPending.clear();
+    diagLog (juce::String ("Pax folder: ") + (on ? "autoscan on" : "manual rescan"));
+}
+
+void PatchyProcessor::paxToast (const juce::String& text, const juce::String& kind)
+{
+    juce::Logger::writeToLog ("Pax folder: " + text);
+    if (auto* ed = dynamic_cast<PatchyEditor*> (getActiveEditor()))
+        ed->getBridge().pushToast (text, kind);
+}
+
+void PatchyProcessor::checkPaxFolders (bool manual)
+{
+    const auto ext = PaxScanner::getPaxExtension();
+    std::map<juce::String, PaxStamp> now;
+    std::map<juce::String, juce::File> files;
+    for (const auto& folder : PaxScanner::getPaxFolders())
+    {
+        if (! folder.isDirectory()) continue;
+        for (const auto& f : folder.findChildFiles (juce::File::findFiles, false, "*" + ext))
+        {
+            now[f.getFullPathName()]   = { f.getSize(), f.getLastModificationTime().toMilliseconds() };
+            files[f.getFullPathName()] = f;
+        }
+    }
+
+    std::vector<PaxScanner::ScanResult> toAdd;
+    std::vector<juce::String> removedNames;
+    juce::StringArray notes;   // toasts after the change is applied
+
+    // Gone
+    for (auto it = paxKnown.begin(); it != paxKnown.end();)
+    {
+        if (now.count (it->first) == 0)
+        {
+            for (const auto& n : registry.removeFile (juce::File (it->first))) removedNames.push_back (n);
+            paxPending.erase (it->first);
+            it = paxKnown.erase (it);
+        }
+        else ++it;
+    }
+
+    // New or changed
+    for (const auto& [path, stamp] : now)
+    {
+        auto known = paxKnown.find (path);
+        if (known != paxKnown.end() && known->second == stamp) { paxPending.erase (path); continue; }
+
+        // wait until the file stops changing (unless asked to rescan now)
+        if (! manual)
+        {
+            auto p = paxPending.find (path);
+            if (p == paxPending.end() || p->second != stamp) { paxPending[path] = stamp; continue; }
+        }
+        paxPending.erase (path);
+        const auto& file = files[path];
+
+        if (known != paxKnown.end())
+        {
+            known->second = stamp;
+            if (const auto* e = registry.findByFile (file))
+            {
+                notes.add ("info|Pax updated: " + e->name + " — restart Patchy to use the new version");
+                continue;
+            }
+            // it had failed (or was skipped) before: try again below
+        }
+        paxKnown[path] = stamp;
+
+        auto r = PaxScanner::tryLoad (file);
+        if (! r.valid)
+        {
+            notes.add ("error|Couldn't load " + file.getFileName() + ": " + r.errorMsg);
+            continue;
+        }
+        bool clash = false;
+        for (const auto& e : registry.getEntries()) if (e.name == r.name) clash = true;
+        for (const auto& q : toAdd)                  if (q.name == r.name) clash = true;
+        if (clash) { notes.add ("info|" + file.getFileName() + ": a Pax named '" + r.name + "' is already loaded — skipped"); continue; }
+        toAdd.push_back (r);
+    }
+
+    const auto addedNames = registry.add (toAdd);
+    if (! addedNames.empty() || ! removedNames.empty())
+    {
+        // Ghosts of an added Pax get their processor back; nodes of a removed
+        // one lose it (they pass nothing, like any ghost)
+        auto countNodes = [this] (const juce::String& paxName)
+        {
+            int c = 0;
+            for (const auto& n : graphModel.getNodes()) if (n.paxName == paxName) ++c;
+            return c;
+        };
+        for (const auto& n : addedNames)
+        {
+            const int c = countNodes (n);
+            notes.insert (0, "ok|Pax added: " + n + (c > 0 ? " (" + juce::String (c) + (c == 1 ? " node" : " nodes") + " back)" : juce::String()));
+        }
+        for (const auto& n : removedNames)
+        {
+            const int c = countNodes (n);
+            notes.insert (0, "warn|Pax removed: " + n + (c > 0 ? " (" + juce::String (c) + (c == 1 ? " node is" : " nodes are") + " now a ghost)" : juce::String()));
+        }
+        rebuildProcessingGraph();
+        if (auto* ed = dynamic_cast<PatchyEditor*> (getActiveEditor()))
+        {
+            ed->getBridge().refreshPaxList();   // first: the UI decides ghost / real from this list
+            ed->getBridge().pushGraphToUI();
+        }
+    }
+    else if (manual && notes.isEmpty())
+        notes.add ("info|Pax folder: no changes (" + juce::String ((int) registry.getEntries().size()) + " Pax loaded)");
+
+    for (const auto& n : notes)
+        paxToast (n.fromFirstOccurrenceOf ("|", false, false), n.upToFirstOccurrenceOf ("|", false, false));
 }

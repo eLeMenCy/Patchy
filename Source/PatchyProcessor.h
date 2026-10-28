@@ -108,6 +108,13 @@ public:
     bool isPanicLatched() const { return panicLatched.load(); }
     bool isStandalone = false;
 
+    // v0.0.958 — Pax folder autoscan (message thread). Every 2 s while on:
+    // Pax added to the Pax folders load (their ghost nodes come back), Pax
+    // removed unload (their nodes turn into ghosts). Preferences can switch
+    // it to manual (rescanPaxNow(), the Preferences button).
+    void setPaxAutoScan (bool on);
+    void rescanPaxNow() { checkPaxFolders (true); }
+
     /** Prune ProcessingGraph edges for ports removed from a node. Call after GraphModel update. */
     void pruneProcessingGraphEdges (const juce::String& nodeId)
     {
@@ -1447,6 +1454,20 @@ public:
 
     // v0.0.919 — host-idle driver (see PatchyProcessor.cpp). The graph body
     // is processGraphBlock(); processLock keeps host and driver exclusive.
+    // v0.0.958 — Pax folder autoscan (see setPaxAutoScan)
+    struct PaxStamp
+    {
+        juce::int64 size = 0, mtime = 0;
+        bool operator== (const PaxStamp& o) const { return size == o.size && mtime == o.mtime; }
+        bool operator!= (const PaxStamp& o) const { return ! (*this == o); }
+    };
+    struct PaxWatchTimer;
+    std::map<juce::String, PaxStamp> paxKnown;     // files handled (loaded, failed or skipped) → stamp then
+    std::map<juce::String, PaxStamp> paxPending;   // seen new / changed once, waiting until they stop changing
+    std::unique_ptr<PaxWatchTimer>   paxWatch;
+    void checkPaxFolders (bool manual);
+    void paxToast (const juce::String& text, const juce::String& kind);
+
     struct HostIdleDriver;
     void processGraphBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&);
     void startHostIdleDriver (double sampleRate, int blockSize);

@@ -128,6 +128,9 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
     // why this differs from the DMX Console callback above, which needs
     // the live node instance itself since setChannel() is a node method,
     // not shared state).
+    // v0.0.958 — Pax folder: autoscan on / off (Preferences), "Rescan Pax now"
+    bridge.onSetPaxAutoScan = [&p](bool on) { p.setPaxAutoScan (on); };
+    bridge.onPaxRescan      = [&p]() { p.rescanPaxNow(); };
     // MidiFilePlayerNode (v0.0.954) — all live, on the shared MidiFilePlayerState
     bridge.onMidiFilePlayerParam    = [&p](const juce::String& nid, const juce::String& key, const juce::String& value)
                                       { p.setMidiFilePlayerParam (nid, key, value); };

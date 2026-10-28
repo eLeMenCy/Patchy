@@ -378,6 +378,10 @@ let   _appSettingsCache:       { reopenLastProject: number } = { reopenLastProje
 // v0.0.948 — Panic: latched state + the Preferences options
 export interface PanicState { latched: boolean; blackout: boolean; mute: boolean; }
 type PanicCallback = (s: PanicState) => void;
+// v0.0.958 — toasts (Pax folder autoscan)
+export interface ToastMessage { text: string; kind: 'ok' | 'info' | 'warn' | 'error' }
+type ToastCallback = (t: ToastMessage) => void;
+const _toastSubscribers: ToastCallback[] = [];
 const _panicSubscribers: PanicCallback[] = [];
 let   _panicCache: PanicState = { latched: false, blackout: true, mute: true };
 const _fileMissingSubscribers: FileMissingCallback[] = [];
@@ -547,6 +551,9 @@ function _dispatchClaimed() {
   onRecentFiles: (json: string) => {
     try { _recentCache = JSON.parse(json) as RecentFile[]; } catch { _recentCache = []; }
     _recentSubscribers.forEach(cb => cb(_recentCache));
+  },
+  onToast: (json: string) => {   // v0.0.958
+    try { const t = JSON.parse(json) as ToastMessage; _toastSubscribers.forEach(cb => cb(t)); } catch { /* ignore */ }
   },
   onPanicState: (json: string) => {   // v0.0.948
     try { _panicCache = JSON.parse(json) as PanicState; } catch { return; }
@@ -972,6 +979,13 @@ export const Bridge = {
   locateFile(path: string)              { sendToJuce({ type: 'locateFile', path }); },
   clearRecentFiles()                    { sendToJuce({ type: 'clearRecentFiles' }); },
   setReopenLastProject(enabled: boolean) { sendToJuce({ type: 'setReopenLastProject', enabled }); },
+  /** v0.0.958 — toasts, and the Pax folder: autoscan on / off, rescan now */
+  onToast(cb: ToastCallback) {
+    _toastSubscribers.push(cb);
+    return () => { const i = _toastSubscribers.indexOf(cb); if (i !== -1) _toastSubscribers.splice(i, 1); };
+  },
+  setPaxAutoScan(on: boolean) { sendToJuce({ type: 'setPaxAutoScan', on }); },
+  paxRescan() { sendToJuce({ type: 'paxRescan' }); },
   /** v0.0.948 — ⚠ panic (also ⌘. in the native window) and its Preferences options */
   panic() { sendToJuce({ type: 'panic' }); },
   /** v0.0.951 — the wrap's ⏻: these nodes on / off in one undo step */

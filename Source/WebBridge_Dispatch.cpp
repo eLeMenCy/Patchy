@@ -117,6 +117,14 @@ void WebBridge::handleMessage (const juce::String& json)
         handleAudioPlayerRequestFileInfo (obj);
     else if (type == "midiFilePlayerLoadFile")
         handleMidiFilePlayerLoadFile (obj);
+    else if (type == "setPaxAutoScan")   // v0.0.958
+    {
+        if (onSetPaxAutoScan) onSetPaxAutoScan ((bool) obj->getProperty ("on"));
+    }
+    else if (type == "paxRescan")        // v0.0.958
+    {
+        if (onPaxRescan) onPaxRescan();
+    }
     else if (type == "exportSelection")
         handleExportSelection (obj);
     else if (type == "importFragment")

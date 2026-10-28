@@ -21,9 +21,10 @@ export interface GraphPreferences {
   invertZoom: boolean;
   maxWrapFaders: number;   // v0.0.952 — console faders in a wrap's ⚙ panel (1-16)
   maxKbdFaders:  number;   // v0.0.956 — faders per MIDI Keyboard (1-16)
+  paxManualRescan: boolean;   // v0.0.958 — off: the Pax folders are watched (every 2 s); on: "Rescan Pax now" only
 }
 
-export const DEFAULT_PREFS: GraphPreferences = { invertZoom: false, maxWrapFaders: 4, maxKbdFaders: 4 };
+export const DEFAULT_PREFS: GraphPreferences = { invertZoom: false, maxWrapFaders: 4, maxKbdFaders: 4, paxManualRescan: false };
 const STORAGE_KEY = 'nodegraph_prefs';
 
 export function loadPrefs(): GraphPreferences {
@@ -301,6 +302,23 @@ function GraphTab ({ prefs, onChange }: {
         <ValueBox value={prefs.maxKbdFaders ?? 4} min={1} max={16} accent="var(--accent)" width={40}
           onCommit={v => patch({ maxKbdFaders: v })} />
       </div>
+      {/* v0.0.958 — Pax folder autoscan */}
+      <SectionHeader label="Pax folder" />
+      <ToggleRow
+        label="Manual rescan"
+        desc="Off: Patchy watches the Pax folders (every 2 s) — a Pax copied in appears in the sidebar and its ghost nodes come back; a Pax taken out unloads and its nodes turn into ghosts. On: nothing is watched; use the button below (handy while developing a Pax)."
+        value={prefs.paxManualRescan ?? false}
+        onChange={v => { patch({ paxManualRescan: v }); Bridge.setPaxAutoScan(!v); }}
+      />
+      {(prefs.paxManualRescan ?? false) && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: -4, marginBottom: 10 }}>
+          <button onClick={() => Bridge.paxRescan()}
+            style={{ fontSize: 10, padding: '4px 10px', borderRadius: 3, cursor: 'pointer', background: 'var(--surface)',
+                     border: '1px solid var(--border)', color: 'var(--text)', fontFamily: "'JetBrains Mono', monospace" }}>
+            ⟳ Rescan Pax now
+          </button>
+        </div>
+      )}
       {/* v0.0.939 — where the wrap library lives */}
       <SectionHeader label="Wrap library" />
       <div style={{ marginBottom: 10 }}>

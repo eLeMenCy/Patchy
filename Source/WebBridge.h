@@ -180,6 +180,11 @@ public:
     void resized() override;
     void loadUI();
     void pushGraphToUI();
+    // v0.0.958 — Pax folder autoscan: the Pax list again, and a short toast
+    void refreshPaxList() { pushPaxList(); }
+    void pushToast (const juce::String& text, const juce::String& kind);   // kind: ok / info / warn / error
+    std::function<void(bool)> onSetPaxAutoScan;   // Preferences: false = manual rescan
+    std::function<void()>     onPaxRescan;
     void pushUndoState();
     void pushSettingsToUI (const juce::String& nodeId, const juce::String& settingsJson);
 

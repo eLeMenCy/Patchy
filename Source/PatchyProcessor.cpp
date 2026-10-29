@@ -27,7 +27,9 @@ PatchyProcessor::PatchyProcessor()
         juce::Logger::writeToLog ("Patchy: log file: " + PatchyLog::getLogFile().getFullPathName());
     }
 
-    // Scan for dynamic Pax at startup
+    // Scan for dynamic Pax at startup (v0.0.959 — each opened from a private
+    // copy; copies left by earlier sessions are cleaned first)
+    PaxScanner::cleanStaleShadowCopies();
     auto scanResults = PaxScanner::scan();
     registry.load (scanResults);
     juce::Logger::writeToLog (
@@ -1137,9 +1139,13 @@ juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 //     it, its nodes turn into ghosts (settings and wires kept). Nodes still
 //     running hold the library until that rebuild, so nothing is pulled from
 //     under the audio thread;
-//   • a loaded Pax whose file changed (rebuilt) keeps running the version
-//     already loaded until Patchy restarts — said in a toast (hot-reload is
-//     the next step). A file that had failed to load is simply tried again.
+//   • v0.0.959 — a loaded Pax whose file changed (rebuilt) is hot-reloaded:
+//     the new build (opened from its own private copy) replaces the entry, the
+//     rebuild gives its nodes new processors — parameter values come back
+//     from their settings, wires untouched. A build with different ports is
+//     refused (restart), a build that fails keeps the old one running, a
+//     renamed one counts as removed + added. A file that had failed to load is
+//     simply tried again.
 //  Manual mode (Preferences): no timer; "Rescan Pax now" does the same check
 //  at once, without waiting for files to settle.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1189,7 +1195,7 @@ void PatchyProcessor::checkPaxFolders (bool manual)
     }
 
     std::vector<PaxScanner::ScanResult> toAdd;
-    std::vector<juce::String> removedNames;
+    std::vector<juce::String> removedNames, reloadedNames;
     juce::StringArray notes;   // toasts after the change is applied
 
     // Gone
@@ -1224,7 +1230,32 @@ void PatchyProcessor::checkPaxFolders (bool manual)
             known->second = stamp;
             if (const auto* e = registry.findByFile (file))
             {
-                notes.add ("info|Pax updated: " + e->name + " — restart Patchy to use the new version");
+                // v0.0.959 — hot-reload: the rebuilt Pax replaces the loaded one
+                const auto oldName = e->name;
+                auto r = PaxScanner::tryLoad (file);
+                if (! r.valid)
+                {
+                    notes.add ("error|" + oldName + ": the new build couldn't load (" + r.errorMsg + ") — the loaded version keeps running");
+                    continue;
+                }
+                if (r.name != oldName)   // renamed in the new build: out with the old name, in with the new
+                {
+                    for (const auto& n : registry.removeFile (file)) removedNames.push_back (n);
+                    toAdd.push_back (r);
+                    continue;
+                }
+                switch (registry.reload (r))
+                {
+                    case PaxRegistry::ReloadResult::Reloaded:
+                        reloadedNames.push_back (oldName); break;
+                    case PaxRegistry::ReloadResult::SameImage:
+                        notes.add ("warn|" + oldName + ": the system kept the build already loaded — restart Patchy to use the new one"); break;
+                    case PaxRegistry::ReloadResult::PortsChanged:
+                        notes.add ("warn|" + oldName + ": the new build has different ports — restart Patchy to use it (the loaded version keeps running)"); break;
+                    case PaxRegistry::ReloadResult::NotLoaded:
+                    case PaxRegistry::ReloadResult::Failed:
+                        notes.add ("error|" + oldName + ": the new build couldn't load — the loaded version keeps running"); break;
+                }
                 continue;
             }
             // it had failed (or was skipped) before: try again below
@@ -1240,12 +1271,17 @@ void PatchyProcessor::checkPaxFolders (bool manual)
         bool clash = false;
         for (const auto& e : registry.getEntries()) if (e.name == r.name) clash = true;
         for (const auto& q : toAdd)                  if (q.name == r.name) clash = true;
-        if (clash) { notes.add ("info|" + file.getFileName() + ": a Pax named '" + r.name + "' is already loaded — skipped"); continue; }
+        if (clash)
+        {
+            PaxScanner::releaseShadowCopy (r.loadedFrom, r.file);
+            notes.add ("info|" + file.getFileName() + ": a Pax named '" + r.name + "' is already loaded — skipped");
+            continue;
+        }
         toAdd.push_back (r);
     }
 
     const auto addedNames = registry.add (toAdd);
-    if (! addedNames.empty() || ! removedNames.empty())
+    if (! addedNames.empty() || ! removedNames.empty() || ! reloadedNames.empty())
     {
         // Ghosts of an added Pax get their processor back; nodes of a removed
         // one lose it (they pass nothing, like any ghost)
@@ -1259,6 +1295,13 @@ void PatchyProcessor::checkPaxFolders (bool manual)
         {
             const int c = countNodes (n);
             notes.insert (0, "ok|Pax added: " + n + (c > 0 ? " (" + juce::String (c) + (c == 1 ? " node" : " nodes") + " back)" : juce::String()));
+        }
+        for (const auto& n : reloadedNames)
+        {
+            const int c = countNodes (n);
+            juce::String ver;
+            for (const auto& e : registry.getEntries()) if (e.name == n && e.version.isNotEmpty()) ver = " v" + e.version;
+            notes.insert (0, "ok|Pax reloaded: " + n + ver + (c > 0 ? " (" + juce::String (c) + (c == 1 ? " node" : " nodes") + " now on the new build)" : juce::String()));
         }
         for (const auto& n : removedNames)
         {

@@ -128,7 +128,8 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                     auto parsed = juce::JSON::parse (settingsJson);
                     if (auto* arr = parsed.getArray())
                     {
-                        for (int i = 0; i < arr->size(); ++i)
+                        // v0.0.959 — no more than the Pax has (a hot-reloaded build may have fewer)
+                        for (int i = 0; i < juce::jmin (arr->size(), dyn->getParameterCount()); ++i)
                             dyn->setParameter (i, (float) (double) (*arr)[i]);
                     }
                 }

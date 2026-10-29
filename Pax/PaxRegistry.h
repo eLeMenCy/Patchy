@@ -39,6 +39,12 @@ public:
     std::vector<juce::String> add (const std::vector<PaxScanner::ScanResult>& scanResults);
     std::vector<juce::String> removeFile (const juce::File& file);
 
+    // v0.0.959 — hot-reload: the Pax from this scan replaces the loaded one
+    // of the same name. Running nodes keep the old library until the next
+    // rebuild; new ones get the new build.
+    enum class ReloadResult { Reloaded, NotLoaded, PortsChanged, Failed, SameImage };   // SameImage: the OS gave back the build already loaded
+    ReloadResult reload (const PaxScanner::ScanResult& r);
+
     /** Create a NodeProcessor that wraps a loaded Pax.
      *  Returns nullptr if paxName is not registered. */
     std::unique_ptr<NodeProcessor> createNode (const juce::String& nodeId,
@@ -105,6 +111,7 @@ public:
 
 private:
     bool addOne (const PaxScanner::ScanResult& r);
+    bool makeEntry (const PaxScanner::ScanResult& r, Entry& e);
     std::vector<Entry> entries;
 
     // Keep libs alive by name for quick lookup

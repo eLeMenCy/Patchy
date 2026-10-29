@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.958
+> Version 0.0.959
 
 ---
 
@@ -102,7 +102,7 @@
 - **MQTT Console** — manual topic+payload composer; topic field with a remembered-topics dropdown, numeric payload, explicit Send (button or Enter); pure value source, no broker connection of its own
 - **Audio Player** — three source modes: audio file playback (WAV/AIFF always available; FLAC/OGG/MP3 also supported), a sine generator, or white/pink noise; static waveform display with click-to-seek and a moving playhead; log-scale frequency slider and dB-scale level slider (both default to a conservative, safety-conscious level); source node, output only
 - **MIDI File Player** — plays a standard MIDI file (.mid) out of a MIDI Out: all tracks together on their own channels, per-track mute, optional force channel; tempo from the file, the DAW (tempo and transport, in the plugin) or your own BPM; play / pause, back to start, loop, click-to-seek; sounding notes are released on pause and seek
-- **Pax system** — drop a `.dylib/.so/.dll` into the Pax folder; it appears in the sidebar within a couple of seconds (the folder is watched; Preferences → Pax folder can switch to a manual "Rescan Pax now"). Taking one out unloads it and its nodes turn into ghosts; a small toast says what changed. A Pax rebuilt while Patchy runs is used after a restart
+- **Pax system** — drop a `.dylib/.so/.dll` into the Pax folder; it appears in the sidebar within a couple of seconds (the folder is watched; Preferences → Pax folder can switch to a manual "Rescan Pax now"). Taking one out unloads it and its nodes turn into ghosts; a small toast says what changed. A Pax rebuilt while Patchy runs is hot-reloaded: its nodes switch to the new build, keeping their parameter values and wires (a build whose ports changed needs a restart). Each Pax is loaded from a private temporary copy, so the original in the Pax folder can be rebuilt or overwritten at any time
 - **Dynamic port counts** — Pax can change their output port count at runtime (e.g. Spectrumyser band count) without audio interruption
 - **Restructured burger menu** — `☰` top-right opens File and Edit flyout submenus with keyboard shortcuts
 - **Hint panel** — hover any node, button, port or edge to see a description in the sidebar hint panel; hovering a Value edge (a Pax adapter/converter's generic value port) shows its current, live numeric value, updating continuously while hovered
@@ -830,4 +830,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.958 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.959 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

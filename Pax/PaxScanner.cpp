@@ -1,3 +1,5 @@
+#include <cstring>
+#include <atomic>
 #include "PaxScanner.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -75,14 +77,21 @@ std::vector<PaxScanner::ScanResult> PaxScanner::scan()
 PaxScanner::ScanResult PaxScanner::tryLoad (const juce::File& file)
 {
     ScanResult result;
-    result.file = file;
+    result.file       = file;
+    result.loadedFrom = makeShadowCopy (file);   // v0.0.959
 
     auto lib = std::make_unique<juce::DynamicLibrary>();
-    if (! lib->open (file.getFullPathName()))
+    if (! lib->open (result.loadedFrom.getFullPathName()))
     {
         result.errorMsg = "Could not open library";
+        lib.reset();
+        releaseShadowCopy (result.loadedFrom, file);
         return result;
     }
+    // a failed check below drops the copy too
+    struct DropCopy { std::unique_ptr<juce::DynamicLibrary>& l; ScanResult& r;
+                      ~DropCopy() { if (! r.valid) { l.reset(); PaxScanner::releaseShadowCopy (r.loadedFrom, r.file); } } }
+        dropCopy { lib, result };
 
     // Check all required symbols are present
     using GetDescFn = const PAX_Descriptor* (*)();
@@ -139,4 +148,55 @@ PaxScanner::ScanResult PaxScanner::tryLoad (const juce::File& file)
     // lib goes out of scope here — we re-open it when creating instances
     // (DynamicLibrary is cheap to reopen; the OS keeps the .so in memory)
     return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  v0.0.959 — private copies (hot-reload)
+// ─────────────────────────────────────────────────────────────────────────────
+
+static juce::File shadowRoot()
+{
+    return juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("PatchyPax");
+}
+
+static juce::File sessionShadowDir()
+{
+    static const juce::String session = juce::Uuid().toString().substring (0, 12);
+    return shadowRoot().getChildFile (session);
+}
+
+juce::File PaxScanner::makeShadowCopy (const juce::File& original)
+{
+    static std::atomic<int> counter { 0 };
+    auto dir = sessionShadowDir();
+    if (! dir.createDirectory()) return original;
+    auto copy = dir.getChildFile (original.getFileNameWithoutExtension()
+                                  + "-" + juce::String (++counter) + original.getFileExtension());
+    if (! original.copyFileTo (copy)) return original;
+    return copy;
+}
+
+void PaxScanner::releaseShadowCopy (const juce::File& copy, const juce::File& original)
+{
+#if ! JUCE_WINDOWS
+    if (copy != original && copy.isAChildOf (shadowRoot()))
+        copy.deleteFile();
+#else
+    juce::ignoreUnused (copy, original);
+#endif
+}
+
+void PaxScanner::cleanStaleShadowCopies()
+{
+    const auto root = shadowRoot();
+    if (! root.isDirectory()) return;
+    const auto mine = sessionShadowDir();
+    const auto cutoff = juce::Time::getCurrentTime() - juce::RelativeTime::minutes (1);
+    for (const auto& d : root.findChildFiles (juce::File::findDirectories, false))
+    {
+        if (d == mine || d.getLastModificationTime() > cutoff) continue;   // another Patchy may be loading right now
+        for (const auto& f : d.findChildFiles (juce::File::findFiles, false))
+            f.deleteFile();          // a .dll still loaded by a running Patchy stays (locked)
+        d.deleteFile();              // only goes once empty
+    }
 }

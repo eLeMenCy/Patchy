@@ -63,23 +63,64 @@ const PaxRegistry::Entry* PaxRegistry::findByFile (const juce::File& file) const
 
 bool PaxRegistry::addOne (const PaxScanner::ScanResult& r)
 {
+    if (! r.valid) return false;
+    if (nameToIndex.count (r.name) > 0)
     {
-        if (! r.valid) return false;
-        if (nameToIndex.count (r.name) > 0)
-        {
-            juce::Logger::writeToLog ("Registry: '" + r.name + "' already loaded — " + r.file.getFileName() + " ignored");
-            return false;
-        }
+        juce::Logger::writeToLog ("Registry: '" + r.name + "' already loaded — " + r.file.getFileName() + " ignored");
+        PaxScanner::releaseShadowCopy (r.loadedFrom, r.file);
+        return false;
+    }
+    Entry e;
+    if (! makeEntry (r, e)) return false;
+    nameToIndex[e.name] = static_cast<int>(entries.size());
+    entries.push_back (std::move (e));
+    juce::Logger::writeToLog ("Registry: loaded Pax '" + r.name + "'");
+    return true;
+}
 
-        // Open the library and resolve all function pointers
+// v0.0.959 — same ports as the loaded build? (otherwise the saved nodes'
+// ports no longer match: a restart re-derives them)
+static bool samePorts (const PaxRegistry::Entry& a, const PaxRegistry::Entry& b)
+{
+    return a.nodeType == b.nodeType
+        && a.audioInputs == b.audioInputs && a.audioOutputs == b.audioOutputs
+        && a.midiInputs  == b.midiInputs  && a.midiOutputs  == b.midiOutputs
+        && a.valueInputs == b.valueInputs && a.valueOutputs == b.valueOutputs
+        && a.valueInputTypes == b.valueInputTypes && a.valueOutputTypes == b.valueOutputTypes;
+}
+
+PaxRegistry::ReloadResult PaxRegistry::reload (const PaxScanner::ScanResult& r)
+{
+    auto it = nameToIndex.find (r.name);
+    if (it == nameToIndex.end()) { PaxScanner::releaseShadowCopy (r.loadedFrom, r.file); return ReloadResult::NotLoaded; }
+    Entry e;
+    if (! makeEntry (r, e)) return ReloadResult::Failed;
+    auto& old = entries[(size_t) it->second];
+    if (! samePorts (old, e)) return ReloadResult::PortsChanged;   // e (and its library) dropped here
+    if (e.create == old.create)   // same code address: the OS returned the image already loaded, not the new build
+    {
+        juce::Logger::writeToLog ("Registry: reload of '" + r.name + "' gave back the build already loaded (" + r.loadedFrom.getFileName() + ")");
+        return ReloadResult::SameImage;
+    }
+    old = std::move (e);
+    juce::Logger::writeToLog ("Registry: reloaded Pax '" + r.name + "'");
+    return ReloadResult::Reloaded;
+}
+
+bool PaxRegistry::makeEntry (const PaxScanner::ScanResult& r, Entry& e)
+{
+    {
+        // Open the library (its private copy) and resolve all function pointers
         auto lib = std::make_shared<juce::DynamicLibrary>();
-        if (! lib->open (r.file.getFullPathName()))
+        const auto from = r.loadedFrom != juce::File() ? r.loadedFrom : r.file;
+        if (! lib->open (from.getFullPathName()))
         {
             juce::Logger::writeToLog ("Registry: failed to reopen " + r.file.getFileName());
+            PaxScanner::releaseShadowCopy (r.loadedFrom, r.file);
             return false;
         }
+        PaxScanner::releaseShadowCopy (r.loadedFrom, r.file);   // open: the copy can go (not on Windows)
 
-        Entry e;
         e.name     = r.name;
         e.vendor   = r.vendor;
         e.version  = r.version;
@@ -159,9 +200,6 @@ bool PaxRegistry::addOne (const PaxScanner::ScanResult& r)
             return false;
         }
 
-        nameToIndex[e.name] = static_cast<int>(entries.size());
-        entries.push_back (std::move (e));
-        juce::Logger::writeToLog ("Registry: loaded Pax '" + r.name + "'");
         return true;
     }
 }

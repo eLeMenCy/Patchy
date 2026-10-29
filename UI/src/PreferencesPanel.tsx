@@ -306,7 +306,7 @@ function GraphTab ({ prefs, onChange }: {
       <SectionHeader label="Pax folder" />
       <ToggleRow
         label="Manual rescan"
-        desc="Off: Patchy watches the Pax folders (every 2 s) — a Pax copied in appears in the sidebar and its ghost nodes come back; a Pax taken out unloads and its nodes turn into ghosts. On: nothing is watched; use the button below (handy while developing a Pax)."
+        desc="Off: Patchy watches the Pax folders (every 2 s) — a Pax copied in appears in the sidebar and its ghost nodes come back; a Pax taken out unloads and its nodes turn into ghosts; a rebuilt Pax is reloaded in place (its nodes keep their values and wires). On: nothing is watched; use the button below (handy while developing a Pax)."
         value={prefs.paxManualRescan ?? false}
         onChange={v => { patch({ paxManualRescan: v }); Bridge.setPaxAutoScan(!v); }}
       />

@@ -20,6 +20,7 @@ public:
     struct ScanResult
     {
         juce::File   file;
+        juce::File   loadedFrom;   // v0.0.959 — the private copy actually opened (see makeShadowCopy)
         bool         valid   = false;
         juce::String name;
         juce::String vendor;
@@ -43,4 +44,18 @@ public:
 
     /** v0.0.958 — check one file (the autoscan uses it for new files). */
     static ScanResult tryLoad (const juce::File& file);
+
+    /** v0.0.959 — hot-reload: every Pax is opened from a private copy in
+     *  <temp>/PatchyPax/<session>/, never from the Pax folder itself, so a
+     *  rebuilt Pax is really new code (macOS / Linux hand back the library
+     *  already loaded for the same path) and the original can be overwritten
+     *  at any time (Windows locks a loaded .dll; macOS can crash when a mapped
+     *  .dylib is written over). Returns the original if the copy fails. */
+    static juce::File makeShadowCopy (const juce::File& original);
+    /** The copy is no longer needed once the library is open (macOS / Linux
+     *  keep it mapped); Windows can't delete a loaded .dll — left for the
+     *  next session's cleanup. */
+    static void releaseShadowCopy (const juce::File& copy, const juce::File& original);
+    /** Startup: removes copies left by earlier sessions (not touched for a minute). */
+    static void cleanStaleShadowCopies();
 };

@@ -149,6 +149,8 @@ void WebBridge::handleReady ()
     lastPushedHostPaused = -1;   // v0.0.919 — re-send the host-paused state to a freshly loaded page
     juce::Logger::writeToLog ("WebBridge: UI ready.");
     pushPaxList();
+    if (! wasConnected)   // v0.0.960 — follow the system's MIDI device list from now on
+        midiDeviceListConnection = juce::MidiDeviceListConnection::make ([this] { if (connected) pushMidiDevices(); });
     pushWrapLibrary();   // v0.0.938
     pushToUI ("onFileState", buildFileStateJson());
     pushMidiDevices();

@@ -3,7 +3,7 @@ import { HintContext, NODE_HINTS, BUTTON_HINTS } from './HintPanel';
 import { DawContext } from './DawContext';
 import { X, Settings, Power } from 'lucide-react';
 import { NodeProps } from '@xyflow/react';
-import { Bridge, PaxParamInfo } from './Bridge';
+import { Bridge, PaxParamInfo, virtualPortNumber, virtualPortName } from './Bridge';
 import { useNodeDelete, useNodeDisabled, NodeHeaderButton, useNodeCollapsed, useNodeSettings, NodeHandle, nodeContainerStyle, portColour, _paxInfoMap, detectPaxTheme, detectPaxTagPrefix, EditableTitle, commitModelName, niceStep, readoutBoxStyle, SettingsPanelHeader } from './NodeUtils';
 import ValueBox from './ValueBox';   // v0.0.943
 import { LearnButton } from './LearnButton';   // v0.0.947
@@ -547,11 +547,15 @@ function GenericNode({ id, data, selected }: NodeProps) {
   // (lost on every reload/undo); now read from the graph model's own
   // customName, edited in place in the header (EditableTitle).
   const customName: string = (nodeData as any).customName ?? '';
+  // v0.0.960 — virtual MIDI port (MIDI In / Out set to "Virtual port")
+  const vPort = (nodeData.nodeType === 1 || nodeData.nodeType === 2) ? virtualPortNumber (nodeData.selectedDeviceId as string | undefined) : 0;
+  const vTag  = nodeData.nodeType === 1 ? 'MIDI VIN' : 'MIDI VOUT';
+  const vTitle = `${customName || vTag} (${vPort})`;
 
   return (
     <div
       style={{
-        minWidth:   (isUdpDevice || isOscDevice || isMqttSubscribeDevice || isMqttPublishDevice || isArtNetDevice || isDmxDevice) ? 310 : Math.max(theme.tag.length * 10 + 80, 220),
+        minWidth:   (isUdpDevice || isOscDevice || isMqttSubscribeDevice || isMqttPublishDevice || isArtNetDevice || isDmxDevice) ? 310 : Math.max((vPort > 0 ? vTitle : theme.tag).length * 10 + 80, 220),   // v0.0.960 — room for a virtual port's (renamed) title + its pencil
         userSelect: 'none',
         ...nodeContainerStyle(theme.accent, !!selected, { bg: 'var(--surface)', glow: theme.glow, disabled }),
       }}
@@ -594,7 +598,14 @@ function GenericNode({ id, data, selected }: NodeProps) {
             </span>
           {/* Phase 6 in-place rename, 2026-09-25 — Pax only (device nodes
               aren't renamable: their header already shows the device). */}
-          {isPax ? (
+          {vPort > 0 ? (
+            // v0.0.960 — a MIDI In / Out on a virtual port: "MIDI VIN (X)",
+            // renamable — the (X) stays
+            <EditableTitle display={vTitle} value={customName} placeholder={vTag}
+              onCommit={commitModelName (id)}
+              textStyle={{ fontSize: '11px', fontWeight: 700, color: theme.accent,
+                           letterSpacing: '0.1em', fontFamily: "'Syne', sans-serif", whiteSpace: 'nowrap' }} />
+          ) : isPax ? (
             <EditableTitle display={customName || theme.tag} value={customName} placeholder={theme.tag}
               onCommit={commitModelName (id)}
               textStyle={{ fontSize: '11px', fontWeight: 700, color: theme.accent,
@@ -839,6 +850,12 @@ function GenericNode({ id, data, selected }: NodeProps) {
             />
           )}
         </>)}
+        {vPort > 0 && (
+          <div title="The name other MIDI apps see" style={{ fontSize: 9, color: 'var(--text-dim)', marginTop: 4,
+                        fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }}>
+            {nodeData.nodeType === 1 ? '⇠ ' : '⇢ '}{virtualPortName (nodeData.nodeType === 1, vPort)}
+          </div>
+        )}
         {(nodeData.nodeType === 3 || nodeData.nodeType === 4) && (<>
           {nodeData.selectedDeviceId && <ChannelSummary channels={selectedChannels} />}
           <DeviceSelector

@@ -41,7 +41,7 @@ bool MidiDeviceManager::applyToGraph (const juce::String& nodeId,
     return false;
 }
 
-juce::var MidiDeviceManager::getAvailableDevicesVar (bool isStandalone)
+juce::var MidiDeviceManager::getAvailableDevicesVar (bool isStandalone, const juce::StringArray& ownVirtualPorts)
 {
     juce::Array<juce::var> outArr;
     juce::Array<juce::var> inArr;
@@ -62,8 +62,24 @@ juce::var MidiDeviceManager::getAvailableDevicesVar (bool isStandalone)
         inArr.add  (makeDaw());
     }
 
+    // v0.0.960 — "Virtual port" (the node picks a number; see VirtualMidiPorts.h)
+    auto makeVirtual = []() -> juce::var {
+        auto* obj = new juce::DynamicObject();
+        obj->setProperty ("id",   "virtual");
+        obj->setProperty ("name", virtualMidiPortsSupported() ? "Virtual port" : "Virtual port (not on Windows)");
+        obj->setProperty ("unavailable", ! virtualMidiPortsSupported());
+        return obj;
+    };
+    outArr.add (makeVirtual());
+    inArr.add  (makeVirtual());
+
+    // This Patchy's own virtual ports aren't offered back to it (a loop);
+    // another Patchy's (another track / the Standalone) are
+    auto isOwnPort = [&ownVirtualPorts] (const juce::String& n) { return ownVirtualPorts.contains (n); };
+
     for (const auto& d : juce::MidiOutput::getAvailableDevices())
     {
+        if (isOwnPort (d.name)) continue;
         auto* obj = new juce::DynamicObject();
         obj->setProperty ("id",   d.identifier);
         obj->setProperty ("name", d.name);
@@ -72,6 +88,7 @@ juce::var MidiDeviceManager::getAvailableDevicesVar (bool isStandalone)
 
     for (const auto& d : juce::MidiInput::getAvailableDevices())
     {
+        if (isOwnPort (d.name)) continue;
         auto* obj = new juce::DynamicObject();
         obj->setProperty ("id",   d.identifier);
         obj->setProperty ("name", d.name);

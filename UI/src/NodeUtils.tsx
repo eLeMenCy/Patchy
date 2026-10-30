@@ -845,9 +845,10 @@ export function EditableTitle ({ display, value, placeholder, onCommit, textStyl
   const trackRef      = useRef<HTMLSpanElement>(null);
   const skipCommitRef = useRef (false);
 
-  const start = () => { setDraft (value); skipCommitRef.current = false; setScrolling (false); setEditing (true); };
+  const start = () => { setDraft (value); skipCommitRef.current = false; setScrolling (false); setHover (false); setEditing (true); };
   const commit = () => {
     setEditing (false);
+    setHover (false);   // v0.0.960 — the field replaced the title: its mouse-leave never came, the marquee kept running
     if (skipCommitRef.current) { skipCommitRef.current = false; return; }
     const v = draft.trim();
     if (v !== value) onCommit (v);

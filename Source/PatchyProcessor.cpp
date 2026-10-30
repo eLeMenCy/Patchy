@@ -4,6 +4,8 @@
 #include "PatchyEditor.h"
 #include "AudioDeviceNodes.h"
 #include <utility>
+#include <algorithm>
+#include <set>
 #include <chrono>
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -36,6 +38,8 @@ PatchyProcessor::PatchyProcessor()
         juce::String ("PatchyProcessor: ")
         + juce::String ((int) registry.getEntries().size())
         + juce::String (" Pax loaded"));
+
+    liveInstances().add (this);   // v0.0.960
 
     // v0.0.958 — what the startup scan saw; the autoscan then reacts to changes
     for (const auto& r : scanResults)
@@ -184,6 +188,10 @@ PatchyProcessor::~PatchyProcessor()
 {
     diagLog ("PatchyProcessor: destroyed");   // v0.0.919 — lifecycle visibility (hosts)
     paxWatch.reset();       // v0.0.958 — no more folder checks
+    retiredPortsTimer.reset();   // v0.0.960
+    liveInstances().removeAllInstancesOf (this);
+    virtualInPorts.clear(); virtualOutPorts.clear(); purgeRetiredPorts (true);
+    refreshAllMidiDeviceLists();   // the others drop this one's ports
     stopHostIdleDriver();   // before any member it uses goes away
 }
 
@@ -743,6 +751,7 @@ void PatchyProcessor::rebuildProcessingGraph()
 
     // Apply selections to new graph (opens/closes devices as needed)
     midiDeviceManager.applyDeviceSelections  (*newGraph, pendingGraph ? pendingGraph.get() : &processingGraph);
+    syncVirtualMidiPorts (*newGraph);   // v0.0.960 — the persistent virtual ports, to their nodes
     // v0.0.915 (Side finding 1, 2026-09-27) — hardware audio devices open
     // at, and transferred ones follow, the host's current rate/block. Must
     // come before applyDeviceSelections(), which runs before newGraph->
@@ -1320,4 +1329,157 @@ void PatchyProcessor::checkPaxFolders (bool manual)
 
     for (const auto& n : notes)
         paxToast (n.fromFirstOccurrenceOf ("|", false, false), n.upToFirstOccurrenceOf ("|", false, false));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  v0.0.960 — virtual MIDI ports (see VirtualMidiPorts.h)
+//
+//  Message thread, after every rebuild / device change / track rename: the
+//  ports wanted are the MIDI In / Out nodes set to "virtual:X". Missing ones
+//  are created, ones whose name changed (track renamed) re-created, unused
+//  ones retired — destroyed at the NEXT sync, when no graph uses them any
+//  more — and each node of `g` gets its port's pointer.
+// ─────────────────────────────────────────────────────────────────────────────
+
+struct PatchyProcessor::RetiredPortsTimer : public juce::Timer
+{
+    explicit RetiredPortsTimer (PatchyProcessor& o) : owner (o) {}
+    void timerCallback() override
+    {
+        owner.purgeRetiredPorts (false);
+        if (owner.retiredInPorts.empty() && owner.retiredOutPorts.empty()) stopTimer();
+    }
+    PatchyProcessor& owner;
+};
+
+int PatchyProcessor::nextVirtualPortNumber (const juce::String& nodeId)
+{
+    const auto* me = graphModel.findNode (nodeId);
+    if (me == nullptr) return 1;
+    if (const int x = virtualPortNumber (me->selectedDeviceId); x > 0) return x;
+    std::set<int> used;
+    for (const auto& n : graphModel.getNodes())
+        if (n.id != nodeId && n.nodeType == me->nodeType)
+            if (const int x = virtualPortNumber (n.selectedDeviceId); x > 0) used.insert (x);
+    int x = 1;
+    while (used.count (x) > 0) ++x;
+    return x;
+}
+
+void PatchyProcessor::syncVirtualMidiPorts (ProcessingGraph& g)
+{
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    purgeRetiredPorts (false);
+    if (! virtualMidiPortsSupported()) return;
+
+    std::map<int, juce::String> wantIn, wantOut;   // X → node id
+    for (const auto& n : graphModel.getNodes())
+    {
+        if (n.nodeType != 1 && n.nodeType != 2) continue;
+        const int x = virtualPortNumber (n.selectedDeviceId);
+        if (x <= 0) continue;
+        auto& want = n.nodeType == 1 ? wantIn : wantOut;
+        if (want.count (x) > 0) { diagLog ("Virtual MIDI: two nodes on number " + juce::String (x) + " — only the first gets the port"); continue; }
+        want[x] = n.id;
+    }
+
+    bool changed = false;
+    // MIDI In nodes ← other apps send to "Patchy … Vout-X"
+    for (auto it = virtualInPorts.begin(); it != virtualInPorts.end();)
+    {
+        const bool keep = wantIn.count (it->first) > 0 && it->second->name == virtualPortName (true, it->first, trackName);
+        if (keep) { ++it; continue; }
+        retiredInPorts.emplace_back (now, std::move (it->second));
+        it = virtualInPorts.erase (it);
+        changed = true;
+    }
+    for (const auto& [x, nodeId] : wantIn)
+    {
+        if (virtualInPorts.count (x) == 0)
+        {
+            auto p = std::make_unique<VirtualMidiInPort> (virtualPortName (true, x, trackName));
+            diagLog ("Virtual MIDI: " + p->name + (p->isOpen() ? " created" : " could not be created"));
+            if (! p->isOpen()) continue;
+            virtualInPorts[x] = std::move (p);
+            changed = true;
+        }
+        if (auto* node = g.findMidiInNode (nodeId))
+        {
+            node->setVirtualPort (virtualInPorts[x].get());
+            node->selectedDeviceName = virtualInPorts[x]->name;
+        }
+    }
+    // MIDI Out nodes → other apps receive from "Patchy … Vin-X"
+    for (auto it = virtualOutPorts.begin(); it != virtualOutPorts.end();)
+    {
+        const bool keep = wantOut.count (it->first) > 0 && it->second->name == virtualPortName (false, it->first, trackName);
+        if (keep) { ++it; continue; }
+        retiredOutPorts.emplace_back (now, std::move (it->second));
+        it = virtualOutPorts.erase (it);
+        changed = true;
+    }
+    for (const auto& [x, nodeId] : wantOut)
+    {
+        if (virtualOutPorts.count (x) == 0)
+        {
+            auto p = std::make_unique<VirtualMidiOutPort> (virtualPortName (false, x, trackName));
+            diagLog ("Virtual MIDI: " + p->name + (p->isOpen() ? " created" : " could not be created"));
+            if (! p->isOpen()) continue;
+            virtualOutPorts[x] = std::move (p);
+            changed = true;
+        }
+        if (auto* node = g.findMidiOutNode (nodeId))
+            node->setVirtualPort (virtualOutPorts[x].get());
+    }
+    // the graph still running (a rebuild only swaps in later) drops ports retired here
+    if (&g != &processingGraph)
+    {
+        for (const auto& [x, nodeId] : wantIn)  if (auto* node = processingGraph.findMidiInNode (nodeId))  node->setVirtualPort (virtualInPorts.count (x) ? virtualInPorts[x].get() : nullptr);
+        for (const auto& [x, nodeId] : wantOut) if (auto* node = processingGraph.findMidiOutNode (nodeId)) node->setVirtualPort (virtualOutPorts.count (x) ? virtualOutPorts[x].get() : nullptr);
+    }
+
+    if (changed)
+        refreshAllMidiDeviceLists();   // this Patchy's lists and every other instance's
+
+    // retired ports leave the system shortly (not only at the next edit)
+    if (! retiredInPorts.empty() || ! retiredOutPorts.empty())
+    {
+        if (retiredPortsTimer == nullptr) retiredPortsTimer = std::make_unique<RetiredPortsTimer> (*this);
+        retiredPortsTimer->startTimer (2500);
+    }
+}
+
+void PatchyProcessor::purgeRetiredPorts (bool all)
+{
+    const double now = juce::Time::getMillisecondCounterHiRes();
+    auto old = [now, all] (const auto& r) { return all || now - r.first > 2000.0; };
+    const auto before = retiredInPorts.size() + retiredOutPorts.size();
+    retiredInPorts.erase  (std::remove_if (retiredInPorts.begin(),  retiredInPorts.end(),  old), retiredInPorts.end());
+    retiredOutPorts.erase (std::remove_if (retiredOutPorts.begin(), retiredOutPorts.end(), old), retiredOutPorts.end());
+    if (! all && retiredInPorts.size() + retiredOutPorts.size() != before)
+        refreshAllMidiDeviceLists();   // the old names are gone from the system now
+}
+
+juce::Array<PatchyProcessor*>& PatchyProcessor::liveInstances()
+{
+    static juce::Array<PatchyProcessor*> list;
+    return list;
+}
+
+void PatchyProcessor::refreshAllMidiDeviceLists()
+{
+    for (auto* p : liveInstances())
+        if (auto* ed = dynamic_cast<PatchyEditor*> (p->getActiveEditor()))
+            ed->getBridge().refreshMidiDevices();
+}
+
+void PatchyProcessor::updateTrackProperties (const TrackProperties& props)
+{
+    const auto name = props.name.value_or (juce::String());
+    if (name == trackName) return;
+    trackName = name;
+    diagLog ("Track name: '" + trackName + "'");
+    syncVirtualMidiPorts (processingGraph);
+    if (auto* ed = dynamic_cast<PatchyEditor*> (getActiveEditor()))
+        ed->getBridge().pushGraphToUI();   // the nodes show the new port names
 }

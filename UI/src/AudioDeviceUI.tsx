@@ -32,7 +32,7 @@ export function DeviceSelector ({ nodeId, nodeType, selectedDeviceId }: {
   const accent = isMidi ? 'var(--midi)' : 'var(--audio)';
   const { isStandalone, dawLoopbackEnabled, dawHostEnabled } = useContext(DawContext);
   const { setHint } = useContext(HintContext);
-  const [devices, setDevices] = useState<Array<{ id: string; name: string }>>([]);
+  const [devices, setDevices] = useState<Array<{ id: string; name: string; unavailable?: boolean }>>([]);
   const [claimed, setClaimed] = useState<Map<string, { deviceId: string; nodeType: number }>>(new Map());
 
   useEffect(() => {
@@ -55,18 +55,24 @@ export function DeviceSelector ({ nodeId, nodeType, selectedDeviceId }: {
   const dawHint = { title: 'DAW Loopback Locked 🔒', body: 'Routing audio back to the DAW track risks a feedback loop.\nEnable "DAW loopback" in Preferences → Graph to unlock.' };
   const isDawHostLocked = (d: { id: string; dawHost?: boolean }) => !!d.dawHost && !isStandalone && !dawHostEnabled;
   const dawHostHint = { title: 'DAW Host Device ⚠', body: 'This is your DAW\'s own virtual audio device.\nUsing it may cause signal doubling or unexpected behaviour.\nUse the "DAW" option instead for proper routing.' };
+  // v0.0.960 — "Virtual port": Patchy shows up as a MIDI port in other apps
+  const virtualHint = nodeType === 1
+    ? { title: 'Virtual port', body: 'This node becomes MIDI VIN (N). Patchy appears in other MIDI apps as an output, "Patchy … Vout-N": what they send to it comes out of this node. It exists while this node does.' }
+    : { title: 'Virtual port', body: 'This node becomes MIDI VOUT (N). Patchy appears in other MIDI apps as an input, "Patchy … Vin-N": what reaches this node goes to them. It exists while this node does.' };
+  const noVirtualHint = { title: 'Virtual port — not on Windows', body: 'Windows has no virtual MIDI ports of its own. A tool such as loopMIDI can create one; pick it here like any device.' };
   const opts = devices.map(d => ({
     id:       d.id,
     name:     isDawLocked(d) ? 'DAW  🔒' : isDawHostLocked(d) ? `${d.name}  🔒` : d.name,
-    disabled: takenByOthers.has(d.id) || isDawLocked(d) || isDawHostLocked(d),
+    disabled: takenByOthers.has(d.id) || isDawLocked(d) || isDawHostLocked(d) || !!d.unavailable,
     warning:  isDawLocked(d) || isDawHostLocked(d),
-    hint:     isDawLocked(d) ? dawHint : isDawHostLocked(d) ? dawHostHint : undefined,
+    hint:     isDawLocked(d) ? dawHint : isDawHostLocked(d) ? dawHostHint
+              : d.id === 'virtual' ? (d.unavailable ? noVirtualHint : virtualHint) : undefined,
   }));
   const paramKey = isMidi ? 'midiDeviceId' : 'audioDeviceId';
 
   return (
     <NodeSelect
-      value={selectedDeviceId ?? ''}
+      value={(selectedDeviceId ?? '').startsWith('virtual:') ? 'virtual' : (selectedDeviceId ?? '')}
       onChange={v => Bridge.setNodeParam(nodeId, paramKey, v, nodeType)}
       options={opts}
       disabled={devices.length === 0}

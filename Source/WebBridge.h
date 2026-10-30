@@ -1,4 +1,5 @@
 #pragma once
+#include <juce_audio_devices/juce_audio_devices.h>   // v0.0.960 — MidiDeviceListConnection
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <functional>
 #include <vector>
@@ -185,6 +186,12 @@ public:
     void pushToast (const juce::String& text, const juce::String& kind);   // kind: ok / info / warn / error
     std::function<void(bool)> onSetPaxAutoScan;   // Preferences: false = manual rescan
     std::function<void()>     onPaxRescan;
+    std::function<juce::StringArray()> getOwnVirtualMidiPorts;   // v0.0.960 — left out of the MIDI device lists
+    std::function<juce::String()>      getTrackName;             // v0.0.960 — the DAW track (empty in the Standalone)
+    void refreshMidiDevices() { pushMidiDevices(); }              // v0.0.960 — after a virtual port appears / goes
+    // v0.0.960 — the system's MIDI device list changed (another Patchy's
+    // virtual port, another app's, a device plugged in / out): lists refreshed
+    juce::MidiDeviceListConnection midiDeviceListConnection;
     void pushUndoState();
     void pushSettingsToUI (const juce::String& nodeId, const juce::String& settingsJson);
 

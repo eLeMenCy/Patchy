@@ -30,7 +30,18 @@ export interface GraphState {
   viewportX?:    number;
   viewportY?:    number;
   viewportZoom?: number;
+  trackName?:    string;   // v0.0.960 — the DAW track (plugin), for the virtual MIDI port names
 }
+
+// v0.0.960 — virtual MIDI ports: device id "virtual:X"; the name other apps see
+let _trackName = '';
+export const virtualPortNumber = (deviceId?: string) =>
+  deviceId && deviceId.startsWith('virtual:') ? parseInt(deviceId.slice(8), 10) || 0 : 0;
+/** isInNode: a MIDI In node (other apps send to its "Vout"). Same rule as VirtualMidiPorts.h. */
+export const virtualPortName = (isInNode: boolean, x: number) => {
+  const track = _trackName.trim().replace(/[:/\\]/g, ' ').slice(0, 40).trim();
+  return `Patchy ${track ? track + ' ' : ''}${isInNode ? 'Vout-' : 'Vin-'}${x}`;
+};
 
 export interface RawNode {
   id: string;
@@ -431,6 +442,7 @@ function _dispatchClaimed() {
   onGraphUpdate: (json: string) => {
     try {
       const state: GraphState = JSON.parse(json);
+      _trackName = state.trackName ?? '';   // v0.0.960
       // Rebuild claimed devices from graph state — keeps claims in sync with C++
       _claimedDevices.clear();
       for (const node of state.nodes) {

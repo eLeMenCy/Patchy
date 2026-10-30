@@ -6,7 +6,8 @@
 #include "GraphModel.h"
 #include "PatchyLog.h"
 #include "ProcessingGraph.h"
-#include "MidiFilePlayerNode.h"   // v0.0.954
+#include "MidiFilePlayerNode.h"
+#include "VirtualMidiPorts.h"   // v0.0.960   // v0.0.954
 #include "DiagLog.h"
 #include "MidiDeviceNodes.h"
 #include "MidiMonitorNode.h"
@@ -158,8 +159,13 @@ public:
     PaxRegistry& getRegistry()       { return registry; }
 
     /** Open a MIDI device for the given node (called from WebBridge via PatchyEditor). */
-    void setMidiDevice (const juce::String& nodeId, const juce::String& deviceId)
+    void setMidiDevice (const juce::String& nodeId, juce::String deviceId)
     {
+        // v0.0.960 — "Virtual port" chosen in the list: this node gets the
+        // lowest free number of its direction (kept if it already has one)
+        if (deviceId == "virtual")
+            deviceId = "virtual:" + juce::String (nextVirtualPortNumber (nodeId));
+
         // Always store in the manager so applyDeviceSelections() can replay it
         // after the next graph rebuild.
         midiDeviceManager.storeSelection (nodeId, deviceId);
@@ -175,7 +181,24 @@ public:
         // Persist in the model for save/restore
         if (auto* node = graphModel.findNode (nodeId))
             node->selectedDeviceId = deviceId;
+
+        syncVirtualMidiPorts (processingGraph);   // v0.0.960
+        if (pendingGraph != nullptr) syncVirtualMidiPorts (*pendingGraph);
     }
+
+    // ── v0.0.960 — virtual MIDI ports (see VirtualMidiPorts.h) ─────────────
+    /** The names this Patchy's ports have (left out of its own device lists). */
+    juce::StringArray getOwnVirtualMidiPorts() const
+    {
+        juce::StringArray a;
+        for (const auto& [k, p] : virtualInPorts)  a.add (p->name);
+        for (const auto& [k, p] : virtualOutPorts) a.add (p->name);
+        return a;
+    }
+    /** Plugin: the DAW track's name goes into the port names (renaming the
+        track re-creates them under the new name). */
+    void updateTrackProperties (const TrackProperties& props) override;
+    juce::String getTrackName() const { return trackName; }
 
     void setAudioDevice (const juce::String& nodeId, const juce::String& deviceName)
     {
@@ -1462,6 +1485,24 @@ public:
         bool operator!= (const PaxStamp& o) const { return ! (*this == o); }
     };
     struct PaxWatchTimer;
+
+    // v0.0.960 — virtual MIDI ports, owned here (survive graph rebuilds)
+    std::map<int, std::unique_ptr<VirtualMidiInPort>>  virtualInPorts;    // by number X (MIDI In nodes)
+    std::map<int, std::unique_ptr<VirtualMidiOutPort>> virtualOutPorts;   // by number X (MIDI Out nodes)
+    // retired ports: destroyed at a later sync, once 2 s old (no graph uses them by then)
+    std::vector<std::pair<double, std::unique_ptr<VirtualMidiInPort>>>  retiredInPorts;
+    std::vector<std::pair<double, std::unique_ptr<VirtualMidiOutPort>>> retiredOutPorts;
+    juce::String trackName;
+    struct RetiredPortsTimer;
+    std::unique_ptr<RetiredPortsTimer> retiredPortsTimer;
+    void purgeRetiredPorts (bool all);
+    // v0.0.960 — every Patchy in this process (message thread): when one
+    // changes its virtual ports, all refresh their device lists (the system
+    // doesn't tell a process about the ports it made itself)
+    static juce::Array<PatchyProcessor*>& liveInstances();
+    static void refreshAllMidiDeviceLists();
+    void syncVirtualMidiPorts (ProcessingGraph& g);
+    int  nextVirtualPortNumber (const juce::String& nodeId);
     std::map<juce::String, PaxStamp> paxKnown;     // files handled (loaded, failed or skipped) → stamp then
     std::map<juce::String, PaxStamp> paxPending;   // seen new / changed once, waiting until they stop changing
     std::unique_ptr<PaxWatchTimer>   paxWatch;

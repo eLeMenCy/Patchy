@@ -100,7 +100,7 @@ void WebBridge::pushPaxList()
 
 void WebBridge::pushMidiDevices()
 {
-    pushToUI ("onMidiDevices", juce::JSON::toString (MidiDeviceManager::getAvailableDevicesVar (isStandalone), true));
+    pushToUI ("onMidiDevices", juce::JSON::toString (MidiDeviceManager::getAvailableDevicesVar (isStandalone, getOwnVirtualMidiPorts ? getOwnVirtualMidiPorts() : juce::StringArray()), true));
 }
 
 void WebBridge::pushAudioDevices()
@@ -617,7 +617,10 @@ void WebBridge::pushPortActivity()
 
 void WebBridge::pushGraphToUI()
 {
-    pushToUI ("onGraphUpdate", juce::JSON::toString (graph.toVar(), true));
+    auto v = graph.toVar();
+    if (auto* o = v.getDynamicObject())   // v0.0.960 — for the virtual MIDI port names shown on the nodes
+        o->setProperty ("trackName", getTrackName ? getTrackName() : juce::String());
+    pushToUI ("onGraphUpdate", juce::JSON::toString (v, true));
 }
 
 void WebBridge::pushSettingsToUI (const juce::String& nodeId, const juce::String& settingsJson)

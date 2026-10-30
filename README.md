@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.959
+> Version 0.0.960
 
 ---
 
@@ -157,6 +157,7 @@ Patchy/
 │   ├── MidiChMatrixNode.h           MIDI CH. Matrix (type 27) — resizable channel-remap grid
 │   ├── MidiMorpherNode.h            MIDI Morpher (type 28) — one MIDI rule per node, live feedback, Learn
 │   ├── MidiFilePlayerNode.h         MIDI File Player (type 29) — .mid playback, file / host / manual tempo
+│   ├── VirtualMidiPorts.h           Virtual MIDI ports (Patchy Vin-N / Vout-N), owned by the processor
 │   ├── ArtNetReceiver.h/.cpp        One shared UDP 6454 socket for every Art-Net In node
 │   ├── PortBindState.h              Port-in-use detection + quiet retry (UDP / OSC / Art-Net In)
 │   ├── StartupFadeRegistry.h        Per-device startup fade list (Audio In), app-wide
@@ -326,6 +327,7 @@ All ports and edges animate live at 30fps:
 When loaded as a VST3/AU plugin, Patchy operates in DAW mode:
 
 - **"DAW" virtual device** appears at the top of Audio In/Out and MIDI In/Out device combos
+- **Virtual MIDI ports** (macOS, Linux) — pick **Virtual port** in a MIDI In or MIDI Out node and Patchy appears in every other MIDI app: a MIDI In node becomes **MIDI VIN (N)** and other apps can send to the output **Patchy Vout-N**; a MIDI Out node becomes **MIDI VOUT (N)** and other apps receive from the input **Patchy Vin-N**. In the plugin the DAW track's name is part of the port name ("Patchy Bass Vout-1"), so several Patchy instances never clash. Ports live as long as their node and survive every graph edit. Windows has no virtual ports of its own (use loopMIDI and pick it like any device)
 - Selecting "DAW" on AudioIN routes the DAW track's audio into the graph
 - Selecting "DAW" on AudioOUT routes processed audio back to the DAW track
 - Selecting "DAW" on MIDI In / MIDI Out receives the track's MIDI / sends MIDI back to the host (in Logic, sending to a track works through MIDI Out → "Logic Pro Virtual In")
@@ -830,4 +832,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.959 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.960 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

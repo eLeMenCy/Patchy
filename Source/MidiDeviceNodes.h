@@ -2,6 +2,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_devices/juce_audio_devices.h>
 #include "NodeProcessor.h"
+#include "VirtualMidiPorts.h"   // v0.0.960
 #include <atomic>
 #include <cstdint>
 #include <array>
@@ -55,6 +56,13 @@ public:
         // v0.0.919 (2026-10-02) — "DAW" (plugin builds): no hardware port;
         // ProcessingGraph::process() hands this node's MIDI back to the host
         // instead (same idea as the Audio Out "DAW" device).
+        // v0.0.960 — "virtual:X": no hardware; PatchyProcessor hands the
+        // node its persistent virtual port (setVirtualPort) after this
+        if (deviceIdentifier.startsWith ("virtual"))
+        {
+            juce::Logger::writeToLog ("MidiOutDeviceNode: virtual port " + deviceIdentifier);
+            return;
+        }
         if (deviceIdentifier == "DAW")
         {
             dawOutput.store (true, std::memory_order_relaxed);
@@ -74,6 +82,7 @@ public:
 
     void closeDevice()
     {
+        virtualOut.store (nullptr, std::memory_order_relaxed);   // v0.0.960
         dawOutput.store (false, std::memory_order_relaxed);   // v0.0.919
         std::unique_ptr<juce::MidiOutput> old;
         {
@@ -161,6 +170,15 @@ public:
         // matching MIDI CH. MATRIX's own established convention: it was
         // never addressable by a per-channel filter in the first place.
         const std::uint16_t mask = channelFilter.load (std::memory_order_relaxed);
+        // v0.0.960 — a virtual port: the other apps get it
+        if (auto* vp = virtualOut.load (std::memory_order_relaxed))
+            for (const auto& meta : inputMidi)
+            {
+                const auto msg = meta.getMessage();
+                const int  ch  = msg.getChannel();
+                if (mask == 0 || ch == 0 || (mask & static_cast<std::uint16_t> (1u << (ch - 1))) != 0)
+                    vp->send (msg);
+            }
         juce::SpinLock::ScopedLockType sl (outputLock);
         if (output)
             for (const auto& meta : inputMidi)
@@ -203,7 +221,11 @@ public:
 
     juce::String selectedDeviceId;
 
+    /** v0.0.960 — message thread (PatchyProcessor::syncVirtualMidiPorts). */
+    void setVirtualPort (VirtualMidiOutPort* p) { virtualOut.store (p, std::memory_order_relaxed); }
+
 private:
+    std::atomic<VirtualMidiOutPort*> virtualOut { nullptr };   // v0.0.960 — owned by PatchyProcessor
     std::unique_ptr<juce::MidiOutput> output;
     std::atomic<bool>                 dawOutput { false };   // v0.0.919 — see isDawOutput()
     juce::SpinLock outputLock;   // protects output from the message-thread/audio-thread race above
@@ -255,6 +277,14 @@ public:
 
         if (deviceIdentifier.isEmpty()) return;
 
+        // v0.0.960 — "virtual:X": no hardware; the persistent virtual port
+        // comes from PatchyProcessor (setVirtualPort) after this
+        if (deviceIdentifier.startsWith ("virtual"))
+        {
+            juce::Logger::writeToLog ("MidiInDeviceNode: virtual port " + deviceIdentifier);
+            return;
+        }
+
         // v0.0.919 (2026-10-02) — "DAW" (plugin builds): no hardware port;
         // process() forwards the host's MIDI (track clips/regions, the
         // controller through the track), which ProcessingGraph hands this
@@ -281,6 +311,7 @@ public:
 
     void closeDevice()
     {
+        virtualIn.store (nullptr, std::memory_order_relaxed);   // v0.0.960
         dawInput.store (false, std::memory_order_relaxed);   // v0.0.919
         if (input) { input->stop(); input.reset(); }
     }
@@ -317,7 +348,20 @@ public:
         while (fifo.pop (msg))
             if (! disabled)
                 outputMidi.addEvent (msg, samplePos++);
+
+        // v0.0.960 — what other apps sent to the virtual port
+        if (auto* vp = virtualIn.load (std::memory_order_relaxed))
+            while (vp->pop (msg))
+                if (! disabled)
+                {
+                    outputMidi.addEvent (msg, samplePos++);
+                    recordMidiActivity (1);
+                }
     }
+
+    /** v0.0.960 — message thread (PatchyProcessor::syncVirtualMidiPorts). */
+    void setVirtualPort (VirtualMidiInPort* p) { virtualIn.store (p, std::memory_order_relaxed); }
+    std::atomic<VirtualMidiInPort*> virtualIn { nullptr };   // owned by PatchyProcessor
 
     bool passesThroughWhenDisabled() const override { return true; }
 
@@ -399,7 +443,7 @@ public:
     }
 
     /** Query system MIDI devices for the UI comboboxes. */
-    static juce::var getAvailableDevicesVar (bool isStandalone);
+    static juce::var getAvailableDevicesVar (bool isStandalone, const juce::StringArray& ownVirtualPorts = {});   // v0.0.960 — own ports left out
 
 private:
     std::unordered_map<juce::String, juce::String> selections;

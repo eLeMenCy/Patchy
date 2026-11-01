@@ -206,6 +206,8 @@ public:
         bool found = audioDeviceManager.applyToGraph (nodeId, deviceName, processingGraph);
         if (! found && pendingGraph != nullptr)
             audioDeviceManager.applyToGraph (nodeId, deviceName, *pendingGraph);
+        // v0.0.961 — a device nobody uses any more closes now, not at the next edit
+        audioDeviceManager.pruneDeletedNodeManagers (processingGraph, pendingGraph.get());
         if (auto* node = graphModel.findNode (nodeId))
         {
             node->selectedDeviceId = deviceName;

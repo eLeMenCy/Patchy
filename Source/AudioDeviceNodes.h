@@ -841,13 +841,15 @@ public:
      *  inputManagers members below for the full story. Lazily creates and
      *  returns THIS specific node's own, independent juce::AudioDeviceManager
      *  — never a single, application-wide shared one. */
-    juce::AudioDeviceManager& getOrCreateOutputManager (const juce::String& nodeId)
+    // v0.0.961 — keyed by DEVICE NAME (was: node id): one shared connection
+    // per device and direction, every node on it a callback of that manager
+    juce::AudioDeviceManager& getOrCreateOutputManager (const juce::String& deviceName)
     {
-        return getOrCreateManager (outputManagers, nodeId, 0, 2);
+        return getOrCreateManager (outputManagers, deviceName, 0, 2);
     }
-    juce::AudioDeviceManager& getOrCreateInputManager (const juce::String& nodeId)
+    juce::AudioDeviceManager& getOrCreateInputManager (const juce::String& deviceName)
     {
-        return getOrCreateManager (inputManagers, nodeId, 2, 0);
+        return getOrCreateManager (inputManagers, deviceName, 2, 0);
     }
 
     /** Closes and discards the per-node manager (and whatever real hardware
@@ -864,7 +866,7 @@ public:
      *  connection, blocking every other node or application from using
      *  that same device even though the user has already deleted the node
      *  that opened it. */
-    void pruneDeletedNodeManagers (ProcessingGraph& graph);
+    void pruneDeletedNodeManagers (ProcessingGraph& graph, ProcessingGraph* other = nullptr);   // v0.0.961 — per device; `other` = a graph still holding nodes (pending / current)
 
 private:
     // v0.0.922 — handed to nodes set to "DAW" (their openDevice() returns

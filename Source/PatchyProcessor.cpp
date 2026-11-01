@@ -758,7 +758,7 @@ void PatchyProcessor::rebuildProcessingGraph()
     // prepare() below (so the nodes' own config is still the defaults).
     audioDeviceManager.setTargetAudioConfig (lastSampleRate, lastBlockSize);
     audioDeviceManager.applyDeviceSelections (*newGraph);
-    audioDeviceManager.pruneDeletedNodeManagers  (*newGraph);
+    audioDeviceManager.pruneDeletedNodeManagers  (*newGraph, pendingGraph ? pendingGraph.get() : &processingGraph);
     audioDeviceManager.applyAllChannelSelections (*newGraph);
     udpDeviceManager.applyAllSettings            (*newGraph);
     oscDeviceManager.applyAllSettings            (*newGraph);

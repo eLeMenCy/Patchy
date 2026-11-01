@@ -1,4 +1,5 @@
 #include "AudioDeviceNodes.h"
+#include <set>
 
 #include "ProcessingGraph.h"
 
@@ -25,6 +26,11 @@ bool AudioDeviceManager::applyToGraph (const juce::String& nodeId,
     // they never followed a host buffer/rate change) are synced to it.
     if (auto* n = graph.findAudioOutNode (nodeId))
     {
+        // v0.0.961 — a node handed over by a rebuild (transferred) now set to
+        // ANOTHER device: close it and open the new one (it used to only
+        // resync its config and kept playing on the old device)
+        if (n->wasTransferred() && deviceName != n->getSelectedDeviceName())
+            n->closeDevice();
         if (deviceName.isEmpty())
             n->closeDevice();           // always close, even if transferred
         else if (! n->wasTransferred())
@@ -33,7 +39,7 @@ bool AudioDeviceManager::applyToGraph (const juce::String& nodeId,
             // manager, whose initialiseWithDefaultDevices() OPENED the default
             // devices for nothing (in the host's process under Rosetta: Logic's
             // own output — see getAvailableDevicesVar()).
-            n->openDevice (deviceName, deviceName == "DAW" ? dawPlaceholderManager : getOrCreateOutputManager (nodeId),
+            n->openDevice (deviceName, deviceName == "DAW" ? dawPlaceholderManager : getOrCreateOutputManager (deviceName),
                            targetSampleRate, targetBlockSize);
         else
             n->syncDeviceConfig (targetSampleRate, targetBlockSize);
@@ -41,10 +47,12 @@ bool AudioDeviceManager::applyToGraph (const juce::String& nodeId,
     }
     if (auto* n = graph.findAudioInNode (nodeId))
     {
+        if (n->wasTransferred() && deviceName != n->getSelectedDeviceName())   // see the Out branch
+            n->closeDevice();
         if (deviceName.isEmpty())
             n->closeDevice();           // always close, even if transferred
         else if (! n->wasTransferred())
-            n->openDevice (deviceName, deviceName == "DAW" ? dawPlaceholderManager : getOrCreateInputManager (nodeId),
+            n->openDevice (deviceName, deviceName == "DAW" ? dawPlaceholderManager : getOrCreateInputManager (deviceName),
                            targetSampleRate, targetBlockSize);   // see the Out branch above
         else
             n->syncDeviceConfig (targetSampleRate, targetBlockSize);
@@ -53,18 +61,27 @@ bool AudioDeviceManager::applyToGraph (const juce::String& nodeId,
     return false;
 }
 
-void AudioDeviceManager::pruneDeletedNodeManagers (ProcessingGraph& graph)
+void AudioDeviceManager::pruneDeletedNodeManagers (ProcessingGraph& graph, ProcessingGraph* other)
 {
-    // See this method's own declaration comment in AudioDeviceNodes.h for
-    // the full reasoning — called once per rebuild, after
-    // applyDeviceSelections(), once the new graph's own node list is
-    // final. erase() on a std::unique_ptr-valued map entry destroys the
-    // juce::AudioDeviceManager, which closes whatever real device it may
-    // still hold open.
+    // v0.0.961 — managers are per DEVICE now (one shared connection per
+    // device and direction; the nodes on it are its callbacks, which JUCE
+    // calls in turn — outputs summed, inputs handed to each). A device's
+    // manager goes when no node in the graph(s) still has it open.
+    std::set<juce::String> outUsed, inUsed;
+    auto collect = [&] (ProcessingGraph& g)
+    {
+        for (auto& node : g.getNodes())
+        {
+            if (auto* o = dynamic_cast<AudioOutDeviceNode*> (node.get())) outUsed.insert (o->getSelectedDeviceName());
+            if (auto* i = dynamic_cast<AudioInDeviceNode*>  (node.get())) inUsed.insert  (i->getSelectedDeviceName());
+        }
+    };
+    collect (graph);
+    if (other != nullptr) collect (*other);
     for (auto it = outputManagers.begin(); it != outputManagers.end(); )
-        it = (graph.findAudioOutNode (it->first) == nullptr) ? outputManagers.erase (it) : std::next (it);
+        it = outUsed.count (it->first) == 0 ? outputManagers.erase (it) : std::next (it);
     for (auto it = inputManagers.begin(); it != inputManagers.end(); )
-        it = (graph.findAudioInNode (it->first) == nullptr) ? inputManagers.erase (it) : std::next (it);
+        it = inUsed.count (it->first) == 0 ? inputManagers.erase (it) : std::next (it);
 }
 
 void AudioDeviceManager::applyDeviceSelections (ProcessingGraph& graph)
@@ -245,6 +262,19 @@ void AudioOutDeviceNode::openDevice (const juce::String& deviceName,
     devManager           = &manager;
     registeredDeviceName = deviceName;
 
+    // v0.0.961 — the device is shared: already open (another node on it)
+    // → just join it as one more callback; reopening would restart it
+    if (auto* dev = manager.getCurrentAudioDevice(); dev != nullptr && dev->isOpen() && dev->getName() == deviceName)
+    {
+        deviceChannelCount = dev->getOutputChannelNames().size();
+        requestedSampleRate = validRate  (targetSampleRate);
+        requestedBlockSize  = validBlock (targetBlockSize);
+        if (! holdsSleepGuard) { SleepGuard::acquire(); holdsSleepGuard = true; }
+        manager.addAudioCallback (this);
+        juce::Logger::writeToLog ("AudioOutDeviceNode: joined " + deviceName + " (shared, " + juce::String (deviceChannelCount) + " ch)");
+        return;
+    }
+
     // Find the device type that has this device name
     for (auto* type : manager.getAvailableDeviceTypes())
     {
@@ -404,6 +434,19 @@ void AudioInDeviceNode::openDevice (const juce::String& deviceName,
 
     devManager           = &manager;
     registeredDeviceName = deviceName;
+
+    // v0.0.961 — shared device already open: join it (see AudioOutDeviceNode)
+    if (auto* dev = manager.getCurrentAudioDevice(); dev != nullptr && dev->isOpen() && dev->getName() == deviceName)
+    {
+        deviceChannelCount = dev->getInputChannelNames().size();
+        requestedSampleRate = validRate  (targetSampleRate);
+        requestedBlockSize  = validBlock (targetBlockSize);
+        fadeListed.store (StartupFadeRegistry::getMuteMs (deviceName) >= 0, std::memory_order_relaxed);   // no fresh start: no startup fade, only the dropout one
+        if (! holdsSleepGuard) { SleepGuard::acquire(); holdsSleepGuard = true; }
+        manager.addAudioCallback (this);
+        juce::Logger::writeToLog ("AudioInDeviceNode: joined " + deviceName + " (shared, " + juce::String (deviceChannelCount) + " ch)");
+        return;
+    }
 
     for (auto* type : manager.getAvailableDeviceTypes())
     {

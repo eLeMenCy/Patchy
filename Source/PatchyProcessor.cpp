@@ -489,6 +489,7 @@ void PatchyProcessor::rebuildProcessingGraph()
     // v0.0.940 — the nodes whose audio device really changed (only those
     // are closed below; a newly added node isn't transferred anyway).
     juce::StringArray changedAudioNodes;
+    resolveAudioChannelConflicts();   // v0.0.963 — before the selections below are read
     struct ChannelRestore { juce::String nodeId, settingsJson; int nodeType = 17; };
     std::vector<ChannelRestore> channelRestores;
     for (const auto& n : graphModel.getNodes())
@@ -526,8 +527,8 @@ void PatchyProcessor::rebuildProcessingGraph()
                         channels.reserve (static_cast<size_t>(arr->size()));
                         for (auto& v : *arr)
                             channels.push_back ((int) v);
-                        if (! channels.empty())
-                            audioDeviceManager.storeChannelSelection (n.id, channels);
+                        // v0.0.963 — empty is real now (a node on a full device)
+                        audioDeviceManager.storeChannelSelection (n.id, channels);
                     }
                 }
                 catch (...) {}
@@ -1451,4 +1452,190 @@ void PatchyProcessor::updateTrackProperties (const TrackProperties& props)
     syncVirtualMidiPorts (processingGraph);
     if (auto* ed = dynamic_cast<PatchyEditor*> (getActiveEditor()))
         ed->getBridge().pushGraphToUI();   // the nodes show the new port names
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  v0.0.963 — several Audio In / Out nodes per device: channel ownership
+//
+//  One owner per channel, per direction (In = type 3, Out = type 4) and per
+//  device (the DAW device in the plugin, where every audio node is on it).
+//  A node with no "selectedChannels" yet is new (it starts on the next free
+//  stereo pair, or one channel per Preferences); an old project's nodes
+//  without the key keep the old default, channels 1–2.
+// ─────────────────────────────────────────────────────────────────────────────
+
+namespace
+{
+    bool hasChannelKey (const NodeData& n)
+    {
+        auto v = juce::JSON::parse (n.settingsJson);
+        return v.isObject() && v.getDynamicObject()->hasProperty ("selectedChannels");
+    }
+    std::vector<int> channelsOf (const NodeData& n)
+    {
+        std::vector<int> out;
+        const auto v = juce::JSON::parse (n.settingsJson);
+        if (auto* a = v["selectedChannels"].getArray())
+            for (auto& x : *a) out.push_back ((int) x);
+        else
+            out = { 0, 1 };   // never set: the long-standing default
+        return out;
+    }
+    int channelCountOf (const NodeData& n, const juce::String& device)
+    {
+        if (device == "DAW") return 2;   // the plugin's track: stereo
+        const auto v = juce::JSON::parse (n.settingsJson);
+        const int c = (int) v["deviceChannelCount"];
+        return c > 0 ? c : 2;
+    }
+    /** `want` channels (1, 2 or more) among the free ones: a pair on an odd
+        boundary (1–2, 3–4…) when 2 are wanted, else the lowest free ones;
+        2 wanted and no pair free → 1. Empty = the device is full. */
+    std::vector<int> pickFree (const std::set<int>& used, int want, int count)
+    {
+        std::vector<int> out;
+        if (want == 2)
+        {
+            for (int c = 0; c + 1 < count; c += 2)
+                if (used.count (c) == 0 && used.count (c + 1) == 0) return { c, c + 1 };
+            want = 1;
+        }
+        for (int c = 0; c < count && (int) out.size() < want; ++c)
+            if (used.count (c) == 0) out.push_back (c);
+        return out;
+    }
+    juce::String chanText (const std::vector<int>& ch)
+    {
+        if (ch.empty()) return "no channels";
+        juce::StringArray s;
+        for (int c : ch) s.add (juce::String (c + 1));
+        return (ch.size() == 1 ? "channel " : "channels ") + s.joinIntoString (", ");
+    }
+    juce::String nodeName (const NodeData& n)
+    {
+        return n.customName.isNotEmpty() ? n.customName : (n.nodeType == 3 ? juce::String ("Audio In") : juce::String ("Audio Out"));
+    }
+}
+
+void PatchyProcessor::toast (const juce::String& text, const juce::String& kind)
+{
+    juce::Logger::writeToLog (text);
+    if (auto* ed = dynamic_cast<PatchyEditor*> (getActiveEditor()))
+        ed->getBridge().pushToast (text, kind);
+}
+
+juce::String PatchyProcessor::effectiveAudioDevice (const NodeData& n) const
+{
+    if (n.selectedDeviceId.isEmpty()) return {};
+    return isStandalone ? n.selectedDeviceId : juce::String ("DAW");
+}
+
+std::set<int> PatchyProcessor::audioChannelsUsedByOthers (const NodeData& n) const
+{
+    std::set<int> used;
+    const auto dev = effectiveAudioDevice (n);
+    // user, 2026-11-02 (option B): the DAW device is exempt — its 2 track
+    // channels are a shared bus: DAW Outs are summed, DAW Ins all read it
+    if (dev.isEmpty() || dev == "DAW") return used;
+    for (const auto& o : graphModel.getNodes())
+        if (o.id != n.id && o.nodeType == n.nodeType && effectiveAudioDevice (o) == dev)
+            for (int c : channelsOf (o)) used.insert (c);
+    return used;
+}
+
+void PatchyProcessor::persistAudioChannels (NodeData& n, const std::vector<int>& channels)
+{
+    juce::var v;
+    try { v = juce::JSON::parse (n.settingsJson); } catch (...) {}
+    if (v.getDynamicObject() == nullptr) v = new juce::DynamicObject();
+    juce::Array<juce::var> arr;
+    for (int c : channels) arr.add (c);
+    v.getDynamicObject()->setProperty ("selectedChannels", arr);
+    n.settingsJson = juce::JSON::toString (v, true);
+    setAudioDeviceChannels (n.id, channels);   // the running graph (and the pending one)
+}
+
+std::optional<std::vector<int>> PatchyProcessor::assignAudioChannels (const juce::String& nodeId)
+{
+    auto* n = graphModel.findNode (nodeId);
+    if (n == nullptr || (n->nodeType != 3 && n->nodeType != 4)) return std::nullopt;
+    const auto dev = effectiveAudioDevice (*n);
+    if (dev.isEmpty()) return std::nullopt;
+    const auto used  = audioChannelsUsedByOthers (*n);
+    const int  count = channelCountOf (*n, dev);
+    if (! hasChannelKey (*n))
+        return pickFree (used, audioNewNodeMono ? 1 : 2, count);
+    const auto cur = channelsOf (*n);
+    bool clash = cur.empty();
+    for (int c : cur) if (used.count (c) > 0 || c >= count) clash = true;
+    if (! clash) return std::nullopt;
+    return pickFree (used, cur.size() >= 2 ? 2 : 1, count);
+}
+
+std::vector<int> PatchyProcessor::filterAudioChannels (const juce::String& nodeId, std::vector<int> channels)
+{
+    auto* n = graphModel.findNode (nodeId);
+    if (n == nullptr || (n->nodeType != 3 && n->nodeType != 4)) return channels;
+    const auto used = audioChannelsUsedByOthers (*n);
+    channels.erase (std::remove_if (channels.begin(), channels.end(), [&used] (int c) { return used.count (c) > 0; }), channels.end());
+    return channels;
+}
+
+bool PatchyProcessor::moveAudioChannel (const juce::String& fromNodeId, const juce::String& toNodeId, int ch)
+{
+    auto* from = graphModel.findNode (fromNodeId);
+    auto* to   = graphModel.findNode (toNodeId);
+    if (from == nullptr || to == nullptr || from == to || from->nodeType != to->nodeType) return false;
+    if (effectiveAudioDevice (*from).isEmpty() || effectiveAudioDevice (*from) != effectiveAudioDevice (*to)) return false;
+    auto a = channelsOf (*from), b = channelsOf (*to);
+    if (std::find (a.begin(), a.end(), ch) == a.end()) return false;
+    a.erase (std::remove (a.begin(), a.end(), ch), a.end());
+    if (std::find (b.begin(), b.end(), ch) == b.end()) b.push_back (ch);
+    std::sort (b.begin(), b.end());
+    persistAudioChannels (*from, a);
+    persistAudioChannels (*to, b);
+    diagLog ("Audio: channel " + juce::String (ch + 1) + " moved from " + nodeName (*from) + " to " + nodeName (*to));
+    return true;
+}
+
+void PatchyProcessor::resolveAudioChannelConflicts()
+{
+    // A copied node, a dropped library wrap, an opened project: the nodes
+    // earlier in the model keep their channels; a later one that finds them
+    // taken moves to free ones, or gets none when the device is full.
+    std::map<juce::String, std::set<int>> taken;   // "<type>|<device>" → channels
+    juce::StringArray notes;
+    std::vector<juce::String> ids;
+    for (const auto& n : graphModel.getNodes())
+        if (n.nodeType == 3 || n.nodeType == 4) ids.push_back (n.id);
+    for (const auto& id : ids)
+    {
+        auto* n = graphModel.findNode (id);
+        if (n == nullptr) continue;
+        const auto dev = effectiveAudioDevice (*n);
+        if (dev.isEmpty() || dev == "DAW") continue;   // DAW: a shared bus (see audioChannelsUsedByOthers)
+        auto& used = taken[juce::String (n->nodeType) + "|" + dev];
+        auto cur = channelsOf (*n);
+        bool clash = false;
+        for (int c : cur) if (used.count (c) > 0) clash = true;
+        if (clash)
+        {
+            const int count = channelCountOf (*n, dev);
+            const auto next = pickFree (used, cur.size() >= 2 ? 2 : 1, count);
+            juce::var v;
+            try { v = juce::JSON::parse (n->settingsJson); } catch (...) {}
+            if (v.getDynamicObject() == nullptr) v = new juce::DynamicObject();
+            juce::Array<juce::var> arr;
+            for (int c : next) arr.add (c);
+            v.getDynamicObject()->setProperty ("selectedChannels", arr);
+            n->settingsJson = juce::JSON::toString (v, true);
+            const auto where = dev == "DAW" ? juce::String ("the DAW track") : dev;
+            notes.add (next.empty() ? "warn|" + nodeName (*n) + ": no free channels on " + where
+                                    : "info|" + nodeName (*n) + ": channels taken, moved to " + chanText (next));
+            cur = next;
+        }
+        for (int c : cur) used.insert (c);
+    }
+    for (const auto& s : notes)
+        toast (s.fromFirstOccurrenceOf ("|", false, false), s.upToFirstOccurrenceOf ("|", false, false));
 }

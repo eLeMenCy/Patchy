@@ -337,6 +337,15 @@ public:
         return selectedChannels;
     }
     int getDeviceChannelCount() const { return deviceChannelCount; }
+    /** v0.0.963 — audio thread (the DAW device): the selected channels into
+        `dst` (no allocation); returns how many. */
+    int copySelectedChannels (int* dst, int maxCount) const
+    {
+        juce::SpinLock::ScopedLockType sl (channelLock);
+        const int n = juce::jmin (maxCount, (int) selectedChannels.size());
+        for (int i = 0; i < n; ++i) dst[i] = selectedChannels[(size_t) i];
+        return n;
+    }
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioOutDeviceNode)
 };
@@ -528,13 +537,14 @@ private:
                     const std::vector<int>& selected)
         {
             // Resize slot count to match selection — no realloc, just update numChannels
-            numChannels = juce::jlimit (1, kMaxFifoChans, (int) selected.size());
+            const int numSelected = (int) selected.size();   // v0.0.963 — 0 = a node on a full device: silence
+            numChannels = juce::jlimit (1, kMaxFifoChans, numSelected);
 
             int s1, n1, s2, n2;
             fifo.prepareToWrite (numFrames, s1, n1, s2, n2);
             for (int slot = 0; slot < numChannels; ++slot)
             {
-                int phys = selected[static_cast<size_t>(slot)];
+                int phys = slot < numSelected ? selected[static_cast<size_t>(slot)] : -1;
                 float* wr = data[static_cast<size_t>(slot)].data();
                 if (phys >= 0 && phys < numInputChannels && src[phys] != nullptr)
                 {
@@ -716,6 +726,14 @@ public:
         return selectedChannels;
     }
     int getDeviceChannelCount() const { return deviceChannelCount; }
+    /** v0.0.963 — see AudioOutDeviceNode::copySelectedChannels. */
+    int copySelectedChannels (int* dst, int maxCount) const
+    {
+        juce::SpinLock::ScopedLockType sl (channelLock);
+        const int n = juce::jmin (maxCount, (int) selectedChannels.size());
+        for (int i = 0; i < n; ++i) dst[i] = selectedChannels[(size_t) i];
+        return n;
+    }
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioInDeviceNode)
 };

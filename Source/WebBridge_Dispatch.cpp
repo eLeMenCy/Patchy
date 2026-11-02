@@ -125,6 +125,24 @@ void WebBridge::handleMessage (const juce::String& json)
     {
         if (onPaxRescan) onPaxRescan();
     }
+    else if (type == "setAudioNewNodeMono")   // v0.0.963 — Preferences
+    {
+        if (onSetAudioNewNodeMono) onSetAudioNewNodeMono ((bool) obj->getProperty ("on"));
+    }
+    else if (type == "audioMoveChannel")      // v0.0.963 — "move it here?" (one undo step)
+    {
+        const auto from = obj->getProperty ("fromNodeId").toString(), to = obj->getProperty ("toNodeId").toString();
+        const int  ch   = (int) obj->getProperty ("channel");
+        if (onMoveAudioChannel && from.isNotEmpty() && to.isNotEmpty())
+        {
+            graph.pushSnapshot();
+            if (onMoveAudioChannel (from, to, ch))
+            {
+                pushGraphToUI();
+                pushUndoState();
+            }
+        }
+    }
     else if (type == "exportSelection")
         handleExportSelection (obj);
     else if (type == "importFragment")
@@ -673,6 +691,17 @@ void WebBridge::handleSetNodeParam_AudioDeviceId (const juce::String& nodeId, co
 {
     onSetAudioDevice (nodeId, value);
 
+    // v0.0.963 — its channels on that device: a new node takes the next free
+    // stereo pair (or one channel), a node whose channels are taken there
+    // moves to free ones — saved like a panel change (same undo step)
+    if (onAssignAudioChannels)
+        if (auto ch = onAssignAudioChannels (nodeId))
+        {
+            juce::Array<juce::var> arr;
+            for (int c : *ch) arr.add (c);
+            handleSetNodeParam_AudioDeviceChannels (nodeId, juce::JSON::toString (juce::var (arr), true));
+        }
+
     // After a device change, validate stored selectedChannels.
     // We can't know the new channel count synchronously here (the device
     // opens on the audio thread), so we push a special message to React
@@ -696,6 +725,7 @@ void WebBridge::handleSetNodeParam_AudioDeviceChannels (const juce::String& node
     auto parsed = juce::JSON::parse (value);
     if (auto* arr = parsed.getArray())
         for (auto& elem : *arr) channels.push_back ((int) elem);
+    if (onFilterAudioChannels) channels = onFilterAudioChannels (nodeId, channels);   // v0.0.963 — never another node's channels
 
     onSetAudioDeviceChannels (nodeId, channels);
 

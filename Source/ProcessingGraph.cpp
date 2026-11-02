@@ -304,9 +304,17 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
                 // comment).
                 if (! n->disabled)
                 {
-                    int ch = std::min (hostAudio.getNumChannels(), n->outputAudio.getNumChannels());
-                    for (int i = 0; i < ch; ++i)
-                        n->outputAudio.copyFrom (i, 0, hostAudio, i, 0, numSamples);
+                    // v0.0.963 — the node's own channels of the DAW track
+                    // (several DAW Audio In nodes can share it): slot k ← host channel sel[k]
+                    int sel[64];
+                    const int count = inNode->copySelectedChannels (sel, 64);
+                    for (int k = 0; k < n->outputAudio.getNumChannels(); ++k)
+                    {
+                        if (k < count && sel[k] >= 0 && sel[k] < hostAudio.getNumChannels())
+                            n->outputAudio.copyFrom (k, 0, hostAudio, sel[k], 0, numSamples);
+                        else
+                            n->outputAudio.clear (k, 0, numSamples);
+                    }
                 }
             }
             // else: physical device — FIFO filled by audio callback, process() reads it
@@ -705,9 +713,12 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
                 if (outNode->getIsDawDevice() && hasInputScratch.count (n->id) > 0 && ! n->disabled)
                 {
                     if (! dawOutFound) { hostAudio.clear(); dawOutFound = true; }
-                    int ch = std::min (n->inputAudio.getNumChannels(), hostAudio.getNumChannels());
-                    for (int i = 0; i < ch; ++i)
-                        hostAudio.addFrom (i, 0, n->inputAudio, i, 0, numSamples);
+                    // v0.0.963 — into the node's own channels of the track: slot k → host channel sel[k]
+                    int sel[64];
+                    const int count = outNode->copySelectedChannels (sel, 64);
+                    for (int k = 0; k < count && k < n->inputAudio.getNumChannels(); ++k)
+                        if (sel[k] >= 0 && sel[k] < hostAudio.getNumChannels())
+                            hostAudio.addFrom (sel[k], 0, n->inputAudio, k, 0, numSamples);
                 }
             }
         }

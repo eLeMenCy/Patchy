@@ -1897,7 +1897,7 @@ function FlowCanvas() {
       _paxInfoMap.clear();   // v0.0.958 — the list can now change while running (Pax folder autoscan)
       paxItems.forEach(a => _paxInfoMap.set(a.name, a));
       _paxListLoaded = true;   // v0.0.941
-      if (!_paxScanModeSent) { _paxScanModeSent = true; Bridge.setPaxAutoScan(!(loadPrefs().paxManualRescan ?? false)); }   // v0.0.958 — the backend learns the Preference once the UI is up
+      if (!_paxScanModeSent) { _paxScanModeSent = true; Bridge.setPaxAutoScan(!(loadPrefs().paxManualRescan ?? false)); Bridge.setAudioNewNodeMono(loadPrefs().audioNewNodeMono ?? false); }   // v0.0.958 — the backend learns the Preference once the UI is up
     });
     Bridge.ready();
     return () => unsubGraph();

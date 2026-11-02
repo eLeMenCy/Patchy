@@ -22,9 +22,10 @@ export interface GraphPreferences {
   maxWrapFaders: number;   // v0.0.952 — console faders in a wrap's ⚙ panel (1-16)
   maxKbdFaders:  number;   // v0.0.956 — faders per MIDI Keyboard (1-16)
   paxManualRescan: boolean;   // v0.0.958 — off: the Pax folders are watched (every 2 s); on: "Rescan Pax now" only
+  audioNewNodeMono: boolean;  // v0.0.963 — a new Audio In / Out node starts on one channel instead of a stereo pair
 }
 
-export const DEFAULT_PREFS: GraphPreferences = { invertZoom: false, maxWrapFaders: 4, maxKbdFaders: 4, paxManualRescan: false };
+export const DEFAULT_PREFS: GraphPreferences = { invertZoom: false, maxWrapFaders: 4, maxKbdFaders: 4, paxManualRescan: false, audioNewNodeMono: false };
 const STORAGE_KEY = 'nodegraph_prefs';
 
 export function loadPrefs(): GraphPreferences {
@@ -302,6 +303,14 @@ function GraphTab ({ prefs, onChange }: {
         <ValueBox value={prefs.maxKbdFaders ?? 4} min={1} max={16} accent="var(--accent)" width={40}
           onCommit={v => patch({ maxKbdFaders: v })} />
       </div>
+      {/* v0.0.963 — several Audio In / Out nodes per device */}
+      <SectionHeader label="Audio devices" />
+      <ToggleRow
+        label="New audio nodes start mono"
+        desc="Several Audio In / Out nodes can share a device, each owning its channels. A new node starts on the next free stereo pair (1–2, 3–4…); with this on, on the next free single channel."
+        value={prefs.audioNewNodeMono ?? false}
+        onChange={v => { patch({ audioNewNodeMono: v }); Bridge.setAudioNewNodeMono(v); }}
+      />
       {/* v0.0.958 — Pax folder autoscan */}
       <SectionHeader label="Pax folder" />
       <ToggleRow

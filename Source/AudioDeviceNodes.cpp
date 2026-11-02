@@ -157,7 +157,10 @@ juce::var AudioDeviceManager::getAvailableDevicesVar (bool isStandalone)
         for (const auto& name : type->getDeviceNames (false))
         {
             int chCount = 2;
-            if (auto* dev = type->createDevice ({}, name))
+            // Fix, v0.0.963 — createDevice (OUTPUT name, INPUT name): the two
+            // were swapped, so every device was listed with 2 channels (the
+            // fallback) — invisible until channels started being shared
+            if (auto* dev = type->createDevice (name, {}))
             {
                 chCount = dev->getOutputChannelNames().size();
                 delete dev;
@@ -173,7 +176,7 @@ juce::var AudioDeviceManager::getAvailableDevicesVar (bool isStandalone)
         for (const auto& name : type->getDeviceNames (true))
         {
             int chCount = 2;
-            if (auto* dev = type->createDevice (name, {}))
+            if (auto* dev = type->createDevice ({}, name))   // v0.0.963 — see the output list above
             {
                 chCount = dev->getInputChannelNames().size();
                 delete dev;

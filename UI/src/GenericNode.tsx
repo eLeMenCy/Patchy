@@ -596,8 +596,7 @@ function GenericNode({ id, data, selected }: NodeProps) {
                 <polygon points="0,0 8,5 0,10" fill="currentColor" />
               </svg>
             </span>
-          {/* Phase 6 in-place rename, 2026-09-25 — Pax only (device nodes
-              aren't renamable: their header already shows the device). */}
+          {/* Phase 6 in-place rename, 2026-09-25; device nodes too since v0.0.963 */}
           {vPort > 0 ? (
             // v0.0.960 — a MIDI In / Out on a virtual port: "MIDI VIN (X)",
             // renamable — the (X) stays
@@ -605,22 +604,13 @@ function GenericNode({ id, data, selected }: NodeProps) {
               onCommit={commitModelName (id)}
               textStyle={{ fontSize: '11px', fontWeight: 700, color: theme.accent,
                            letterSpacing: '0.1em', fontFamily: "'Syne', sans-serif", whiteSpace: 'nowrap' }} />
-          ) : isPax ? (
+          ) : (
+            // v0.0.963 — every node renamable, device nodes too (user, 2026-11-03:
+            // several Audio Outs on one interface, IAC buses… a name tells them apart)
             <EditableTitle display={customName || theme.tag} value={customName} placeholder={theme.tag}
               onCommit={commitModelName (id)}
               textStyle={{ fontSize: '11px', fontWeight: 700, color: theme.accent,
                            letterSpacing: '0.1em', fontFamily: "'Syne', sans-serif", whiteSpace: 'nowrap' }} />
-          ) : (
-            <div style={{
-              fontSize:      '11px',
-              fontWeight:    700,
-              color:         theme.accent,
-              letterSpacing: '0.1em',
-              fontFamily:    "'Syne', sans-serif",
-              whiteSpace:    'nowrap',
-            }}>
-              {theme.tag}
-            </div>
           )}
         </div>
 

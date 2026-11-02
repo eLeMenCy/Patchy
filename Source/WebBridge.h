@@ -2,6 +2,7 @@
 #include <juce_audio_devices/juce_audio_devices.h>   // v0.0.960 — MidiDeviceListConnection
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <functional>
+#include <optional>
 #include <vector>
 #include <atomic>
 #include "GraphModel.h"
@@ -220,6 +221,11 @@ public:
     std::function<void(double, int, bool)> onSetAudioEngineSettings;
     std::function<void()>                  onUIReady;
     std::function<void(const juce::String&, const std::vector<int>&)> onSetAudioDeviceChannels;
+    // v0.0.963 — channel ownership (several Audio In / Out nodes per device)
+    std::function<std::optional<std::vector<int>>(const juce::String&)>       onAssignAudioChannels;   // after a device choice
+    std::function<std::vector<int>(const juce::String&, std::vector<int>)>    onFilterAudioChannels;   // others' channels out
+    std::function<bool(const juce::String&, const juce::String&, int)>         onMoveAudioChannel;      // from, to, channel
+    std::function<void(bool)>                                                  onSetAudioNewNodeMono;
     std::function<void(const juce::String&, int, int, const juce::String&, const juce::String&)> onSetUdpSettings;
     std::function<void(const juce::String&, int, const juce::String&, const juce::String&)>      onSetOscSettings;
     std::function<void(const juce::String&, const juce::String&, int, const juce::String&, int,

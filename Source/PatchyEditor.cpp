@@ -37,6 +37,11 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
     bridge.onPrunePaxEdges         = [&p](const juce::String& nid) { p.pruneProcessingGraphEdges (nid); };
     bridge.onSetAudioDeviceChannels  = [&p](const juce::String& nid, const std::vector<int>& ch)
                                        { p.setAudioDeviceChannels (nid, ch); };
+    // v0.0.963 — channel ownership
+    bridge.onAssignAudioChannels = [&p](const juce::String& nid) { return p.assignAudioChannels (nid); };
+    bridge.onFilterAudioChannels = [&p](const juce::String& nid, std::vector<int> ch) { return p.filterAudioChannels (nid, std::move (ch)); };
+    bridge.onMoveAudioChannel    = [&p](const juce::String& a, const juce::String& b, int ch) { return p.moveAudioChannel (a, b, ch); };
+    bridge.onSetAudioNewNodeMono = [&p](bool mono) { p.setAudioNewNodeMono (mono); };
     bridge.onSetUdpSettings          = [&p](const juce::String& nid, int port, int mode,
                                             const juce::String& targetHost, const juce::String& multicastAddr)
                                        { p.setUdpSettings (nid, port, mode, targetHost, multicastAddr); };

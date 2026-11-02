@@ -328,10 +328,12 @@ const _midiDeviceSubscribers: MidiDevicesCallback[] = [];
 let   _midiDeviceCache: MidiDeviceList | null = null;
 
 // Track which device IDs are already claimed: nodeId → deviceId
-const _claimedDevices = new Map<string, { deviceId: string; nodeType: number }>();
+// v0.0.963 — audio nodes also carry their channels + name (several nodes per device, one owner per channel)
+export interface DeviceClaim { deviceId: string; nodeType: number; channels?: number[]; name?: string }
+const _claimedDevices = new Map<string, DeviceClaim>();
 
 // Subscribers for claimed-device changes (same pattern as devices)
-type ClaimedCallback = (claimed: Map<string, { deviceId: string; nodeType: number }>) => void;
+type ClaimedCallback = (claimed: Map<string, DeviceClaim>) => void;
 const _claimedSubscribers: ClaimedCallback[] = [];
 
 function _dispatchMidiDevices(list: MidiDeviceList) {
@@ -447,7 +449,10 @@ function _dispatchClaimed() {
       _claimedDevices.clear();
       for (const node of state.nodes) {
         if (node.selectedDeviceId && (node.nodeType === 3 || node.nodeType === 4)) {
-          _claimedDevices.set(node.id, { deviceId: node.selectedDeviceId, nodeType: node.nodeType });
+          let channels: number[] = [0, 1];
+          try { const s = node.settingsJson ? JSON.parse(node.settingsJson) : {}; if (Array.isArray(s.selectedChannels)) channels = s.selectedChannels; } catch { /* default */ }
+          _claimedDevices.set(node.id, { deviceId: node.selectedDeviceId, nodeType: node.nodeType, channels,
+                                         name: node.customName || (node.nodeType === 3 ? 'Audio In' : 'Audio Out') });
         }
       }
       // Clear stale DMX snapshots — remove entries whose node no longer exists
@@ -458,6 +463,7 @@ function _dispatchClaimed() {
           if (!activeIds.has(key)) delete (window as any).__dmxSnapshots[key];
         }
       }
+      _dispatchClaimed();   // v0.0.963 — the channel panels follow (a move, an undo…); was never sent from here
       _graphUpdateSubscribers.forEach(cb => cb(state));
     } catch (e) {
       console.error('Bridge parse error', e);
@@ -998,6 +1004,9 @@ export const Bridge = {
   },
   setPaxAutoScan(on: boolean) { sendToJuce({ type: 'setPaxAutoScan', on }); },
   paxRescan() { sendToJuce({ type: 'paxRescan' }); },
+  /** v0.0.963 — several Audio In / Out nodes per device */
+  audioMoveChannel(fromNodeId: string, toNodeId: string, channel: number) { sendToJuce({ type: 'audioMoveChannel', fromNodeId, toNodeId, channel }); },
+  setAudioNewNodeMono(on: boolean) { sendToJuce({ type: 'setAudioNewNodeMono', on }); },
   /** v0.0.948 — ⚠ panic (also ⌘. in the native window) and its Preferences options */
   panic() { sendToJuce({ type: 'panic' }); },
   /** v0.0.951 — the wrap's ⏻: these nodes on / off in one undo step */

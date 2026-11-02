@@ -15,7 +15,7 @@
  */
 
 import { useState, useEffect, useContext } from 'react';
-import { Bridge, type StartupFadeDevices } from './Bridge';
+import { Bridge, type StartupFadeDevices, type DeviceClaim } from './Bridge';
 import { Checkbox, SettingsPanelHeader } from './NodeUtils';
 import { NodeSelect } from './NodeSelect';
 import ValueBox from './ValueBox';   // v0.0.942
@@ -33,7 +33,7 @@ export function DeviceSelector ({ nodeId, nodeType, selectedDeviceId }: {
   const { isStandalone, dawLoopbackEnabled, dawHostEnabled } = useContext(DawContext);
   const { setHint } = useContext(HintContext);
   const [devices, setDevices] = useState<Array<{ id: string; name: string; unavailable?: boolean }>>([]);
-  const [claimed, setClaimed] = useState<Map<string, { deviceId: string; nodeType: number }>>(new Map());
+  const [claimed, setClaimed] = useState<Map<string, DeviceClaim>>(new Map());
 
   useEffect(() => {
     const unsubClaimed = Bridge.onClaimedDevices(map => setClaimed(new Map(map)));
@@ -43,12 +43,27 @@ export function DeviceSelector ({ nodeId, nodeType, selectedDeviceId }: {
     return () => { unsubDevices(); unsubClaimed(); };
   }, [nodeType, isMidi]);
 
-  // Grey out devices claimed by nodes of the same direction
+  // Grey out devices claimed by nodes of the same direction — v0.0.963: for
+  // audio, only once ALL of a device's channels are owned by other nodes
   const takenByOthers = new Set<string>();
-  claimed.forEach((claim, nId) => {
-    if (nId !== nodeId && claim.nodeType === nodeType && claim.deviceId)
-      takenByOthers.add(claim.deviceId);
-  });
+  if (isMidi) {
+    claimed.forEach((claim, nId) => {
+      if (nId !== nodeId && claim.nodeType === nodeType && claim.deviceId)
+        takenByOthers.add(claim.deviceId);
+    });
+  } else {
+    devices.forEach(d => {
+      if (d.id === 'DAW') return;   // the DAW track: a shared bus, never greyed (user, 2026-11-02)
+      const used = new Set<number>();
+      claimed.forEach((claim, nId) => {
+        const same = isStandalone && claim.deviceId === d.id;
+        if (nId !== nodeId && claim.nodeType === nodeType && claim.deviceId && same)
+          (claim.channels ?? [0, 1]).forEach(c => used.add(c));
+      });
+      const count = (d as { channelCount?: number }).channelCount ?? 2;
+      if (used.size >= count) takenByOthers.add(d.id);
+    });
+  }
 
   const isDawLocked = (d: { id: string; dawHost?: boolean }) =>
     d.id === 'DAW' && nodeType === 4 && !isStandalone && !dawLoopbackEnabled;
@@ -119,7 +134,23 @@ export function AudioDeviceSettingsPanel ({ nodeId, nodeType, selectedChannels, 
     if (fadeOn && v !== fadeMs) Bridge.setAudioInStartupFade(nodeId, true, v);
   };
 
+  // v0.0.963 — channels other nodes on this device own: greyed, "move it here?"
+  const { isStandalone } = useContext(DawContext);
+  const [claims, setClaims] = useState<Map<string, DeviceClaim>>(new Map());
+  useEffect(() => Bridge.onClaimedDevices(m => setClaims(new Map(m))), []);
+  const owners = new Map<number, { nodeId: string; name: string }>();
+  claims.forEach((c, nId) => {
+    if (nId === nodeId || c.nodeType !== nodeType || !c.deviceId || !selectedDeviceId) return;
+    if (!isStandalone || selectedDeviceId === 'DAW') return;   // DAW device: a shared bus, no owners
+    if (c.deviceId !== selectedDeviceId) return;
+    (c.channels ?? [0, 1]).forEach(ch => owners.set(ch, { nodeId: nId, name: c.name ?? 'another node' }));
+  });
+  const [confirm, setConfirm] = useState<{ ch: number; nodeId: string; name: string } | null>(null);
+  const { setHint } = useContext(HintContext);
+
   const toggle = (ch: number) => {
+    const owner = owners.get(ch);
+    if (owner && !selectedChannels.includes(ch)) { setConfirm({ ch, ...owner }); return; }
     const next = selectedChannels.includes(ch)
       ? selectedChannels.filter(c => c !== ch)
       : [...selectedChannels, ch].sort((a, b) => a - b);
@@ -181,20 +212,38 @@ export function AudioDeviceSettingsPanel ({ nodeId, nodeType, selectedChannels, 
                                 : '1fr 1fr',
             gap: 4,
           }}>
-            {Array.from({ length: deviceChannelCount }, (_, i) => (
-              <label key={i} style={{
-                display: 'flex', alignItems: 'center', gap: 5,
-                fontSize: 10, color: 'var(--text-dim)', cursor: 'pointer',
-              }}>
-                <Checkbox
-                  checked={selectedChannels.includes(i)}
-                  onChange={() => toggle(i)}
-                  accent={accent}
-                />
-                Ch {i + 1}
-              </label>
-            ))}
+            {Array.from({ length: deviceChannelCount }, (_, i) => {
+              const owner = selectedChannels.includes(i) ? undefined : owners.get(i);
+              return (
+                <label key={i}
+                  onMouseEnter={owner ? () => setHint({ title: `Ch ${i + 1} — used by ${owner.name}`, body: `Click to move it here: it leaves ${owner.name} and joins this node, in one step (⌘Z gives it back).` }) : undefined}
+                  onMouseLeave={owner ? () => setHint(null) : undefined}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    fontSize: 10, color: 'var(--text-dim)', cursor: 'pointer', opacity: owner ? 0.45 : 1,
+                  }}>
+                  <Checkbox
+                    checked={selectedChannels.includes(i)}
+                    onChange={() => toggle(i)}
+                    accent={accent}
+                  />
+                  Ch {i + 1}
+                </label>
+              );
+            })}
           </div>
+          {confirm && (
+            <div style={{ marginTop: 8, padding: '6px 8px', borderRadius: 3, border: `1px solid ${accent}`,
+                          background: 'color-mix(in srgb, var(--audio) 10%, transparent)', fontSize: 10, color: 'var(--text)' }}>
+              Ch {confirm.ch + 1} is used by {confirm.name} — move it here?
+              <div style={{ display: 'flex', gap: 6, marginTop: 6, justifyContent: 'flex-end' }}>
+                <span onClick={() => { Bridge.audioMoveChannel(confirm.nodeId, nodeId, confirm.ch); setConfirm(null); }}
+                  style={{ cursor: 'pointer', padding: '2px 8px', borderRadius: 3, border: `1px solid ${accent}`, color: accent }}>✓ Move</span>
+                <span onClick={() => setConfirm(null)}
+                  style={{ cursor: 'pointer', padding: '2px 8px', borderRadius: 3, border: '1px solid var(--border-hi)', color: 'var(--text-dim)' }}>✕ Cancel</span>
+              </div>
+            </div>
+          )}
           {selectedChannels.length === 0 && (
             <div style={{ fontSize: 9, color: '#ef5350', marginTop: 6 }}>
               At least one channel required

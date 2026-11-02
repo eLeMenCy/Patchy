@@ -1,4 +1,5 @@
 #pragma once
+#include <optional>
 #include <set>
 #include <map>
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -235,6 +236,23 @@ public:
     }
 
     /** Apply a channel selection to a live audio node and persist it. */
+    // ── v0.0.963 — several Audio In / Out nodes per device ──────────────
+    // A channel belongs to one node per direction and device (the DAW device
+    // included). Message thread; the truth is the model's settingsJson
+    // ("selectedChannels"). See PatchyProcessor.cpp.
+    /** A device was just chosen in the node's list: its channels (a new node →
+        the next free stereo pair, or mono per Preferences; channels now taken
+        → moved to free ones). Empty optional = nothing to change. */
+    std::optional<std::vector<int>> assignAudioChannels (const juce::String& nodeId);
+    /** A selection from the panel, without the channels other nodes own. */
+    std::vector<int> filterAudioChannels (const juce::String& nodeId, std::vector<int> channels);
+    /** "Move it here?": channel `ch` from one node to another, both saved +
+        applied. false = not possible (not owned by `from`, other device…). */
+    bool moveAudioChannel (const juce::String& fromNodeId, const juce::String& toNodeId, int ch);
+    /** Who owns what: { "<nodeId>": [channels] } is in each node's settings
+        already; this is the Preferences switch for new nodes. */
+    void setAudioNewNodeMono (bool mono) { audioNewNodeMono = mono; }
+
     void setAudioDeviceChannels (const juce::String& nodeId,
                                   const std::vector<int>& channels)
     {
@@ -1495,6 +1513,13 @@ public:
     std::vector<std::pair<double, std::unique_ptr<VirtualMidiInPort>>>  retiredInPorts;
     std::vector<std::pair<double, std::unique_ptr<VirtualMidiOutPort>>> retiredOutPorts;
     juce::String trackName;
+    // v0.0.963 — audio channel ownership (see assignAudioChannels)
+    bool audioNewNodeMono = false;
+    juce::String effectiveAudioDevice (const NodeData& n) const;
+    std::set<int> audioChannelsUsedByOthers (const NodeData& n) const;
+    void persistAudioChannels (NodeData& n, const std::vector<int>& channels);
+    void resolveAudioChannelConflicts();
+    void toast (const juce::String& text, const juce::String& kind);
     struct RetiredPortsTimer;
     std::unique_ptr<RetiredPortsTimer> retiredPortsTimer;
     void purgeRetiredPorts (bool all);

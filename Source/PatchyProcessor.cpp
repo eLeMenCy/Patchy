@@ -267,37 +267,6 @@ void PatchyProcessor::processGraphBlock (juce::AudioBuffer<float>& buffer,
 {
     juce::ScopedNoDenormals noDenormals;
 
-    // TEMPORARY diagnostic (2026-09-02) — a genuinely different question
-    // from everything measured so far: not how long this function takes
-    // once it's called, but whether it's being called ON TIME at all. The
-    // user's own two rounds of precise timing data now show the swap,
-    // prepare(), and even the very first process() call on fresh node
-    // instances are all comparably fast to ordinary blocks — meaning
-    // nothing measured so far explains a real, audible stutter. If the
-    // audio callback itself is being delayed/starved by something
-    // entirely outside this function (the UI thread, WebView rendering,
-    // OS scheduling) specifically during a graph edit, that would sound
-    // identical to a slow callback but require a completely different
-    // fix — and wouldn't show up in anything timed from inside this
-    // function. This measures the actual gap between consecutive calls
-    // to this exact function, flagging it whenever it significantly
-    // exceeds the expected block period for the current sample
-    // rate/block size.
-    {
-        auto now = std::chrono::high_resolution_clock::now();
-        if (lastCallbackTime.time_since_epoch().count() != 0)
-        {
-            auto gapMicros = std::chrono::duration_cast<std::chrono::microseconds> (now - lastCallbackTime).count();
-            double expectedMicros = (lastSampleRate > 0.0)
-                                     ? (1'000'000.0 * (double) buffer.getNumSamples() / lastSampleRate)
-                                     : 11600.0;
-            if ((double) gapMicros > expectedMicros * 1.5)
-                diagLog ("PatchyProcessor: callback gap " + juce::String ((int) gapMicros)
-                                          + " microseconds (expected ~" + juce::String ((int) expectedMicros) + ")");
-        }
-        lastCallbackTime = now;
-    }
-
     // Swap in a newly built graph if one is pending
     if (graphPending.exchange (false))
     {

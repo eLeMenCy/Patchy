@@ -4,7 +4,7 @@
 #include "GraphModel.h"
 #include "StartupFadeRegistry.h"
 #include "SleepGuard.h"
-#include "DiagLog.h"   // TEMPORARY diagnostic (2026-09-25)
+#include "DiagLog.h"   // v0.0.962 — counters kept (cheap), no longer logged; were the 2026-09-25 click diagnostic
 #include <atomic>
 #include <vector>
 #include <mutex>
@@ -113,10 +113,6 @@ public:
         // allocated on the audio thread and was immediately wiped by the
         // swap's own prepare() anyway.
         dst.audioFifo = audioFifo;
-        // TEMPORARY diagnostic (2026-09-25) — start the new node's counters
-        // from the shared fifo's current totals, so it only logs new events.
-        dst.diagLastStarved = audioFifo->starvedCount.load (std::memory_order_relaxed);
-        dst.diagLastTrims   = audioFifo->trimCount.load (std::memory_order_relaxed);
         devManager->addAudioCallback (&dst);
         // Shared-fifo fix, 2026-09-24 — JUCE may call both callbacks for
         // a block while they overlap (add-then-remove, above/below). With
@@ -235,7 +231,7 @@ private:
 
             if (fifo.getNumReady() < numFrames)
             {
-                starvedCount.fetch_add (1, std::memory_order_relaxed);   // TEMPORARY diagnostic (2026-09-25)
+                starvedCount.fetch_add (1, std::memory_order_relaxed);   // v0.0.962 — counters kept (cheap), no longer logged; were the 2026-09-25 click diagnostic
                 fifo.reset();
                 primed = false;
                 return;
@@ -264,7 +260,7 @@ private:
                     int t1, tn1, t2, tn2;
                     fifo.prepareToRead (ready - target, t1, tn1, t2, tn2);
                     fifo.finishedRead (tn1 + tn2);
-                    trimCount.fetch_add (1, std::memory_order_relaxed);   // TEMPORARY diagnostic (2026-09-25)
+                    trimCount.fetch_add (1, std::memory_order_relaxed);   // v0.0.962 — counters kept (cheap), no longer logged; were the 2026-09-25 click diagnostic
                 }
             }
 
@@ -291,7 +287,7 @@ private:
         // lastWriteFrames: writer's most recent block size (writer thread
         // stores, reader thread loads).
         std::atomic<int> lastWriteFrames { 0 };
-        // TEMPORARY diagnostic (2026-09-25) — random-click investigation.
+        // v0.0.962 — counters kept (cheap), no longer logged; were the 2026-09-25 click diagnostic — random-click investigation.
         // Bumped on the reader thread when a read finds less than one block
         // (starved) or the trim fires; the owning node logs each change.
         std::atomic<int> starvedCount    { 0 };
@@ -308,15 +304,6 @@ private:
     // then leaves the shared fifo alone (see that function's comment).
     std::atomic<bool> callbackHandedOver { false };
 
-    // TEMPORARY diagnostic (2026-09-25) — random-click investigation, see
-    // DiagLog.h. Last-seen counter values, so each new starved/trim event
-    // and each device xrun is logged once, with a timestamp, when it
-    // happens. lastXruns starts at -2 ("not read yet") so a node taking
-    // over an already-running device doesn't report its whole history.
-    int diagLastStarved  = 0;
-    int diagLastTrims    = 0;
-    int diagLastXruns    = -2;
-    int diagXrunSamples  = 0;
 
     juce::AudioDeviceManager* devManager = nullptr;
     juce::String              registeredDeviceName;
@@ -448,10 +435,6 @@ public:
         // Shared-fifo fix, 2026-09-24 — same as AudioOutDeviceNode's own
         // transferCallbackTo(); see its comment.
         dst.audioFifo = audioFifo;
-        // TEMPORARY diagnostic (2026-09-25) — start the new node's counters
-        // from the shared fifo's current totals, so it only logs new events.
-        dst.diagLastStarved = audioFifo->starvedCount.load (std::memory_order_relaxed);
-        dst.diagLastTrims   = audioFifo->trimCount.load (std::memory_order_relaxed);
         devManager->addAudioCallback (&dst);
         // Shared-fifo fix, 2026-09-24 — JUCE may call both callbacks for
         // a block while they overlap (add-then-remove, above/below). With
@@ -574,7 +557,7 @@ private:
             dst.clear();
             if (fifo.getNumReady() < numFrames)
             {
-                starvedCount.fetch_add (1, std::memory_order_relaxed);   // TEMPORARY diagnostic (2026-09-25)
+                starvedCount.fetch_add (1, std::memory_order_relaxed);   // v0.0.962 — counters kept (cheap), no longer logged; were the 2026-09-25 click diagnostic
                 return false;
             }
 
@@ -601,7 +584,7 @@ private:
                     int t1, tn1, t2, tn2;
                     fifo.prepareToRead (ready - target, t1, tn1, t2, tn2);
                     fifo.finishedRead (tn1 + tn2);
-                    trimCount.fetch_add (1, std::memory_order_relaxed);   // TEMPORARY diagnostic (2026-09-25)
+                    trimCount.fetch_add (1, std::memory_order_relaxed);   // v0.0.962 — counters kept (cheap), no longer logged; were the 2026-09-25 click diagnostic
                 }
             }
 
@@ -627,7 +610,7 @@ private:
         // lastWriteFrames: writer's most recent block size (writer thread
         // stores, reader thread loads).
         std::atomic<int> lastWriteFrames { 0 };
-        // TEMPORARY diagnostic (2026-09-25) — random-click investigation.
+        // v0.0.962 — counters kept (cheap), no longer logged; were the 2026-09-25 click diagnostic — random-click investigation.
         // Bumped on the reader thread when a read finds less than one block
         // (starved) or the trim fires; the owning node logs each change.
         std::atomic<int> starvedCount    { 0 };
@@ -644,30 +627,7 @@ private:
     // then leaves the shared fifo alone (see that function's comment).
     std::atomic<bool> callbackHandedOver { false };
 
-    // TEMPORARY diagnostic (2026-09-25) — random-click investigation, see
-    // DiagLog.h. Last-seen counter values, so each new starved/trim event
-    // and each device xrun is logged once, with a timestamp, when it
-    // happens. lastXruns starts at -2 ("not read yet") so a node taking
-    // over an already-running device doesn't report its whole history.
-    int diagLastStarved  = 0;
-    int diagLastTrims    = 0;
-    int diagLastXruns    = -2;
-    int diagXrunSamples  = 0;
 
-    // TEMPORARY diagnostic (2026-09-25) — click detector on the RAW input
-    // (device thread, before the fifo). A click is a sample-to-sample jump
-    // above kClickMinJump AND well above the largest jump seen on that
-    // channel over the last ~100 ms (decaying peak) — so a loud square or
-    // saw wave, whose edges are big but regular, doesn't keep firing,
-    // while an isolated jump in otherwise smooth audio does. Rate-limited
-    // to one line per ~250 ms per node.
-    static constexpr float kClickMinJump   = 0.3f;
-    static constexpr float kClickPeakRatio = 3.0f;
-    static constexpr float kClickPeakDecay = 0.9995f;   // per sample, ~-19 dB/100 ms at 44.1 kHz
-    std::array<float, kMaxFifoChans> diagPrevSample {};
-    std::array<float, kMaxFifoChans> diagPeakJump   {};
-    bool diagDetectorPrimed    = false;
-    int  diagSamplesSinceClick = 1 << 30;
 
     juce::AudioDeviceManager* devManager = nullptr;
     juce::String              registeredDeviceName;

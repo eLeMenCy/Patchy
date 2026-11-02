@@ -1793,11 +1793,6 @@ private:
     // can safely destroy it (avoids destructor running on the audio thread).
     std::unique_ptr<ProcessingGraph> graphTrash;
     std::atomic<bool>                graphTrashPending { false };
-    // TEMPORARY diagnostic (2026-09-02), remove once resolved — see
-    // processBlock()'s own comment for the full story. Default-
-    // constructed (time_since_epoch() == 0) is used as the "no previous
-    // call yet" sentinel on the very first block.
-    std::chrono::high_resolution_clock::time_point lastCallbackTime {};
 
     // v0.0.948 — Panic (see triggerPanic / processGraphBlock)
     std::atomic<bool> panicMidiRequest { false };

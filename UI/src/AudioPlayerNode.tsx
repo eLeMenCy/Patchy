@@ -572,10 +572,15 @@ function SettingsPanel ({ s, onChange, onDiscreteChange, onClose, onReset, onCom
 
       {s.mode === 'sine' && row ('Frequency', (
         <>
-          <span style={{ fontSize:10, color:'var(--text-dim)', width:44, textAlign:'right',
-                         flexShrink:0, fontVariantNumeric:'tabular-nums' }}>
-            {Math.round (s.sineFrequency)}Hz
-          </span>
+          {/* v0.0.964 — a value box beside the slider, like the other nodes:
+              drag (proportional steps, ⇧ fine), double-click to type */}
+          <ValueBox value={Math.round (s.sineFrequency)} min={FREQ_MIN} max={FREQ_MAX} step={1} log unit="Hz"
+            accent="var(--audio)" width={64}
+            title="Frequency — drag up/down (proportional steps, ⇧ fine) • double-click to type (Hz)"
+            parse={t => parseFloat (t.replace (',', '.').replace (/hz/i, '').trim()) * (/k/i.test (t) ? 1000 : 1)}
+            onLive={v => onChange ({ sineFrequency: v })}
+            onCommit={v => { onChange ({ sineFrequency: v }); onCommit(); }}
+            style={{ ...readoutBoxStyle ('var(--text-dim)'), fontSize: 10, flexShrink: 0 }} />
           <input type="range" min={0} max={1} step="any"
             value={freqToSliderPos (s.sineFrequency)}
             onChange={e => onChange ({ sineFrequency: sliderPosToFreq (parseFloat (e.target.value)) })}

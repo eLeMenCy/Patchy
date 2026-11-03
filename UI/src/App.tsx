@@ -1059,14 +1059,28 @@ function FlowCanvas() {
   }, []);
 
   // Keep ReactFlow node data in sync when slider updates settingsJson
+  // v0.0.964 — coalesced to one update per frame (latest per node): a fast
+  // trackpad drag sent echoes faster than React could commit them →
+  // "Maximum update depth exceeded" in ReactFlow, whole UI gone.
   useEffect(() => {
-    return Bridge.onNodeSettings((nodeId, settingsJson) => {
-      setNodes(prev => prev.map(n =>
-        n.id === nodeId
-          ? { ...n, data: { ...n.data, settingsJson } }
-          : n
-      ));
+    const pending = new Map<string, string>();
+    let raf = 0;
+    const flush = () => {
+      raf = 0;
+      const batch = new Map(pending);
+      pending.clear();
+      setNodes(prev => prev.map(n => {
+        const sj = batch.get(n.id);
+        return sj !== undefined && sj !== (n.data as any)?.settingsJson
+          ? { ...n, data: { ...n.data, settingsJson: sj } }
+          : n;
+      }));
+    };
+    const unsub = Bridge.onNodeSettings((nodeId, settingsJson) => {
+      pending.set(nodeId, settingsJson);
+      if (!raf) raf = requestAnimationFrame(flush);
     });
+    return () => { unsub(); if (raf) cancelAnimationFrame(raf); };
   }, [setNodes]);
 
   useEffect(() => {

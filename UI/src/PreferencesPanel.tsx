@@ -25,11 +25,12 @@ export interface GraphPreferences {
   audioNewNodeMono: boolean;  // v0.0.963 — a new Audio In / Out node starts on one channel instead of a stereo pair
   snapGrid: boolean;          // v0.0.965 — nodes snap to an invisible grid (G switches it)
   gridSize: number;           // v0.0.965 — px: one of GRID_SIZES
+  tidyAnimate: boolean;       // v0.0.966 — ⌥⌘L Tidy layout: nodes glide to their places (off: they jump)
 }
 
 export const GRID_SIZES = [6, 12, 24, 48];   // the canvas dots are 24 apart: every size lines up with them
 
-export const DEFAULT_PREFS: GraphPreferences = { invertZoom: false, maxWrapFaders: 4, maxKbdFaders: 4, paxManualRescan: false, audioNewNodeMono: false, snapGrid: false, gridSize: 12 };
+export const DEFAULT_PREFS: GraphPreferences = { invertZoom: false, maxWrapFaders: 4, maxKbdFaders: 4, paxManualRescan: false, audioNewNodeMono: false, snapGrid: false, gridSize: 12, tidyAnimate: true };
 const STORAGE_KEY = 'nodegraph_prefs';
 
 export function loadPrefs(): GraphPreferences {
@@ -367,6 +368,14 @@ function GraphTab ({ prefs, onChange }: {
         value={prefs.gridSize ?? 12}
         options={GRID_SIZES}
         onChange={v => patch({ gridSize: parseInt(v, 10) || 12 })}
+      />
+      {/* v0.0.966 — ⌥⌘L */}
+      <SectionHeader label="Tidy layout" />
+      <ToggleRow
+        label="Glide into place"
+        desc="⌥⌘L (or ☰ → Edit → Tidy layout) lays the graph out left to right in signal order — one undo step. On: the nodes glide to their new places; off: they jump there."
+        value={prefs.tidyAnimate ?? true}
+        onChange={v => patch({ tidyAnimate: v })}
       />
       <SectionHeader label="Navigation" />
       {/* Genuinely unimplemented, not just this toggle disabled — invertZoom

@@ -1258,6 +1258,10 @@ export const Bridge = {
     sendToJuce({ type: 'removeConnection', connectionId });
   },
 
+  // v0.0.966 — Tidy layout: every new position at once, ONE undo step
+  layoutNodes(nodes: { id: string; x: number; y: number }[], wraps: { id: string; x: number; y: number }[]) {
+    sendToJuce({ type: 'layoutNodes', nodes, wraps });
+  },
   moveNode(nodeId: string, x: number, y: number) {
     sendToJuce({ type: 'moveNode', nodeId, x, y });
   },

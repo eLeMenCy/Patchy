@@ -1505,6 +1505,8 @@ public:
         bool operator!= (const PaxStamp& o) const { return ! (*this == o); }
     };
     struct PaxWatchTimer;
+    struct StateDirtyTimer;   // v0.0.966
+    std::unique_ptr<StateDirtyTimer> stateDirty;
 
     // v0.0.960 — virtual MIDI ports, owned here (survive graph rebuilds)
     std::map<int, std::unique_ptr<VirtualMidiInPort>>  virtualInPorts;    // by number X (MIDI In nodes)

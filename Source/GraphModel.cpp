@@ -784,6 +784,7 @@ void GraphModel::pushSnapshot()
 
     // Any new action clears the redo stack
     redoStack.clear();
+    if (onEdited) onEdited();   // v0.0.966
 }
 
 bool GraphModel::undo()
@@ -797,6 +798,7 @@ bool GraphModel::undo()
     undoStack.pop_back();
 
     restoreSnapshot (snapshot);
+    if (onEdited) onEdited();   // v0.0.966
     return true;
 }
 
@@ -811,6 +813,7 @@ bool GraphModel::redo()
     redoStack.pop_back();
 
     restoreSnapshot (snapshot);
+    if (onEdited) onEdited();   // v0.0.966
     return true;
 }
 
@@ -826,7 +829,7 @@ void GraphModel::restoreSnapshot (const juce::var& snapshot)
     viewportX    = (float)(double) obj->getProperty ("viewportX");
     viewportY    = (float)(double) obj->getProperty ("viewportY");
     viewportZoom = (float)(double) obj->getProperty ("viewportZoom");
-    if (viewportZoom == 0.0f) viewportZoom = 1.0f;
+    if (viewportZoom <= 0.0f) viewportZoom = 1.0f;   // (was == 0: -Wfloat-equal)
 
     // Restore nodes
     auto* nodesArr = obj->getProperty ("nodes").getArray();

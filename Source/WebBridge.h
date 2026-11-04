@@ -350,6 +350,7 @@ private:
     void handleAddConnection (const juce::DynamicObject* obj);
     void handleRemoveConnection (const juce::DynamicObject* obj);
     void handleMoveNode (const juce::DynamicObject* obj);
+    void handleLayoutNodes (const juce::DynamicObject* obj);   // v0.0.966 — Tidy layout: many positions, ONE undo step
     void handleSetViewport (const juce::DynamicObject* obj);
     void handleSetNodeParam (const juce::DynamicObject* obj);
 

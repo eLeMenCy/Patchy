@@ -143,6 +143,7 @@ class GraphModel
 {
 public:
     std::function<void()> onChange;
+    std::function<void()> onEdited;   // v0.0.966 — any user edit (undo step, undo / redo, a node moved): the project must be saved
     /** Called after undo/redo restores a snapshot — allows the processor to
      *  resync device managers from the restored GraphModel state. */
     std::function<void()> onAfterRestore;
@@ -230,6 +231,7 @@ public:
         while ((int) undoStack.size() > kMaxUndoSteps)
             undoStack.pop_front();
         redoStack.clear();
+        if (onEdited) onEdited();
     }
 
     /** Undo the last action. Returns true if successful. */

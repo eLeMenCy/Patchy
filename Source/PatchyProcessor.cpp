@@ -10,6 +10,17 @@
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+struct PatchyProcessor::StateDirtyTimer : public juce::Timer   // v0.0.966 — see the constructor
+{
+    explicit StateDirtyTimer (PatchyProcessor& o) : owner (o) {}
+    void timerCallback() override
+    {
+        stopTimer();
+        owner.updateHostDisplay (juce::AudioProcessor::ChangeDetails().withNonParameterStateChanged (true));
+    }
+    PatchyProcessor& owner;
+};
+
 PatchyProcessor::PatchyProcessor()
     : AudioProcessor (BusesProperties()
           .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
@@ -45,6 +56,12 @@ PatchyProcessor::PatchyProcessor()
     for (const auto& r : scanResults)
         paxKnown[r.file.getFullPathName()] = { r.file.getSize(), r.file.getLastModificationTime().toMilliseconds() };
     setPaxAutoScan (true);
+
+    // v0.0.966 — tell the host the project changed after every edit (Bitwig
+    // kept the positions from before a Tidy layout: no plugin ever said the
+    // state changed). Coalesced: a node drag sends a move per frame.
+    stateDirty = std::make_unique<StateDirtyTimer> (*this);
+    graphModel.onEdited = [this] { if (stateDirty && ! stateDirty->isTimerRunning()) stateDirty->startTimer (300); };
 
     // When the graph changes: rebuild processing graph AND push to UI
     graphModel.onChange = [this]
@@ -188,6 +205,7 @@ PatchyProcessor::~PatchyProcessor()
 {
     diagLog ("PatchyProcessor: destroyed");   // v0.0.919 — lifecycle visibility (hosts)
     paxWatch.reset();       // v0.0.958 — no more folder checks
+    graphModel.onEdited = nullptr; stateDirty.reset();   // v0.0.966
     retiredPortsTimer.reset();   // v0.0.960
     liveInstances().removeAllInstancesOf (this);
     virtualInPorts.clear(); virtualOutPorts.clear(); purgeRetiredPorts (true);

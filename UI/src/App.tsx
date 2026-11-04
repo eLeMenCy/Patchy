@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useContext, DragEvent, ReactNode } from 'react';
 import { flushSync } from 'react-dom';
+import { tidyLayout, TidyItem, TidyLink } from './TidyLayout';   // v0.0.966
 import { DawContext } from './DawContext';
 import {
   ReactFlow,
@@ -1027,7 +1028,7 @@ function FlowCanvas() {
   };
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { setHint } = useContext(HintContext);
-  const { screenToFlowPosition, setViewport, getViewport, fitView, updateNode, getNodes, getEdges, deleteElements } = useReactFlow();
+  const { screenToFlowPosition, setViewport, getViewport, fitView, updateNode, getNodes, getEdges, deleteElements, getInternalNode } = useReactFlow();
   const pendingDrop     = useRef<{ dropX: number; dropY: number } | null>(null);
   const knownNodeIds    = useRef<Set<string>>(new Set());
   const burgerBtnRef    = useRef<HTMLButtonElement>(null);
@@ -1848,6 +1849,121 @@ function FlowCanvas() {
   }, [dropChanges]);
 
   // ⌘G — wrap the selected nodes (2 or more)
+  // ── v0.0.966 — ⌥⌘L Tidy layout ──────────────────────────────────────────
+  // Main graph: every node, folded wrap and open wrap (its frame, contents
+  // as they are) — a wrap's inside is laid out only in its Enter view.
+  const tidyAnim = useRef(0);
+  const tidyGraph = useCallback(() => {
+    if (tidyAnim.current) return;   // one at a time
+    const ent = enteredRef.current;
+    const ws  = wrapsRef.current;
+    const memberOf = new Map<string, string>();
+    for (const p of ws) for (const id of p.nodeIds) memberOf.set(id, p.id);
+    const size = (n: Node) => ({ w: n.measured?.width ?? n.width ?? 220, h: n.measured?.height ?? n.height ?? 120 });
+    const items: TidyItem[] = [];
+    const itemOf = new Map<string, string>();      // real node → the box it's drawn in
+    // v0.0.967 — where a handle sits on screen (flow y), on the box it's drawn on
+    // (a folded wrap / an open frame / a rail reuse the inner handle ids), else on its own node
+    const handleY = (viewId: string, handle: string | null | undefined, kind: 'source' | 'target'): number | undefined => {
+      if (!handle) return undefined;
+      const look = (id: string) => {
+        const n = getInternalNode(id);
+        const hb = n?.internals.handleBounds;
+        const h = [...(hb?.[kind] ?? []), ...(hb?.[kind === 'source' ? 'target' : 'source'] ?? [])].find(q => q.id === handle);
+        return n && h ? n.internals.positionAbsolute.y + h.y + h.height / 2 : undefined;
+      };
+      return look(viewId) ?? look(realNodeOfHandle(handle));
+    };
+    for (const n of getNodes()) {
+      if (n.id.startsWith(RAIL_PREFIX)) continue;
+      if (ent) {
+        if (memberOf.get(n.id) !== ent || isWrapViewId(n.id)) continue;
+        items.push({ id: n.id, x: n.position.x, y: n.position.y, ...size(n) }); itemOf.set(n.id, n.id);
+      } else if (n.id.startsWith(WRAP_PREFIX) || n.id.startsWith(FRAME_PREFIX)) {
+        const wid = n.id.slice(n.id.startsWith(WRAP_PREFIX) ? WRAP_PREFIX.length : FRAME_PREFIX.length);
+        items.push({ id: n.id, x: n.position.x, y: n.position.y, ...size(n) });
+        for (const id of ws.find(q => q.id === wid)?.nodeIds ?? []) itemOf.set(id, n.id);
+      } else if (!memberOf.has(n.id)) {
+        items.push({ id: n.id, x: n.position.x, y: n.position.y, ...size(n) }); itemOf.set(n.id, n.id);
+      }
+    }
+    // Enter view: wires to / from outside end on the rails — one fixed item per
+    // rail port (never moved, no room), so the inner nodes follow the ports' order
+    const fixed = new Map<string, TidyItem>();
+    const railItem = (side: 'in' | 'out', handle: string) => {
+      const id = `${RAIL_PREFIX}${side}|${handle}`;
+      if (!fixed.has(id)) {
+        const rail = getInternalNode(RAIL_PREFIX + side);
+        fixed.set(id, { id, x: rail?.internals.positionAbsolute.x ?? 0, y: handleY(RAIL_PREFIX + side, handle, side === 'in' ? 'source' : 'target') ?? 0, w: 0, h: 0, fixed: true });
+      }
+      return id;
+    };
+    const itemById = new Map(items.map(i => [i.id, i]));
+    const off = (itemId: string, y: number | undefined) => {
+      const it = itemById.get(itemId);
+      return it && y !== undefined && it.h > 0 ? (y - it.y) / it.h : undefined;
+    };
+    const links: TidyLink[] = [];
+    for (const e of edgesRef.current) {
+      let a = itemOf.get(e.source), b = itemOf.get(e.target);
+      if (ent && a && !b && e.sourceHandle) b = railItem('out', e.sourceHandle);
+      if (ent && b && !a && e.targetHandle) a = railItem('in',  e.targetHandle);
+      if (!a || !b) continue;
+      links.push([a, b, off(a, handleY(a, e.sourceHandle, 'source')), off(b, handleY(b, e.targetHandle, 'target'))]);
+    }
+    items.push(...fixed.values());
+    const p = prefsRef.current;
+    const target = tidyLayout(items, links, { grid: p.snapGrid ? (p.gridSize ?? 12) : undefined });
+    for (const id of [...target.keys()]) if (fixed.has(id)) target.delete(id);   // (never returned, but be sure)
+    if (target.size === 0) { Bridge.showToast('Tidy layout: already tidy, or nothing wired to arrange'); return; }
+
+    // item moves → real node / wrap positions
+    const start = new Map(nodesRef.current.map(n => [n.id, { ...n.position }]));
+    const nodeTo = new Map<string, { x: number; y: number }>();
+    const wrapTo = new Map<string, { x: number; y: number }>();
+    const wrapFrom = new Map(ws.map(q => [q.id, { x: q.x, y: q.y }]));
+    const itemPos = new Map(items.map(i => [i.id, i]));
+    target.forEach((t, id) => {
+      const it = itemPos.get(id)!;
+      const dx = t.x - it.x, dy = t.y - it.y;
+      if (!isWrapViewId(id)) { nodeTo.set(id, t); return; }
+      const wid = id.slice(id.startsWith(WRAP_PREFIX) ? WRAP_PREFIX.length : FRAME_PREFIX.length);
+      const w = ws.find(q => q.id === wid);
+      if (!w) return;
+      wrapTo.set(wid, { x: w.x + dx, y: w.y + dy });
+      for (const m of w.nodeIds) { const s = start.get(m); if (s) nodeTo.set(m, { x: s.x + dx, y: s.y + dy }); }
+    });
+
+    const apply = (k: number) => {
+      const lerp = (a: { x: number; y: number }, b: { x: number; y: number }) => ({ x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k });
+      setNodes(ns => ns.map(n => { const t = nodeTo.get(n.id), s = start.get(n.id); return t && s ? { ...n, position: lerp(s, t) } : n; }));
+      if (wrapTo.size) setWraps(ps => ps.map(q => { const t = wrapTo.get(q.id), s = wrapFrom.get(q.id); return t && s ? { ...q, ...lerp(s, t) } : q; }));
+    };
+    const finish = () => {
+      tidyAnim.current = 0;
+      apply(1);
+      Bridge.layoutNodes([...nodeTo].map(([id, q]) => ({ id, ...q })), [...wrapTo].map(([id, q]) => ({ id, ...q })));
+    };
+    if (!(p.tidyAnimate ?? true)) { finish(); return; }
+    const t0 = performance.now(), dur = 320;
+    const frame = (now: number) => {
+      const t = Math.min(1, (now - t0) / dur);
+      if (t >= 1) { finish(); return; }
+      apply(1 - Math.pow(1 - t, 3));   // ease out
+      tidyAnim.current = requestAnimationFrame(frame);
+    };
+    tidyAnim.current = requestAnimationFrame(frame);
+  }, [getNodes, setNodes, setWraps, getInternalNode]);
+
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      // ⌥ changes e.key ("¬"): match the physical key
+      if (e.code === 'KeyL' && e.metaKey && e.altKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); tidyGraph(); }
+    };
+    window.addEventListener('keydown', down);
+    return () => window.removeEventListener('keydown', down);
+  }, [tidyGraph]);
+
   const wrapSelection = useCallback(() => {
     const sel = getNodes().filter(n => n.selected && !n.hidden && !isWrapViewId(n.id));
     if (sel.length < 2) return;
@@ -2626,6 +2742,8 @@ function FlowCanvas() {
                     <MenuDivider />
                     <MenuRow label="Wrap"   shortcut="⌘G"  enabled={canWrap()}   onClick={() => { wrapSelection();   setShowFileMenu(false); }} />
                     <MenuRow label="Unwrap" shortcut="⌘⇧G" enabled={canUnwrap()} onClick={() => { unwrapSelection(); setShowFileMenu(false); }} />
+                    <MenuDivider />
+                    <MenuRow label="Tidy layout" shortcut="⌥⌘L" onClick={() => { tidyGraph(); setShowFileMenu(false); }} />
                     <MenuDivider />
                     {(() => {
                       const selectedNodes = getNodes().filter(n => n.selected && !isWrapViewId(n.id));

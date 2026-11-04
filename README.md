@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.965
+> Version 0.0.966
 
 ---
 
@@ -108,6 +108,7 @@
 - **Hint panel** — hover any node, button, port or edge to see a description in the sidebar hint panel; hovering a Value edge (a Pax adapter/converter's generic value port) shows its current, live numeric value, updating continuously while hovered
 - **Wraps** — select a few nodes, `⌘G`, and they fold into one box showing only the connections that cross its border; its ⚙ panel shows every Pax parameter inside; open it in place to work on the nodes, fold it back, unwrap (`⌘⇧G`); saved with the project, undoable; nothing changes in the processing. See [Wraps](#wraps)
 - **Snap to grid** — dragged nodes land on an invisible grid (6 / 12 / 24 / 48 px, in line with the canvas dots); `G` switches it, `⌘` held while dragging places a node freely; Preferences → Grid
+- **Tidy layout** — `⌥⌘L` (or ☰ → Edit → Tidy layout) lays the graph out left to right in signal order: separate chains stacked, a folded or open wrap moved as one box (its inside is tidied in its Enter view only), nodes with no wires left where they are unless covered (then the nearest free spot); on the grid when snap is on; one undo step; nodes glide into place (Preferences → Tidy layout)
 - **Fold/Unfold** — double-click header to collapse nodes; edges merge gracefully to centre
 - **Crash screen** — if the UI ever hits an error it shows it (Copy error / Reload UI) instead of going blank; the patch keeps running
 - **WebView UI** — React + ReactFlow running inside JUCE's `WebBrowserComponent`; all UI logic is TypeScript, all audio logic is C++
@@ -553,6 +554,7 @@ Patchy maintains a **50-step snapshot history** of the full graph state.
 | Change device selection | ✅ |
 | Change node settings | ✅ |
 | Import a fragment | ✅ |
+| Tidy layout (`⌥⌘L`) | ✅ |
 | Rename a node | ✅ |
 | Disable / enable a node | ✅ |
 | MIDI Learn (a learned event) | ✅ |
@@ -582,6 +584,7 @@ Undo/Redo is accessible via `⌘Z` / `⌘⇧Z`, or via **☰ → Edit → Undo /
 | `⌘↑` / `⌘↓` (or `Esc`) | Enter the selected wrap / back to the main graph |
 | `⌥ Option` + drag a node | Add it to an open wrap (drop inside its frame) / take it out (drop outside) |
 | `F` | Fold / unfold all nodes |
+| `⌥⌘L` | Tidy layout (also ☰ → Edit) |
 | `G` | Snap to grid on / off |
 | `⌘` held while dragging a node | Place it freely (snap to grid on) |
 | `Space` | Play / Pause the selected Audio Player node |
@@ -844,4 +847,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.965 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.966 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

@@ -99,6 +99,8 @@ void WebBridge::handleMessage (const juce::String& json)
         handleRemoveConnection (obj);
     else if (type == "moveNode")
         handleMoveNode (obj);
+    else if (type == "layoutNodes")
+        handleLayoutNodes (obj);
     else if (type == "setViewport")
         handleSetViewport (obj);
     else if (type == "setNodeParam")
@@ -472,7 +474,43 @@ void WebBridge::handleMoveNode (const juce::DynamicObject* obj)
     {
         node->x = (float) obj->getProperty ("x");
         node->y = (float) obj->getProperty ("y");
+        if (graph.onEdited) graph.onEdited();   // v0.0.966 — not an undo step, but the project changed
     }
+}
+
+// v0.0.966 — ⌥⌘L Tidy layout: the UI has already placed everything; this
+// stores the new node / wrap positions as ONE undo step (moving a node by
+// hand is not undoable, a whole-graph re-layout is). No graph push: the UI
+// is already showing it; an undo brings the old positions back with it.
+void WebBridge::handleLayoutNodes (const juce::DynamicObject* obj)
+{
+    auto preSnapshot = graph.toVar();
+    int moved = 0;
+    auto changed = [] (float a, float b) { return std::abs (a - b) > 0.01f; };
+
+    if (auto* arr = obj->getProperty ("nodes").getArray())
+        for (auto& v : *arr)
+            if (auto* o = v.getDynamicObject())
+                if (auto* n = graph.findNode (o->getProperty ("id").toString()))
+                {
+                    const auto x = (float) (double) o->getProperty ("x"), y = (float) (double) o->getProperty ("y");
+                    if (changed (n->x, x) || changed (n->y, y)) { n->x = x; n->y = y; ++moved; }
+                }
+    if (auto* arr = obj->getProperty ("wraps").getArray())
+        for (auto& v : *arr)
+            if (auto* o = v.getDynamicObject())
+                if (auto* p = graph.findWrap (o->getProperty ("id").toString()))
+                {
+                    const auto x = (float) (double) o->getProperty ("x"), y = (float) (double) o->getProperty ("y");
+                    if (changed (p->x, x) || changed (p->y, y)) { p->x = x; p->y = y; ++moved; }
+                }
+
+    if (moved == 0) return;
+    pendingSettingsSnapshot = juce::var();   // a half-done slider step can't swallow this one
+    pendingSettingsNodeId.clear();
+    graph.pushExistingSnapshot (std::move (preSnapshot));
+    pushUndoState();
+    diagLog ("Tidy layout: " + juce::String (moved) + " node(s) / wrap(s) moved");
 }
 
 void WebBridge::handleSetViewport (const juce::DynamicObject* obj)

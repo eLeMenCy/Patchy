@@ -1034,6 +1034,8 @@ function FlowCanvas() {
   const prefsBtnRef     = useRef<HTMLButtonElement>(null);
   const updateNodeInternals = useUpdateNodeInternals();
   const [prefs, setPrefs]       = useState<GraphPreferences>(loadPrefs);
+  const prefsRef = useRef(prefs);   // v0.0.965 — the G key reads the latest
+  prefsRef.current = prefs;
   setMaxWrapFaders(prefs.maxWrapFaders ?? 4);   // v0.0.952 — read by the wrap's ⚙ panel
   setKbdFaderPrefs(prefs.maxKbdFaders ?? 4);   // v0.0.956 — read by the MIDI Keyboard
   const [showPrefs, setShowPrefs] = useState(false);
@@ -1301,6 +1303,29 @@ function FlowCanvas() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  // v0.0.965 — snap to grid: G switches it; ⌘ held while dragging places freely
+  // (ReactFlow reads snapToGrid at every drag step, so ⌘ works mid-drag too)
+  const [freeDrag, setFreeDrag] = useState(false);
+  useEffect(() => {
+    const typing = () => document.activeElement instanceof HTMLInputElement ||
+                         document.activeElement instanceof HTMLTextAreaElement;
+    const down = (e: KeyboardEvent) => {
+      if (e.key === 'Meta') { setFreeDrag(true); return; }
+      if ((e.key === 'g' || e.key === 'G') && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.repeat && !typing()) {
+        const next = { ...prefsRef.current, snapGrid: !(prefsRef.current.snapGrid ?? false) };
+        setPrefs(next);
+        savePrefs(next);
+        Bridge.showToast(next.snapGrid ? `Snap to grid on (${next.gridSize ?? 12} px) — hold ⌘ while dragging to place freely` : 'Snap to grid off');
+      }
+    };
+    const up   = (e: KeyboardEvent) => { if (e.key === 'Meta') setFreeDrag(false); };
+    const blur = () => setFreeDrag(false);
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    window.addEventListener('blur', blur);
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', blur); };
   }, []);
 
   // Keyboard shortcut: F to fold/unfold all
@@ -2331,6 +2356,8 @@ function FlowCanvas() {
         onNodeDragStart={onNodeDragStart}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
+        snapToGrid={(prefs.snapGrid ?? false) && !freeDrag}
+        snapGrid={[prefs.gridSize ?? 12, prefs.gridSize ?? 12]}
 
       >
         <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="var(--border)" />

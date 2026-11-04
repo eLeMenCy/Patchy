@@ -23,9 +23,13 @@ export interface GraphPreferences {
   maxKbdFaders:  number;   // v0.0.956 — faders per MIDI Keyboard (1-16)
   paxManualRescan: boolean;   // v0.0.958 — off: the Pax folders are watched (every 2 s); on: "Rescan Pax now" only
   audioNewNodeMono: boolean;  // v0.0.963 — a new Audio In / Out node starts on one channel instead of a stereo pair
+  snapGrid: boolean;          // v0.0.965 — nodes snap to an invisible grid (G switches it)
+  gridSize: number;           // v0.0.965 — px: one of GRID_SIZES
 }
 
-export const DEFAULT_PREFS: GraphPreferences = { invertZoom: false, maxWrapFaders: 4, maxKbdFaders: 4, paxManualRescan: false, audioNewNodeMono: false };
+export const GRID_SIZES = [6, 12, 24, 48];   // the canvas dots are 24 apart: every size lines up with them
+
+export const DEFAULT_PREFS: GraphPreferences = { invertZoom: false, maxWrapFaders: 4, maxKbdFaders: 4, paxManualRescan: false, audioNewNodeMono: false, snapGrid: false, gridSize: 12 };
 const STORAGE_KEY = 'nodegraph_prefs';
 
 export function loadPrefs(): GraphPreferences {
@@ -350,6 +354,20 @@ function GraphTab ({ prefs, onChange }: {
         </div>
       </div>
 
+      {/* v0.0.965 — snap to grid */}
+      <SectionHeader label="Grid" />
+      <ToggleRow
+        label="Snap to grid"
+        desc="Dragged nodes land on an invisible grid. G switches it on / off; hold ⌘ while dragging to place a node freely."
+        value={prefs.snapGrid ?? false}
+        onChange={v => patch({ snapGrid: v })}
+      />
+      <SelectRow
+        label="Grid size (px)"
+        value={prefs.gridSize ?? 12}
+        options={GRID_SIZES}
+        onChange={v => patch({ gridSize: parseInt(v, 10) || 12 })}
+      />
       <SectionHeader label="Navigation" />
       {/* Genuinely unimplemented, not just this toggle disabled — invertZoom
           is declared in GraphPreferences and stored via localStorage, but

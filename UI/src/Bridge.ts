@@ -998,6 +998,7 @@ export const Bridge = {
   clearRecentFiles()                    { sendToJuce({ type: 'clearRecentFiles' }); },
   setReopenLastProject(enabled: boolean) { sendToJuce({ type: 'setReopenLastProject', enabled }); },
   /** v0.0.958 — toasts, and the Pax folder: autoscan on / off, rescan now */
+  showToast(text: string, kind: ToastMessage['kind'] = 'info') { _toastSubscribers.forEach(cb => cb({ text, kind })); },   // v0.0.965 — from the UI itself
   onToast(cb: ToastCallback) {
     _toastSubscribers.push(cb);
     return () => { const i = _toastSubscribers.indexOf(cb); if (i !== -1) _toastSubscribers.splice(i, 1); };

@@ -832,6 +832,7 @@ export const Bridge = {
   fileSaveAs()  { sendToJuce({ type: 'fileSaveAs' }); },
   fileOpen()    { sendToJuce({ type: 'fileOpen' }); },
   fileNew()     { sendToJuce({ type: 'fileNew' }); },
+  quit()        { sendToJuce({ type: 'quit' }); },   // v0.0.967 — Standalone only
   audioPlayerLoadFile(nodeId: string) { sendToJuce({ type: 'audioPlayerLoadFile', nodeId }); },
   audioPlayerRequestFileInfo(nodeId: string) { sendToJuce({ type: 'audioPlayerRequestFileInfo', nodeId }); },
   midiFilePlayerLoadFile(nodeId: string) { sendToJuce({ type: 'midiFilePlayerLoadFile', nodeId }); },

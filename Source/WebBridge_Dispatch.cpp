@@ -111,6 +111,8 @@ void WebBridge::handleMessage (const juce::String& json)
         handleFileSaveAs();
     else if (type == "fileOpen")
         handleFileOpen();
+    else if (type == "quit")
+        handleQuit();
     else if (type == "fileNew")
         handleFileNew();
     else if (type == "audioPlayerLoadFile")

@@ -308,6 +308,7 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
     // (1100×720 was too big for a MacBook Air screen); the Standalone keeps
     // resizing through its own window, as before.
     const bool isPlugin = p.wrapperType != juce::AudioProcessor::wrapperType_Standalone;
+    isStandaloneEditor = ! isPlugin;   // v0.0.967 — keyPressed: whose shortcuts ⌘N/O/S are
     // Read the remembered size BEFORE setResizeLimits(): with no size yet, it
     // snaps the window to the 480×320 minimum, whose resized() used to
     // overwrite the remembered size before it was read (user: size not kept).
@@ -364,6 +365,15 @@ bool PatchyEditor::keyPressed (const juce::KeyPress& key, juce::Component*)
     // ignored here; graph undo works again as soon as the field loses focus.
     if (key.getKeyCode() == 'Z' && bridge.isTextEditing())
         return true;
+
+    // v0.0.967 — plugin: ⌘N / ⌘O / ⌘S / ⌘⇧S belong to the DAW (⌘S saving a
+    // .patchy instead of the song was a trap); the menu still has Open / Clear
+    const bool standalone = isStandaloneEditor;
+    if (! standalone && (key.getKeyCode() == 'N' || key.getKeyCode() == 'O' || key.getKeyCode() == 'S'))
+        return false;
+
+    // v0.0.967 — Standalone: ⌘Q quits (the same path as the menu's Quit)
+    if (standalone && key.getKeyCode() == 'Q') { bridge.handleQuit(); return true; }
 
     if      (key.getKeyCode() == 'N')              { bridge.handleFileNew();    return true; }
     else if (key.getKeyCode() == 'O')              { bridge.handleFileOpen();   return true; }

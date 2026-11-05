@@ -31,6 +31,7 @@ public:
 private:
     bool sizeRestored = false;   // v0.0.920 — see the constructor; resized() remembers the size only after it
     WebBridge bridge;
+    bool isStandaloneEditor = true;   // v0.0.967
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PatchyEditor)
 };

@@ -6,6 +6,7 @@
   --bg:          #0d0f14;
   --surface:     rgba(20, 23, 32, 0.88);
   --surface2:    rgba(28, 32, 48, 0.88);
+  --menu-bg:     rgb(26, 30, 45);   /* v0.0.967 — the burger menus: --surface2 made opaque (as it looks over --bg) — overlapping submenus were confusing */
   --border:      #2a2f42;
   --border-hi:   #3d4460;
   --text:        #d0d5e8;

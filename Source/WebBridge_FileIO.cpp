@@ -47,6 +47,23 @@ bool WebBridge::openFile (const juce::File& file)
     if (! file.existsAsFile()) return false;
     auto json = file.loadFileAsString();
     if (json.isEmpty()) return false;
+
+    // v0.0.967 — plugin: the DAW project holds the graph, so opening a
+    // .patchy only replaces it — one undo step; no "current file", and the
+    // Standalone's reopen-at-launch file is left alone (the recent list is shared)
+    if (! isStandalone)
+    {
+        auto preSnapshot = graph.toVar();
+        lastOpenDir = file.getParentDirectory();
+        if (onLoadGraph) onLoadGraph (json);
+        warnMissingPaxInGraph();
+        graph.pushExistingSnapshot (std::move (preSnapshot));
+        pushUndoState();
+        AppSettings::addRecentFile (file);
+        pushRecentFiles();
+        diagLog ("Plugin: opened " + file.getFileName() + " (replaces the graph; undoable)");
+        return true;
+    }
     currentFile = file;
     lastOpenDir = file.getParentDirectory();
     if (onLoadGraph) onLoadGraph (json);
@@ -176,6 +193,15 @@ void WebBridge::showOpenDialog (const juce::File& startDirOverride)
 // ── C++-callable file operations (e.g. from keyboard shortcuts) ──────────────
 void WebBridge::handleFileNew()
 {
+    // v0.0.967 — plugin: "Clear graph" (the UI asks first) — one undo step
+    if (! isStandalone)
+    {
+        auto preSnapshot = graph.toVar();
+        if (onNewGraph) onNewGraph();
+        graph.pushExistingSnapshot (std::move (preSnapshot));
+        pushUndoState();
+        return;
+    }
     currentFile = juce::File();
     AppSettings::setLastSessionFile ({});   // v0.0.923 — quit on a new graph = blank start next time
     if (onNewGraph) onNewGraph();
@@ -183,8 +209,30 @@ void WebBridge::handleFileNew()
 }
 
 void WebBridge::handleFileOpen()   { showOpenDialog(); }
-void WebBridge::handleFileSave()   { if (currentFile.existsAsFile()) saveToFile (currentFile); else showSaveDialog(); }
-void WebBridge::handleFileSaveAs() { showSaveDialog(); }
+
+void WebBridge::handleQuit()
+{
+    if (! isStandalone) return;   // a plugin can't quit its host
+    // the same path as the window's close button (saves its bounds first)
+    if (auto* w = dynamic_cast<juce::DocumentWindow*> (getTopLevelComponent()))
+        juce::MessageManager::callAsync ([sp = juce::Component::SafePointer<juce::DocumentWindow> (w)]
+                                         { if (sp != nullptr) sp->closeButtonPressed(); });
+    else if (auto* app = juce::JUCEApplicationBase::getInstance())
+        app->systemRequestedQuit();
+}
+// v0.0.967 — ⌘S / ⌘⇧S beeped in the Standalone (the keystroke never reached
+// keyPressed); the page now sends them too. Both copies of one keystroke can
+// arrive: the second within 400 ms is dropped (two save dialogs otherwise).
+static bool saveKeyBounce()
+{
+    static juce::uint32 last = 0;
+    const auto now = juce::Time::getMillisecondCounter();
+    const bool bounce = now - last < 400;
+    last = now;
+    return bounce;
+}
+void WebBridge::handleFileSave()   { if (saveKeyBounce()) return; if (currentFile.existsAsFile()) saveToFile (currentFile); else showSaveDialog(); }
+void WebBridge::handleFileSaveAs() { if (saveKeyBounce()) return; showSaveDialog(); }
 
 void WebBridge::handleUndo()
 {

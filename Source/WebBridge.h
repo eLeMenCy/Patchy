@@ -202,6 +202,7 @@ public:
 
     // Called directly from C++ (e.g. keyboard shortcuts in PatchyEditor)
     void handleFileNew();
+    void handleQuit();   // v0.0.967 — Standalone: File → Quit / ⌘Q (the window's close path: bounds saved)
     /** v0.0.948 — ⚠ / ⌘.: trigger (or release) the panic and tell the UI. */
     void handlePanic();
     void handleFileOpen();

@@ -1036,6 +1036,7 @@ export interface WrapFrameData {
   ports:   WrapPort[];   // v0.0.934 — border ports, ordered top to bottom
   drop?:   'join' | 'leave';   // v0.0.935 — ⌥-drag in progress: what a drop would do
   power?:  { anyOn: boolean; count: number };   // v0.0.951 — the wrap's ⏻
+  frameH?: number;   // v0.0.967 — the frame's height (its ports are centred on it)
   [key: string]: unknown;
 }
 
@@ -1045,6 +1046,12 @@ export const FRAME_HEAD = 26;
 // the title bar, then every FRAME_PORT_GAP px (App makes the frame tall enough)
 export const FRAME_PORT_TOP = 18;
 export const FRAME_PORT_GAP = 26;
+/** v0.0.967 — port k of n on one side of an open frame h px tall: the side's
+ *  ports are centred on the frame's body (user, 2026-11-04: at the top they
+ *  made long wires in a tall wrap), never above FRAME_PORT_TOP. The folded
+ *  box keeps its ports at the top. */
+export const framePortTop = (k: number, n: number, h: number) =>
+  FRAME_HEAD + Math.max (FRAME_PORT_TOP, (h - FRAME_HEAD - (n - 1) * FRAME_PORT_GAP) / 2) + k * FRAME_PORT_GAP;
 
 // One border port: two handles at the same spot — the outer one keeps the
 // inner port's own id (outside wires, connections, activity), the inner one
@@ -1077,7 +1084,7 @@ function FramePort ({ q, top }: { q: WrapPort; top: number }) {
   );
 }
 
-export function WrapFrame ({ id, data }: NodeProps) {
+export function WrapFrame ({ id, data, height }: NodeProps) {
   const { wrap, actions, ports = [], drop, power } = data as WrapFrameData;
   // ⌥-drag highlight: join = solid, brighter; leave = red dashed
   const dropCol = drop === 'join' ? 'var(--accent)' : drop === 'leave' ? '#f87171' : null;
@@ -1086,8 +1093,11 @@ export function WrapFrame ({ id, data }: NodeProps) {
   const ins  = ports.filter (q => q.dir === 'in');
   const outs = ports.filter (q => q.dir === 'out');
   const portsKey = ports.map (q => q.handleId).join ('|');
-  useEffect (() => { updateNodeInternals (id); }, [id, portsKey, updateNodeInternals]);
-  const topOf = (k: number) => FRAME_HEAD + FRAME_PORT_TOP + k * FRAME_PORT_GAP;
+  const h = (data as WrapFrameData).frameH ?? height ?? 0;
+  // the ports move with the frame's height: ReactFlow must re-measure them
+  useEffect (() => { updateNodeInternals (id); }, [id, portsKey, Math.round (h), updateNodeInternals]);
+  const topIn  = (k: number) => framePortTop (k, ins.length,  h);
+  const topOut = (k: number) => framePortTop (k, outs.length, h);
   return (
     <div style={{
       position: 'relative',
@@ -1141,8 +1151,8 @@ export function WrapFrame ({ id, data }: NodeProps) {
           <X size={13} />
         </NodeHeaderButton>
       </div>
-      {ins.map  ((q, k) => <FramePort key={q.handleId} q={q} top={topOf (k)} />)}
-      {outs.map ((q, k) => <FramePort key={q.handleId} q={q} top={topOf (k)} />)}
+      {ins.map  ((q, k) => <FramePort key={q.handleId} q={q} top={topIn (k)} />)}
+      {outs.map ((q, k) => <FramePort key={q.handleId} q={q} top={topOut (k)} />)}
     </div>
   );
 }

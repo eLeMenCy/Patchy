@@ -23,7 +23,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import { Bridge, RecentFile, FileMissing, FileState, AudioSettings, GraphState, RawNode, RawConnection, RawPort, PortActivityEntry, PaxParamInfo, PaxInfo, FragmentData, UndoState, AudioPlayerStatus, RawWrap, PanicState } from './Bridge';
-import { WrapNode, WrapFrame, WrapRail, WrapRouteEdge, WrapPort, WrapPax, WrapActions, WrapBuiltin, setMaxWrapFaders, FRAME_PAD, FRAME_HEAD, FRAME_PORT_TOP, FRAME_PORT_GAP } from './WrapNode';
+import { WrapNode, WrapFrame, WrapRail, WrapRouteEdge, WrapPort, WrapPax, WrapActions, WrapBuiltin, setMaxWrapFaders, FRAME_PAD, FRAME_HEAD, FRAME_PORT_TOP, FRAME_PORT_GAP, framePortTop } from './WrapNode';
 import GenericNode, { NodeData } from './GenericNode';
 import MidiMonitorNode,      { MidiMonitorNodeData }      from './MidiMonitorNode';
 import AudioMonitorNode,   { AudioMonitorNodeData }   from './AudioMonitorNode';
@@ -1049,6 +1049,14 @@ function FlowCanvas() {
   const [audioSettings, setAudioSettings] = useState<AudioSettings | null>(null);
   const [showFileMenu, setShowFileMenu] = useState(false);
   const [burgerSubmenu, setBurgerSubmenu] = useState<'file' | 'edit' | null>(null);
+  // v0.0.967 — a narrow window (locked sidebar): submenus that would run off
+  // the left edge open below their row instead
+  const burgerMenuRef = useRef<HTMLDivElement>(null);
+  const fileSubRef    = useRef<HTMLDivElement>(null);
+  const [subDown,    setSubDown]    = useState(false);
+  const [recentDown, setRecentDown] = useState(false);
+  const roomLeft = (el: HTMLElement | null) => el?.getBoundingClientRect().left ?? 9999;
+  const [confirmClear, setConfirmClear] = useState(false);   // v0.0.967 — plugin: Clear graph asks first
   const [pendingFragment, setPendingFragment] = useState<FragmentData | null>(null);
   const ghostPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const ghostRef = useRef<HTMLDivElement>(null);
@@ -1678,17 +1686,19 @@ function FlowCanvas() {
         const w = fz ? fz.w : b.x1 - b.x0 + gl + gr;
         const h = fz ? fz.h : Math.max(b.y1 - b.y0 + 2 * FRAME_PAD + FRAME_HEAD, FRAME_HEAD + FRAME_PORT_TOP + rows * FRAME_PORT_GAP);
         const fx = fz ? fz.x : b.x0 - gl, fy = fz ? fz.y : b.y0 - FRAME_PAD - FRAME_HEAD;
-        fports.filter(q => q.dir === 'in').forEach((q, k) =>
-          portPos.set(`${p.id}|${q.handleId}`, { x: fx,     y: fy + FRAME_HEAD + FRAME_PORT_TOP + k * FRAME_PORT_GAP }));
-        fports.filter(q => q.dir === 'out').forEach((q, k) =>
-          portPos.set(`${p.id}|${q.handleId}`, { x: fx + w, y: fy + FRAME_HEAD + FRAME_PORT_TOP + k * FRAME_PORT_GAP }));
+        // v0.0.967 — each side's ports centred on the frame's body
+        const fin = fports.filter(q => q.dir === 'in'), fout = fports.filter(q => q.dir === 'out');
+        fin.forEach((q, k) =>
+          portPos.set(`${p.id}|${q.handleId}`, { x: fx,     y: fy + framePortTop(k, fin.length,  h) }));
+        fout.forEach((q, k) =>
+          portPos.set(`${p.id}|${q.handleId}`, { x: fx + w, y: fy + framePortTop(k, fout.length, h) }));
         frames.push({
           id: FRAME_PREFIX + p.id, type: 'wrapFrame',
           position: { x: fx, y: fy },
           width: w, height: h, zIndex: -1, dragHandle: '.wrap-frame-drag',
           selectable: false, deletable: false, focusable: false,
           style: { width: w, height: h, pointerEvents: 'none' },
-          data: { wrap: p, actions: wrapActions, ports: fports, drop: dropHint[p.id], power: wrapPowerOf(p, nodes) },
+          data: { wrap: p, actions: wrapActions, ports: fports, drop: dropHint[p.id], power: wrapPowerOf(p, nodes), frameH: h },
         });
       } else {
         boxes.push({
@@ -1849,6 +1859,19 @@ function FlowCanvas() {
   }, [dropChanges]);
 
   // ⌘G — wrap the selected nodes (2 or more)
+  // v0.0.967 — Standalone: ⌘S / ⌘⇧S from the page (natively they beeped and
+  // never reached C++); the backend drops a second copy of the same keystroke
+  useEffect(() => {
+    if (!isStandalone) return;
+    const down = (e: KeyboardEvent) => {
+      if (e.code !== 'KeyS' || !e.metaKey || e.altKey || e.ctrlKey || e.repeat) return;
+      e.preventDefault();
+      if (e.shiftKey) Bridge.fileSaveAs(); else Bridge.fileSave();
+    };
+    window.addEventListener('keydown', down);
+    return () => window.removeEventListener('keydown', down);
+  }, [isStandalone]);
+
   // ── v0.0.966 — ⌥⌘L Tidy layout ──────────────────────────────────────────
   // Main graph: every node, folded wrap and open wrap (its frame, contents
   // as they are) — a wrap's inside is laid out only in its Enter view.
@@ -2580,8 +2603,24 @@ function FlowCanvas() {
           Host paused — Patchy running independently
         </div>
 
-        {/* File menu + Fold/Unfold + Preferences buttons */}
-        <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 10, display: 'flex', gap: 6 }}>
+
+        {nodes.length === 0 && (
+          <div style={{
+            position: 'absolute', top: '50%', left: '50%',
+            transform: 'translate(-50%,-50%)',
+            textAlign: 'center', pointerEvents: 'none',
+            color: 'var(--border-hi)', fontFamily: "'Syne', sans-serif",
+          }}>
+            <div style={{ fontSize: 48, marginBottom: 12, opacity: 0.4 }}>◎</div>
+            <div style={{ fontSize: 15, letterSpacing: '0.12em' }}>DRAG NODES FROM THE PANEL</div>
+            <div style={{ fontSize: 11, marginTop: 8, color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
+              then connect ports of the same type
+            </div>
+          </div>
+        )}
+      </ReactFlow>
+        {/* File menu + Fold/Unfold + Preferences buttons — v0.0.967: outside <ReactFlow>, whose box clips (overflow hidden): the menus ended at the canvas edge, "under" the locked sidebar */}
+        <div style={{ position: 'absolute', top: 12, right: 12, zIndex: showFileMenu || showPrefs ? 60 : 10, display: 'flex', gap: 6 }}>   {/* v0.0.967 — above the sidebar (40) while a menu is open */}
 
 
           {/* ☰ Hamburger file menu */}
@@ -2605,10 +2644,11 @@ function FlowCanvas() {
               }}><Menu size={19} /></button>
             {showFileMenu && (
               <div
+                ref={burgerMenuRef}
                 onMouseDown={e => e.stopPropagation()}
                 style={{
                   position: 'absolute', top: 34, right: 0,
-                  background: 'var(--surface2)', border: '1px solid var(--border)',
+                  background: 'var(--menu-bg)', border: '1px solid var(--border)',
                   borderRadius: 'var(--radius)', padding: '4px 0',
                   boxShadow: '0 8px 32px rgba(0,0,0,.6)',
                   minWidth: 120, zIndex: 100,
@@ -2617,16 +2657,16 @@ function FlowCanvas() {
                 <MenuRow
                   label="File"
                   enabled
-                  onMouseEnter={() => setBurgerSubmenu('file')}
+                  onMouseEnter={() => { setSubDown(roomLeft(burgerMenuRef.current) < 190); setBurgerSubmenu('file'); setConfirmClear(false); }}
                   trailing={<ChevronLeft size={12} style={{ color: 'var(--text-muted)' }} />}
                 />
                 <MenuRow
                   label="Edit"
                   enabled
-                  onMouseEnter={() => setBurgerSubmenu('edit')}
+                  onMouseEnter={() => { setSubDown(roomLeft(burgerMenuRef.current) < 170); setBurgerSubmenu('edit'); }}
                   trailing={<ChevronLeft size={12} style={{ color: 'var(--text-muted)' }} />}
                 />
-                {fileState.hasFile && (
+                {fileState.hasFile && isStandalone && (
                   <div style={{ padding: '4px 14px 2px', fontSize: 9, color: 'var(--text-muted)',
                                 fontFamily: "'JetBrains Mono', monospace",
                                 borderTop: '1px solid var(--border)', marginTop: 2 }}>
@@ -2637,19 +2677,33 @@ function FlowCanvas() {
                 {/* ── File submenu (opens to the left) ── */}
                 {burgerSubmenu === 'file' && (
                   <div
+                    ref={fileSubRef}
                     onMouseDown={e => e.stopPropagation()}
                     style={{
-                      position: 'absolute', top: 0, right: '100%', marginRight: 4,
-                      background: 'var(--surface2)', border: '1px solid var(--border)',
+                      position: 'absolute', ...(subDown ? { top: '100%', right: 0, marginTop: 4 } : { top: 0, right: '100%', marginRight: 4 }),
+                      background: 'var(--menu-bg)', border: '1px solid var(--border)',
                       borderRadius: 'var(--radius)', padding: '4px 0',
                       boxShadow: '0 8px 32px rgba(0,0,0,.6)',
                       minWidth: 170, zIndex: 100,
                     }}>
-                    <MenuRow label="New"      shortcut="⌘N"  onClick={() => { Bridge.fileNew();    setShowFileMenu(false); }} />
-                    <MenuRow label="Open…"    shortcut="⌘O"  onClick={() => { Bridge.fileOpen();   setShowFileMenu(false); }} />
+                    {isStandalone
+                      ? <MenuRow label="New" shortcut="⌘N" onClick={() => { Bridge.fileNew(); setShowFileMenu(false); }} />
+                      : confirmClear
+                        // v0.0.967 — plugin: the DAW holds the graph; clearing it asks first (one undo step)
+                        ? <div style={{ padding: '6px 12px', fontSize: 11, color: 'var(--text)' }}>
+                            <div style={{ marginBottom: 6 }}>Clear the whole graph?</div>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button className="nodrag" onClick={() => { Bridge.fileNew(); setConfirmClear(false); setShowFileMenu(false); }}
+                                style={{ flex: 1, background: 'var(--accent-dim, var(--surface3))', color: 'var(--text)', border: '1px solid var(--border-hi)', borderRadius: 'var(--radius)', fontSize: 11, padding: '3px 6px', cursor: 'pointer' }}>✓ Clear</button>
+                              <button className="nodrag" onClick={() => setConfirmClear(false)}
+                                style={{ flex: 1, background: 'transparent', color: 'var(--text-dim)', border: '1px solid var(--border-hi)', borderRadius: 'var(--radius)', fontSize: 11, padding: '3px 6px', cursor: 'pointer' }}>✕ Cancel</button>
+                            </div>
+                          </div>
+                        : <MenuRow label="Clear graph…" onClick={() => setConfirmClear(true)} />}
+                    <MenuRow label="Open…" shortcut={isStandalone ? '⌘O' : undefined} onClick={() => { Bridge.fileOpen(); setShowFileMenu(false); }} />
                     {/* v0.0.923 — Open Recent (opens further left, like the File submenu) */}
                     <div style={{ position: 'relative' }}
-                         onMouseEnter={() => setRecentOpen(true)}
+                         onMouseEnter={() => { setRecentDown(roomLeft(fileSubRef.current) < 240); setRecentOpen(true); }}
                          onMouseLeave={() => setRecentOpen(false)}>
                       <MenuRow
                         label="Open Recent"
@@ -2660,8 +2714,8 @@ function FlowCanvas() {
                         <div
                           onMouseDown={e => e.stopPropagation()}
                           style={{
-                            position: 'absolute', top: -4, right: '100%',
-                            background: 'var(--surface2)', border: '1px solid var(--border)',
+                            position: 'absolute', ...(recentDown ? { top: '100%', right: 8 } : { top: -4, right: '100%' }),
+                            background: 'var(--menu-bg)', border: '1px solid var(--border)',
                             borderRadius: 'var(--radius)', padding: '4px 0',
                             boxShadow: '0 8px 32px rgba(0,0,0,.6)',
                             minWidth: 220, maxWidth: 360, zIndex: 101,
@@ -2679,8 +2733,9 @@ function FlowCanvas() {
                         </div>
                       )}
                     </div>
-                    <MenuRow label={fileState.hasFile ? 'Save' : 'Save…'} shortcut="⌘S" onClick={() => { Bridge.fileSave(); setShowFileMenu(false); }} />
-                    <MenuRow label="Save As…" shortcut="⌘⇧S" onClick={() => { Bridge.fileSaveAs(); setShowFileMenu(false); }} />
+                    {/* v0.0.967 — plugin: no Save / Save As (the DAW saves the graph with the song); Export keeps a .patchy */}
+                    {isStandalone && <MenuRow label={fileState.hasFile ? 'Save' : 'Save…'} shortcut="⌘S" onClick={() => { Bridge.fileSave(); setShowFileMenu(false); }} />}
+                    {isStandalone && <MenuRow label="Save As…" shortcut="⌘⇧S" onClick={() => { Bridge.fileSaveAs(); setShowFileMenu(false); }} />}
                     <MenuDivider />
                     {(() => {
                       // v0.0.930 — a selected folded wrap exports its nodes
@@ -2719,6 +2774,11 @@ function FlowCanvas() {
                         </>
                       );
                     })()}
+                    {/* v0.0.967 — Standalone: Quit (a plugin can't quit its host) */}
+                    {isStandalone && <>
+                      <MenuDivider />
+                      <MenuRow label="Quit Patchy" shortcut="⌘Q" onClick={() => { setShowFileMenu(false); Bridge.quit(); }} />
+                    </>}
                   </div>
                 )}
 
@@ -2727,8 +2787,8 @@ function FlowCanvas() {
                   <div
                     onMouseDown={e => e.stopPropagation()}
                     style={{
-                      position: 'absolute', top: 26, right: '100%', marginRight: 4,
-                      background: 'var(--surface2)', border: '1px solid var(--border)',
+                      position: 'absolute', ...(subDown ? { top: '100%', right: 0, marginTop: 4 } : { top: 26, right: '100%', marginRight: 4 }),
+                      background: 'var(--menu-bg)', border: '1px solid var(--border)',
                       borderRadius: 'var(--radius)', padding: '4px 0',
                       boxShadow: '0 8px 32px rgba(0,0,0,.6)',
                       minWidth: 150, zIndex: 100,
@@ -2845,22 +2905,6 @@ function FlowCanvas() {
           </div>
         </div>
         </div>
-
-        {nodes.length === 0 && (
-          <div style={{
-            position: 'absolute', top: '50%', left: '50%',
-            transform: 'translate(-50%,-50%)',
-            textAlign: 'center', pointerEvents: 'none',
-            color: 'var(--border-hi)', fontFamily: "'Syne', sans-serif",
-          }}>
-            <div style={{ fontSize: 48, marginBottom: 12, opacity: 0.4 }}>◎</div>
-            <div style={{ fontSize: 15, letterSpacing: '0.12em' }}>DRAG NODES FROM THE PANEL</div>
-            <div style={{ fontSize: 11, marginTop: 8, color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
-              then connect ports of the same type
-            </div>
-          </div>
-        )}
-      </ReactFlow>
       {/* ── Fragment ghost overlay ── */}
       {pendingFragment && (
         <div

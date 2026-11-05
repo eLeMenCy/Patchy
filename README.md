@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.966
+> Version 0.0.967
 
 ---
 
@@ -437,13 +437,16 @@ Patches are saved as `.patchy` files — plain JSON containing nodes, connection
 The menu is organised into two flyout submenus, opening to the left on hover:
 
 **File ▸**
-- **New** `⌘N` — clear the graph
-- **Open…** `⌘O` — load a `.patchy` file
-- **Open Recent ▸** — the last 10 projects (Standalone); a missing file can be located or removed; **Clear Recent**
-- **Save** `⌘S` — save to current file, or prompt if unsaved
-- **Save As…** `⌘⇧S` — always prompt for location
+- **New** `⌘N` — clear the graph (Standalone) · **Clear graph…** in the plugin: asks first, one undo step
+- **Open…** `⌘O` — load a `.patchy` file; in the plugin it replaces the graph (one undo step, no shortcut)
+- **Open Recent ▸** — the last 10 projects (shared by the Standalone and the plugin); a missing file can be located or removed; **Clear Recent**
+- **Save** `⌘S` — save to current file, or prompt if unsaved (Standalone)
+- **Save As…** `⌘⇧S` — always prompt for location (Standalone)
 - **Export…** — export selected nodes as a fragment (enabled when nodes are selected)
-- **Import…** — import a `.patchy` fragment with ghost-placement UX
+- **Import…** — import a `.patchy` fragment with ghost-placement UX (adds to the graph, replaces nothing)
+- **Quit Patchy** `⌘Q` — Standalone only
+
+In the plugin the DAW saves the graph with the song: there is no Save / Save As, and `⌘N`, `⌘O`, `⌘S`, `⌘⇧S` go to the DAW. On a narrow window, a submenu with no room on the left opens below its row.
 
 **Edit ▸**
 - **Undo** `⌘Z` — step back through 50-step history
@@ -504,7 +507,7 @@ Several nodes shown as one box, to tidy a busy canvas. A wrap is display and pro
 - **Wrap** — select 2 or more nodes and press `⌘G` (or **☰ → Edit → Wrap**). The box takes the place of the nodes, named *WRAP* (click the ✎ to rename it).
 - **The box's ports** are the connections crossing its border when it was wrapped or folded, plus any made since; each shows the port name and the node it belongs to. Connecting to one connects to that inner port. Signal flashes and VU show on the box as on the nodes inside.
 - **Open in place** — the ⤢ button or double-click the box: the nodes come back where they are, inside a dashed frame; fold them back with the frame's ⤡ button. Moving the box moves its nodes; drag the frame by its title bar to move them all.
-- **The open frame's ports** — the frame shows the same ports as the folded box (inputs on its left edge, outputs on its right, labelled, ordered by their node from top to bottom): wires from outside stop at the frame, and continue inside to their node — far less spaghetti. Both halves flash with the signal; connecting to a frame port connects to the inner port; a port with nothing connected outside keeps its inside part (dimmed). The frame's sides leave room for the labels, and the box and the frame list the ports in the same order.
+- **The open frame's ports** — the frame shows the same ports as the folded box (inputs on its left edge, outputs on its right, labelled, ordered by their node from top to bottom, each side centred on the frame's height — the folded box keeps them at the top): wires from outside stop at the frame, and continue inside to their node — far less spaghetti. Both halves flash with the signal; connecting to a frame port connects to the inner port; a port with nothing connected outside keeps its inside part (dimmed). The frame's sides leave room for the labels, and the box and the frame list the ports in the same order.
 - **Pax controls** — the box shows a summary of the values of the Pax inside — live read-only values first, in the colour of their Pax's output wires (*● Current Value 0.786*; when several Pax share a name, the node's name is shown instead: *● OSC TO VALUE 0.5*), then the settings (*Min 0.00 · Max 1.00*), up to two lines — hover it to see all of them, live, right there (and in the hint panel); its ⚙ opens a panel with every Pax parameter inside, grouped by node — the same sliders / switches as on the nodes, one undo step per change. Every Pax is listed, the bespoke ones (Spectrumyser, Envelope, Audio→DMX, Audio Peak→OSC, Channel Filter) included — with their mode buttons (Amp / Band, RMS / Freq…) and their Low/High bands as one two-head slider within the node's zoom range (shown only in Band / Freq mode; Spectrumyser: only the bands in use); built-in nodes' controls are not listed (yet).
 - **📌 Pins** — in the ⚙ panel, the pin next to a parameter puts that control on the folded box itself, ready to use (a live value shows as a large readout); hover its label and click the ✎ to rename it (e.g. *Drive* instead of *Level · AMP*), click its 📌 to unpin it. Pinned values leave the summary; while ⚙ is open the pinned controls hide (like the summary), so pinning never moves the list. Pin, unpin and rename are each one undo step and are saved with the project.
 - **Enter** — the → button on the folded box or the open frame, or `⌘↑` with a wrap (or a node in an open wrap) selected: the canvas shows **only this wrap's nodes**, its outside connections on two rails (left: from outside, right: to outside, labelled, flashing with the signal). Work as usual inside — a node dropped from the sidebar is created in the wrap. Back with **Main** in the breadcrumb at the top-left, `⌘↓` or `Esc`; the wrap stays folded or open as it was, and each view keeps its own zoom / position.
@@ -573,10 +576,11 @@ Undo/Redo is accessible via `⌘Z` / `⌘⇧Z`, or via **☰ → Edit → Undo /
 
 | Shortcut | Action |
 |----------|--------|
-| `⌘N` | New graph |
-| `⌘O` | Open patch file |
-| `⌘S` | Save |
-| `⌘⇧S` | Save As |
+| `⌘N` | New graph (Standalone) |
+| `⌘O` | Open patch file (Standalone) |
+| `⌘S` | Save (Standalone) |
+| `⌘⇧S` | Save As (Standalone) |
+| `⌘Q` | Quit (Standalone) |
 | `⌘Z` | Undo |
 | `⌘⇧Z` | Redo |
 | `⌘G` | Wrap the selected nodes |
@@ -847,4 +851,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.966 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.967 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.967
+> Version 0.0.968
 
 ---
 
@@ -446,6 +446,10 @@ The menu is organised into two flyout submenus, opening to the left on hover:
 - **Import…** — import a `.patchy` fragment with ghost-placement UX (adds to the graph, replaces nothing)
 - **Quit Patchy** `⌘Q` — Standalone only
 
+**Unsaved changes (Standalone):** any edit (an undo step, undo / redo, a node moved) marks the patch edited — a **•** after its name under the menu and in the window's title (*Patchy v0.0.968 — MyPatch •*). New, Open…, Open Recent, Quit (`⌘Q`) and the window's close button then ask *"Save changes to …?"* — **Save** (a never-saved patch asks for a name first) / **Don't Save** / **Cancel**. Saving or opening makes it clean again.
+
+**Plugin:** Open… / Open Recent ask *"Replace the current graph?"* — **Export first…** (a .patchy copy, then replace) / **Replace** / **Cancel**; Clear graph… asks *"Clear the whole graph?"* — **Clear** / **Cancel** (only when the graph has nodes; ⌘Z brings it back either way).
+
 In the plugin the DAW saves the graph with the song: there is no Save / Save As, and `⌘N`, `⌘O`, `⌘S`, `⌘⇧S` go to the DAW. On a narrow window, a submenu with no room on the left opens below its row.
 
 **Edit ▸**
@@ -851,4 +855,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.967 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.968 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

@@ -1056,7 +1056,12 @@ function FlowCanvas() {
   const [subDown,    setSubDown]    = useState(false);
   const [recentDown, setRecentDown] = useState(false);
   const roomLeft = (el: HTMLElement | null) => el?.getBoundingClientRect().left ?? 9999;
-  const [confirmClear, setConfirmClear] = useState(false);   // v0.0.967 — plugin: Clear graph asks first
+  // v0.0.968 — the submenus' open state must not outlive the menu: closing it
+  // (a click on an Open Recent item…) unmounts the rows without a mouseleave,
+  // so the next hover on File reopened Open Recent at once
+  useEffect(() => {
+    if (!showFileMenu) { setBurgerSubmenu(null); setRecentOpen(false); }
+  }, [showFileMenu]);
   const [pendingFragment, setPendingFragment] = useState<FragmentData | null>(null);
   const ghostPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const ghostRef = useRef<HTMLDivElement>(null);
@@ -2657,7 +2662,7 @@ function FlowCanvas() {
                 <MenuRow
                   label="File"
                   enabled
-                  onMouseEnter={() => { setSubDown(roomLeft(burgerMenuRef.current) < 190); setBurgerSubmenu('file'); setConfirmClear(false); }}
+                  onMouseEnter={() => { setSubDown(roomLeft(burgerMenuRef.current) < 190); setBurgerSubmenu('file'); }}
                   trailing={<ChevronLeft size={12} style={{ color: 'var(--text-muted)' }} />}
                 />
                 <MenuRow
@@ -2666,11 +2671,14 @@ function FlowCanvas() {
                   onMouseEnter={() => { setSubDown(roomLeft(burgerMenuRef.current) < 170); setBurgerSubmenu('edit'); }}
                   trailing={<ChevronLeft size={12} style={{ color: 'var(--text-muted)' }} />}
                 />
-                {fileState.hasFile && isStandalone && (
+                {(fileState.hasFile || fileState.unsaved) && isStandalone && (
                   <div style={{ padding: '4px 14px 2px', fontSize: 9, color: 'var(--text-muted)',
                                 fontFamily: "'JetBrains Mono', monospace",
-                                borderTop: '1px solid var(--border)', marginTop: 2 }}>
-                    {fileState.fileName}.patchy
+                                borderTop: '1px solid var(--border)', marginTop: 2 }}
+                       title={fileState.unsaved ? 'Edited — not saved yet' : undefined}>
+                    {fileState.hasFile ? `${fileState.fileName}.patchy` : 'Untitled'}
+                    {/* v0.0.968 — unsaved changes, like the dot macOS puts on an edited document */}
+                    {fileState.unsaved && <span style={{ color: 'var(--accent)', marginLeft: 5, fontSize: 16, lineHeight: '9px', verticalAlign: '-2px' }}>•</span>}
                   </div>
                 )}
 
@@ -2688,18 +2696,8 @@ function FlowCanvas() {
                     }}>
                     {isStandalone
                       ? <MenuRow label="New" shortcut="⌘N" onClick={() => { Bridge.fileNew(); setShowFileMenu(false); }} />
-                      : confirmClear
-                        // v0.0.967 — plugin: the DAW holds the graph; clearing it asks first (one undo step)
-                        ? <div style={{ padding: '6px 12px', fontSize: 11, color: 'var(--text)' }}>
-                            <div style={{ marginBottom: 6 }}>Clear the whole graph?</div>
-                            <div style={{ display: 'flex', gap: 6 }}>
-                              <button className="nodrag" onClick={() => { Bridge.fileNew(); setConfirmClear(false); setShowFileMenu(false); }}
-                                style={{ flex: 1, background: 'var(--accent-dim, var(--surface3))', color: 'var(--text)', border: '1px solid var(--border-hi)', borderRadius: 'var(--radius)', fontSize: 11, padding: '3px 6px', cursor: 'pointer' }}>✓ Clear</button>
-                              <button className="nodrag" onClick={() => setConfirmClear(false)}
-                                style={{ flex: 1, background: 'transparent', color: 'var(--text-dim)', border: '1px solid var(--border-hi)', borderRadius: 'var(--radius)', fontSize: 11, padding: '3px 6px', cursor: 'pointer' }}>✕ Cancel</button>
-                            </div>
-                          </div>
-                        : <MenuRow label="Clear graph…" onClick={() => setConfirmClear(true)} />}
+                      // plugin: one undo step; v0.0.968 — the backend asks (native dialog, like Open)
+                      : <MenuRow label="Clear graph…" onClick={() => { Bridge.fileNew(); setShowFileMenu(false); }} />}
                     <MenuRow label="Open…" shortcut={isStandalone ? '⌘O' : undefined} onClick={() => { Bridge.fileOpen(); setShowFileMenu(false); }} />
                     {/* v0.0.923 — Open Recent (opens further left, like the File submenu) */}
                     <div style={{ position: 'relative' }}

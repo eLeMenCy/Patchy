@@ -21,7 +21,7 @@ public:
 
     void initialise (const juce::String&) override;
     void shutdown()                        override;
-    void systemRequestedQuit()             override { quit(); }
+    void systemRequestedQuit()             override;   // v0.0.968 — asks about unsaved changes first
 
 private:
     std::unique_ptr<StandaloneWindow> mainWindow;
@@ -42,6 +42,8 @@ class StandaloneWindow final : public juce::DocumentWindow,
                                private juce::ChangeListener   // v0.0.924 — device watch, see changeListenerCallback()
 {
 public:
+    /** v0.0.968 — run `quit` now, or after the unsaved-changes question (Save / Don't Save / Cancel). */
+    void quitWhenSaved (std::function<void()> quit);
     StandaloneWindow();
     ~StandaloneWindow() override;
 

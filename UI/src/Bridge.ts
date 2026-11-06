@@ -255,6 +255,7 @@ export interface AudioSettings {
 export interface FileState {
   fileName: string;
   hasFile:  boolean;
+  unsaved?: boolean;   // v0.0.968 — Standalone: edited since the last save / open
 }
 
 export interface UndoState {

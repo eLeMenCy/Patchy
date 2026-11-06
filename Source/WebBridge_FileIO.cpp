@@ -21,7 +21,8 @@ juce::String WebBridge::buildFileStateJson()
     juce::String json;
     json << "{"
          << "\"fileName\":\"" << name << "\","
-         << "\"hasFile\":" << (currentFile.existsAsFile() ? "true" : "false")
+         << "\"hasFile\":" << (currentFile.existsAsFile() ? "true" : "false") << ","
+         << "\"unsaved\":" << (unsaved ? "true" : "false")   // v0.0.968 — the • after the name
          << "}";
     return json;
 }
@@ -32,7 +33,8 @@ void WebBridge::saveToFile (const juce::File& file)
     if (file.replaceWithText (json))
     {
         currentFile = file;
-        pushToUI ("onFileState", buildFileStateJson());
+        unsaved = false;   // v0.0.968 (pushed just below)
+        pushFileState();
         AppSettings::addRecentFile (file);   // v0.0.923
         AppSettings::setLastSessionFile (file.getFullPathName());
         pushRecentFiles();
@@ -68,7 +70,7 @@ bool WebBridge::openFile (const juce::File& file)
     lastOpenDir = file.getParentDirectory();
     if (onLoadGraph) onLoadGraph (json);
     warnMissingPaxInGraph();   // v0.0.941 — ghosts
-    pushToUI ("onFileState", buildFileStateJson());
+    startClean();              // v0.0.968 — a freshly opened patch is clean (pushes the file state)
     AppSettings::addRecentFile (file);
     AppSettings::setLastSessionFile (file.getFullPathName());
     pushRecentFiles();
@@ -147,7 +149,7 @@ void WebBridge::handleLaunchActions()
     }
 }
 
-void WebBridge::showSaveDialog()
+void WebBridge::showSaveDialog (std::function<void()> onSaved)
 {
     auto chooser = std::make_shared<juce::FileChooser> (
         "Save Patch", currentFile.existsAsFile()
@@ -159,7 +161,7 @@ void WebBridge::showSaveDialog()
     chooser->launchAsync (juce::FileBrowserComponent::saveMode
                         | juce::FileBrowserComponent::canSelectFiles
                         | juce::FileBrowserComponent::warnAboutOverwriting,
-        [this, chooser] (const juce::FileChooser& fc)
+        [this, chooser, onSaved] (const juce::FileChooser& fc)
         {
             auto result = fc.getResult();
             if (result != juce::File{})
@@ -167,6 +169,7 @@ void WebBridge::showSaveDialog()
                 auto f = result.withFileExtension ("patchy");
                 lastOpenDir = f.getParentDirectory();
                 saveToFile (f);
+                if (onSaved && ! unsaved) onSaved();   // v0.0.968 — only once it really saved
             }
         });
 }
@@ -193,22 +196,133 @@ void WebBridge::showOpenDialog (const juce::File& startDirOverride)
 // ── C++-callable file operations (e.g. from keyboard shortcuts) ──────────────
 void WebBridge::handleFileNew()
 {
-    // v0.0.967 — plugin: "Clear graph" (the UI asks first) — one undo step
+    // v0.0.967 — plugin: "Clear graph" — one undo step; v0.0.968: asks (native dialog)
     if (! isStandalone)
     {
-        auto preSnapshot = graph.toVar();
-        if (onNewGraph) onNewGraph();
-        graph.pushExistingSnapshot (std::move (preSnapshot));
-        pushUndoState();
+        guardUnsaved ([this]
+        {
+            auto preSnapshot = graph.toVar();
+            if (onNewGraph) onNewGraph();
+            graph.pushExistingSnapshot (std::move (preSnapshot));
+            pushUndoState();
+        }, true);
         return;
     }
-    currentFile = juce::File();
-    AppSettings::setLastSessionFile ({});   // v0.0.923 — quit on a new graph = blank start next time
-    if (onNewGraph) onNewGraph();
-    pushToUI ("onFileState", buildFileStateJson());
+    guardUnsaved ([this]   // v0.0.968
+    {
+        currentFile = juce::File();
+        AppSettings::setLastSessionFile ({});   // v0.0.923 — quit on a new graph = blank start next time
+        if (onNewGraph) onNewGraph();
+        startClean();
+    });
 }
 
-void WebBridge::handleFileOpen()   { showOpenDialog(); }
+void WebBridge::handleFileOpen()   { guardUnsaved ([this] { showOpenDialog(); }); }   // v0.0.968 — asks first if edited
+
+// ── v0.0.968 — unsaved changes (Standalone) ──────────────────────────────────
+void WebBridge::setUnsaved (bool u)
+{
+    if (unsaved == u) return;
+    unsaved = u;
+    pushFileState();
+}
+
+void WebBridge::pushFileState()
+{
+    pushToUI ("onFileState", buildFileStateJson());
+    if (onFileStateChanged) onFileStateChanged (currentFileName(), currentFile.existsAsFile(), unsaved);
+}
+
+void WebBridge::exportGraphThen (std::function<void()> next)
+{
+    auto start = lastOpenDir.isDirectory() ? lastOpenDir : juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
+    auto chooser = std::make_shared<juce::FileChooser> ("Export the current graph", start.getChildFile ("Patchy graph.patchy"), "*.patchy");
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode
+                        | juce::FileBrowserComponent::canSelectFiles
+                        | juce::FileBrowserComponent::warnAboutOverwriting,
+        [this, chooser, next] (const juce::FileChooser& fc)
+        {
+            auto result = fc.getResult();
+            if (result == juce::File{}) return;   // cancelled: nothing replaced
+            auto f = result.withFileExtension ("patchy");
+            lastOpenDir = f.getParentDirectory();
+            if (f.replaceWithText (juce::JSON::toString (graph.toVar(), true)))
+            {
+                diagLog ("Plugin: exported the graph to " + f.getFileName() + " before replacing it");
+                next();
+            }
+        });
+}
+
+void WebBridge::startClean()
+{
+    unsaved = false;
+    trackEditsFrom = juce::Time::getMillisecondCounter() + 1500;   // the load / rebuild settling isn't an edit
+    pushFileState();
+}
+
+void WebBridge::guardUnsaved (std::function<void()> proceed, bool clearing)
+{
+    // v0.0.968 — plugin: no "unsaved" (the DAW saves the song); ask whenever
+    // there is a graph to lose (⌘Z would still bring it back)
+    if (! isStandalone)
+    {
+        if (graph.getNodes().empty()) { proceed(); return; }
+        if (guardOpen) return;
+        guardOpen = true;
+        auto opts = juce::MessageBoxOptions().withIconType (juce::MessageBoxIconType::QuestionIcon)
+                        .withAssociatedComponent (this);
+        if (clearing)
+            opts = opts.withTitle ("Clear the whole graph?")
+                       .withMessage (juce::String::fromUTF8 ("Every node and wire goes. Undo (⌘Z) brings them back."))   // UTF-8 literals: fromUTF8, or they come out garbled ("Export firstâ€¦")
+                       .withButton ("Clear").withButton ("Cancel");                         // 0 / 1
+        else
+            opts = opts.withTitle ("Replace the current graph?")
+                       .withMessage (juce::String::fromUTF8 ("The patch you open replaces this graph. Undo (⌘Z) brings it back, or export a copy first."))
+                       .withButton (juce::String::fromUTF8 ("Export first…")).withButton ("Replace").withButton ("Cancel");   // 0 / 1 / 2
+        juce::NativeMessageBox::showAsync (opts,
+            [this, proceed, clearing, sp = juce::Component::SafePointer<WebBridge> (this)] (int button)
+            {
+                if (sp == nullptr) return;
+                guardOpen = false;
+                if (clearing) { if (button == 0) proceed(); return; }
+                if (button == 1) proceed();
+                else if (button == 0) exportGraphThen (proceed);
+            });
+        return;
+    }
+
+    if (! unsaved) { proceed(); return; }
+    if (guardOpen) return;   // already asking
+    guardOpen = true;
+
+    const auto name = currentFile.existsAsFile() ? currentFile.getFileNameWithoutExtension() : juce::String ("Untitled");
+    auto opts = juce::MessageBoxOptions()
+                    .withIconType (juce::MessageBoxIconType::WarningIcon)
+                    .withTitle ("Save changes to \"" + name + "\"?")
+                    .withMessage ("Your changes will be lost if you don't save them.")
+                    .withButton ("Save")          // 0
+                    .withButton ("Don't Save")    // 1
+                    .withButton ("Cancel")        // 2
+                    .withAssociatedComponent (this);
+
+    juce::NativeMessageBox::showAsync (opts,
+        [this, proceed, sp = juce::Component::SafePointer<WebBridge> (this)] (int button)
+        {
+            if (sp == nullptr) return;
+            guardOpen = false;
+            if (button == 1) { proceed(); return; }      // Don't Save
+            if (button != 0) return;                     // Cancel (or closed)
+            // Save: to the current file, or ask for a name first; go on only once saved
+            if (currentFile.existsAsFile())
+            {
+                saveToFile (currentFile);
+                if (! unsaved) proceed();
+            }
+            else
+                showSaveDialog (proceed);
+        });
+}
 
 void WebBridge::handleQuit()
 {

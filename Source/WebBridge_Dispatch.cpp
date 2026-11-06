@@ -45,17 +45,21 @@ void WebBridge::handleMessage (const juce::String& json)
     else if (type == "openRecentFile" || type == "locateFile")
     {
         const juce::File f (obj->getProperty ("path").toString());
-        if (type == "locateFile")
-            showOpenDialog (f.getParentDirectory());   // browse from where it used to be
-        else if (! openFile (f))
+        const bool locate = type == "locateFile";
+        guardUnsaved ([this, f, locate]   // v0.0.968 — asks first if the patch is edited
         {
-            AppSettings::removeRecentFile (f.getFullPathName());
-            pushRecentFiles();
-            auto* o = new juce::DynamicObject();
-            o->setProperty ("path", f.getFullPathName());
-            o->setProperty ("context", "recent");
-            pushToUI ("onFileMissing", juce::JSON::toString (juce::var (o), true));
-        }
+            if (locate)
+                showOpenDialog (f.getParentDirectory());   // browse from where it used to be
+            else if (! openFile (f))
+            {
+                AppSettings::removeRecentFile (f.getFullPathName());
+                pushRecentFiles();
+                auto* o = new juce::DynamicObject();
+                o->setProperty ("path", f.getFullPathName());
+                o->setProperty ("context", "recent");
+                pushToUI ("onFileMissing", juce::JSON::toString (juce::var (o), true));
+            }
+        });
     }
     else if (type == "clearRecentFiles")
     {
@@ -174,7 +178,7 @@ void WebBridge::handleReady ()
     if (! wasConnected)   // v0.0.960 — follow the system's MIDI device list from now on
         midiDeviceListConnection = juce::MidiDeviceListConnection::make ([this] { if (connected) pushMidiDevices(); });
     pushWrapLibrary();   // v0.0.938
-    pushToUI ("onFileState", buildFileStateJson());
+    pushFileState();
     pushMidiDevices();
     pushAudioDevices();
     pushStartupFadeDevices();

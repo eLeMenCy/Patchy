@@ -171,7 +171,22 @@ public:
                        std::function<void(const juce::String&, int, float)>                      onSetPaxParameter = nullptr,
                        std::function<void()>                                                          onNewGraph          = nullptr,
                        std::function<void(const juce::String&)>                                       onLoadGraph         = nullptr);
-    ~WebBridge() override { stopTimer(); }
+    ~WebBridge() override { stopTimer(); graph.onEdited = prevOnEdited; }   // v0.0.968 — give the processor its hook back
+
+    // v0.0.968 — unsaved changes (Standalone only; in the plugin the DAW asks).
+    // Any edit (undo step, undo / redo, a node moved) marks the patch edited;
+    // New / Open / Save make it clean. guardUnsaved() runs `proceed` at once
+    // when clean, else asks "Save changes to <name>?" — Save (then proceed once
+    // saved) / Don't Save (proceed) / Cancel (nothing).
+    bool hasUnsavedChanges() const { return unsaved; }
+    /** `clearing`: the plugin's Clear graph (else a replace: Open / Open Recent).
+        Plugin (user, 2026-11-06): no unsaved state — asks whenever the graph
+        has nodes: "Replace the current graph?" Export first… / Replace / Cancel,
+        or "Clear the whole graph?" Clear / Cancel. */
+    void guardUnsaved (std::function<void()> proceed, bool clearing = false);
+    /** v0.0.968 — file name / unsaved changed (the Standalone window's title shows them) */
+    std::function<void (const juce::String& name, bool hasFile, bool unsaved)> onFileStateChanged;
+    juce::String currentFileName() const { return currentFile.existsAsFile() ? currentFile.getFileNameWithoutExtension() : juce::String ("Untitled"); }
 
     // Phase 6 rename fix, 2026-09-25 — true while a text field in the UI has
     // focus (the frontend reports focusin/focusout). PatchyEditor::keyPressed()
@@ -427,7 +442,7 @@ private:
 
     // ── File operations ───────────────────────────────────────────────────────
     void saveToFile     (const juce::File& file);
-    void showSaveDialog ();
+    void showSaveDialog (std::function<void()> onSaved = {});   // v0.0.968 — onSaved: after a successful save
     void showOpenDialog (const juce::File& startDirOverride = {});
     juce::String buildFileStateJson ();
     // v0.0.923 — recent files / reopen last project (see AppSettings.h)
@@ -461,6 +476,15 @@ private:
                                        const juce::StringArray& selectedNodeIds);
 
     juce::File currentFile;
+    // v0.0.968 — unsaved changes
+    bool unsaved   = false;
+    bool guardOpen = false;                      // the question is on screen: a 2nd ⌘Q / click waits for it
+    juce::uint32 trackEditsFrom = 0;             // edits before this (ms counter) don't count: a load's own settling
+    std::function<void()> prevOnEdited;          // the processor's hook (host "project changed") — chained
+    void setUnsaved (bool u);
+    void pushFileState();                        // UI + onFileStateChanged
+    void exportGraphThen (std::function<void()> next);   // plugin: "Export first…" — a .patchy copy, then next
+    void startClean();                           // after New / Open / launch: clean, and ignore the next 1.5 s of settling
     juce::File lastOpenDir;
 
     std::function<void()>                    onNewGraph;

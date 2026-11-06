@@ -35,6 +35,15 @@ StandaloneWindow::StandaloneWindow()
     bridge.isStandalone = true;
     processor->isStandalone = true;
 
+    // v0.0.968 — the window title follows the file: "Patchy  v0.0.968 — MyPatch •"
+    bridge.onFileStateChanged = [this] (const juce::String& name, bool hasFile, bool unsaved)
+    {
+        auto t = juce::String ("Patchy  v") + juce::String (JucePlugin_VersionString);
+        // ● (not •): the title bar's font can't be made bigger, a bigger glyph can (user, 2026-11-07)
+        if (hasFile || unsaved) t << juce::String::fromUTF8 ("  —  ") << name << (unsaved ? juce::String::fromUTF8 ("  ●") : juce::String());
+        setName (t);
+    };
+
     // Push standalone mode + audio settings when UI is ready
     bridge.onUIReady = [this, &bridge]()
     {
@@ -223,6 +232,19 @@ void StandaloneWindow::restoreWindowBounds()
     {
         centreWithSize (1200, 750);
     }
+}
+
+void StandaloneWindow::quitWhenSaved (std::function<void()> quit)
+{
+    if (editor != nullptr) editor->getBridge().guardUnsaved (std::move (quit));
+    else                   quit();
+}
+
+// v0.0.968 — ⌘Q (macOS menu), the red button and File → Quit all arrive here
+void StandaloneApp::systemRequestedQuit()
+{
+    if (mainWindow != nullptr) mainWindow->quitWhenSaved ([] { juce::JUCEApplicationBase::quit(); });
+    else                       quit();
 }
 
 void StandaloneWindow::closeButtonPressed()

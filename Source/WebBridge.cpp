@@ -140,6 +140,15 @@ WebBridge::WebBridge (GraphModel& model, PaxRegistry* reg,
       onNewGraph          (std::move (newGraphFn)),
       onLoadGraph         (std::move (loadGraphFn))
 {
+    // v0.0.968 — unsaved changes: chained onto the processor's own hook
+    prevOnEdited = graph.onEdited;
+    trackEditsFrom = juce::Time::getMillisecondCounter() + 2000;   // the launch's own settling
+    graph.onEdited = [this]
+    {
+        if (prevOnEdited) prevOnEdited();
+        if (isStandalone && juce::Time::getMillisecondCounter() >= trackEditsFrom)
+            setUnsaved (true);
+    };
 #if HAS_BUNDLED_UI
     // ── Open the bundled zip ──────────────────────────────────────────────
     int         zipSize = 0;

@@ -12,7 +12,7 @@ if (CMAKE_HOST_APPLE AND PATCHY_UNIVERSAL)
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
 endif()
 
-project(Patchy VERSION 0.0.971)
+project(Patchy VERSION 0.0.972)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -117,7 +117,7 @@ endif()
 
 # ── Plugin target ─────────────────────────────────────────────────────────────
 juce_add_plugin(Patchy
-    VERSION                  "0.0.971"
+    VERSION                  "0.0.972"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGrp"
@@ -228,7 +228,10 @@ unset(CMAKE_POLICY_VERSION_MINIMUM)
 # see the CI workflow). Its own CMake links it to the shared library only:
 # the static one we use needs it too (headers + library). Plain signature:
 # mosquitto's own CMake already uses it on this target (CMake won't mix them).
+# The PThreads4W::PThreads4W target mosquitto found is only visible in its own
+# directory: look it up here too (v0.0.972).
 if (WIN32)
+    find_package(PThreads4W REQUIRED)
     target_link_libraries(libmosquitto_static PThreads4W::PThreads4W)
 endif()
 set(MOSQUITTO_INCLUDE_DIR "${mosquitto_SOURCE_DIR}/include")
@@ -301,7 +304,7 @@ patchy_configure_target(Patchy)
 # VST3 already works as instrument and effect (Bitwig).
 if (APPLE)   # v0.0.969 — AU only: Mac only
 juce_add_plugin(PatchyFX
-    VERSION                  "0.0.971"
+    VERSION                  "0.0.972"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGfx"

@@ -110,6 +110,13 @@ private:
 
         // The object must still be alive — the thread's own copy keeps it so.
         expectEquals (liveCount.load(), 1);
+
+        // v0.0.972 — wait for the thread to let go before returning: its
+        // FakeConnection decrements liveCount (a local of this function) when
+        // it dies ~200 ms later, i.e. during the next test — writing into a
+        // dead stack frame (CI, Arch Linux: SegFault in the following test).
+        expect (waitUntil ([&] { return liveCount.load() == 0; }, 2000),
+                "the thread's connection should be released once its work is done");
     }
 
     void testConnectionCleansUpOnceThreadFinishes()

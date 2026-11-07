@@ -1,4 +1,4 @@
-# Patchy — CI builds (v0.0.969, 2026-11-07; v0.0.970: Windows pthreads via vcpkg, Linux build under xvfb)
+# Patchy — CI builds (v0.0.969, 2026-11-07; v0.0.970: Windows pthreads via vcpkg, Linux build under xvfb; v0.0.972: actions v5 / Node 22 — Node 20 deprecated)
 #
 # Builds Patchy (Standalone, VST3, LV2, CLAP; + AU / Patchy FX on macOS), the
 # example Pax and the unit tests on every push / pull request, on macOS,
@@ -30,9 +30,9 @@ jobs:
     name: macOS
     runs-on: macos-latest   # v0.0.970 — macos-14 was retired ("not supported")
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
       - name: Configure
         run: cmake -S . -B build $CMAKE_FLAGS
       - name: Build Patchy (Standalone, VST3, AU, LV2, CLAP) + Patchy FX
@@ -49,9 +49,9 @@ jobs:
     name: Windows
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
       - name: WebView2 SDK (NuGet — where JUCE's CMake looks for it)
         shell: pwsh
         run: |
@@ -80,9 +80,9 @@ jobs:
     name: Ubuntu 24.04
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
       - name: Dependencies
         run: |
           sudo apt-get update
@@ -120,7 +120,7 @@ jobs:
             alsa-lib jack2 freetype2 fontconfig \
             libx11 libxcomposite libxcursor libxext libxinerama libxrandr libxrender \
             gtk3 webkit2gtk-4.1 glu mesa
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Trust the checkout (container runs as root)
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Configure

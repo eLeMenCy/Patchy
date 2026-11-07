@@ -21,6 +21,8 @@ macro(add_pax TARGET_NAME SOURCE_FILE)
     # Remove the default "lib" prefix on Linux/macOS so the file is
     # "LevelPax.dylib" not "libLevelPax.dylib".
     set_target_properties(${TARGET_NAME} PROPERTIES PREFIX "")
+    # v0.0.969 — Windows: export the PAX_* functions (no __declspec in PaxAPI.h)
+    set_target_properties(${TARGET_NAME} PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
     # On macOS, produce .dylib (not .so)
     if(APPLE)

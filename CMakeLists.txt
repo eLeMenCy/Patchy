@@ -12,7 +12,7 @@ if (CMAKE_HOST_APPLE AND PATCHY_UNIVERSAL)
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
 endif()
 
-project(Patchy VERSION 0.0.968)
+project(Patchy VERSION 0.0.969)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,6 +22,17 @@ include(${CMAKE_SOURCE_DIR}/cmake/FyiBackup.cmake)
 
 # ── Options ───────────────────────────────────────────────────────────────────
 option(NODEGRAPH_DEV_MODE "Skip UI build, use Vite dev server on localhost:5173" OFF)
+# v0.0.969 — CI (GitHub Actions) builds without installing the plug-ins
+option(PATCHY_COPY_PLUGINS "Copy the built plug-ins to the system plug-in folders" ON)
+option(PATCHY_CLAP "Also build a CLAP plug-in (clap-juce-extensions)" ON)
+
+# v0.0.969 — formats per platform (AU is Mac-only); LV2 + CLAP everywhere
+# (user, 2026-11-07: "while we are at it, let's do all of them")
+if (APPLE)
+    set(PATCHY_FORMATS VST3 AU LV2 Standalone)
+else()
+    set(PATCHY_FORMATS VST3 LV2 Standalone)
+endif()
 
 # ── Find npm ──────────────────────────────────────────────────────────────────
 if(NOT NODEGRAPH_DEV_MODE)
@@ -106,12 +117,15 @@ endif()
 
 # ── Plugin target ─────────────────────────────────────────────────────────────
 juce_add_plugin(Patchy
-    VERSION                  "0.0.968"
+    VERSION                  "0.0.969"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGrp"
-    FORMATS                  VST3 AU Standalone
+    FORMATS                  ${PATCHY_FORMATS}
     PRODUCT_NAME             "Patchy"
+    LV2URI                   "https://github.com/eLeMenCy/Patchy"   # v0.0.969
+    NEEDS_WEB_BROWSER        TRUE          # v0.0.969 — Linux: link WebKitGTK
+    NEEDS_WEBVIEW2           TRUE          # v0.0.969 — Windows: Edge WebView2 (JUCE_USE_WIN_WEBVIEW2)
     BUNDLE_ID                "com.elemency.patchy"
     IS_SYNTH                 TRUE          # produces audio from MIDI
     NEEDS_MIDI_INPUT         TRUE
@@ -123,7 +137,7 @@ juce_add_plugin(Patchy
     # Logic, fed by the track's MIDI. Its sibling PatchyFX (below) is the
     # MIDI-controlled EFFECT (aumf) — see there.
     AU_MAIN_TYPE             "kAudioUnitType_MusicDevice"
-    COPY_PLUGIN_AFTER_BUILD  TRUE
+    COPY_PLUGIN_AFTER_BUILD  ${PATCHY_COPY_PLUGINS}
     # Fix, 2026-09-11: standalone build was silently receiving all-zero
     # input data from any real audio input device — root cause was this
     # declaration's own total absence. Without it, macOS never even
@@ -277,8 +291,9 @@ patchy_configure_target(Patchy)
 # Same program and state format as Patchy; its own subtype code, name and
 # bundle id so hosts see two distinct plugins. VST3 needs no twin — one
 # VST3 already works as instrument and effect (Bitwig).
+if (APPLE)   # v0.0.969 — AU only: Mac only
 juce_add_plugin(PatchyFX
-    VERSION                  "0.0.968"
+    VERSION                  "0.0.969"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGfx"
@@ -291,9 +306,26 @@ juce_add_plugin(PatchyFX
     IS_MIDI_EFFECT           FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     AU_MAIN_TYPE             "kAudioUnitType_MusicEffect"
-    COPY_PLUGIN_AFTER_BUILD  TRUE
+    COPY_PLUGIN_AFTER_BUILD  ${PATCHY_COPY_PLUGINS}
 )
 patchy_configure_target(PatchyFX)
+endif()
+
+# ── CLAP — v0.0.969 ─────────────────────────────────────────────────────────
+# JUCE 8 has no CLAP format of its own: clap-juce-extensions (free-audio)
+# wraps the same Patchy code as a CLAP plug-in (Patchy_CLAP target).
+if (PATCHY_CLAP)
+    FetchContent_Declare(
+        clap-juce-extensions
+        GIT_REPOSITORY https://github.com/free-audio/clap-juce-extensions.git
+        GIT_TAG        main
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(clap-juce-extensions)
+    clap_juce_extensions_plugin(TARGET Patchy
+        CLAP_ID       "com.elemency.patchy"
+        CLAP_FEATURES instrument audio-effect note-effect utility)
+endif()
 
 # ── One target to build everything — v0.0.919 (2026-10-02) ───────────────────
 # Patchy_All (VST3 + AU instrument + Standalone), PatchyFX_All (AU effect)
@@ -301,7 +333,13 @@ patchy_configure_target(PatchyFX)
 # in one go: pick "Patchy_Everything" in CLion's target list. The UI is still
 # rebuilt separately (ui_rebuild), as before — npm on every build would be slow.
 add_custom_target(Patchy_Everything)
-add_dependencies(Patchy_Everything Patchy_All PatchyFX_All)
+add_dependencies(Patchy_Everything Patchy_All)
+if (APPLE)
+    add_dependencies(Patchy_Everything PatchyFX_All)
+endif()
+if (PATCHY_CLAP)
+    add_dependencies(Patchy_Everything Patchy_CLAP)
+endif()
 
 # ── Example Pax (built separately) (optional, built separately)
 add_subdirectory(Pax EXCLUDE_FROM_ALL)

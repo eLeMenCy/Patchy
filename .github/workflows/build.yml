@@ -1,0 +1,128 @@
+# Patchy — CI builds (v0.0.969, 2026-11-07)
+#
+# Builds Patchy (Standalone, VST3, LV2, CLAP; + AU / Patchy FX on macOS), the
+# example Pax and the unit tests on every push / pull request, on macOS,
+# Windows, Ubuntu and Arch Linux (in a container, like the user's Garuda).
+# Pass / fail only: nothing is uploaded (builds will be sold later — user,
+# 2026-11-07). Free on a public repo (GitHub's standard runners).
+
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true   # a newer push replaces a running build of the same branch
+
+env:
+  CMAKE_FLAGS: >-
+    -DCMAKE_BUILD_TYPE=Release
+    -DPATCHY_COPY_PLUGINS=OFF
+    -DPATCHY_FYI_BACKUP=OFF
+    -DPATCHY_BUILD_TESTS=ON
+
+jobs:
+  # ── macOS (universal arm64 + x86_64, as on the user's Mac) ────────────────
+  macos:
+    name: macOS
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Configure
+        run: cmake -S . -B build $CMAKE_FLAGS
+      - name: Build Patchy (Standalone, VST3, AU, LV2, CLAP) + Patchy FX
+        run: cmake --build build --target Patchy_All PatchyFX_All Patchy_CLAP --parallel
+      - name: Build the Pax
+        run: cmake --build build --target Pax_Install --parallel
+      - name: Unit tests
+        run: |
+          cmake --build build --target PatchyTests --parallel
+          ctest --test-dir build --output-on-failure
+
+  # ── Windows (MSVC, Edge WebView2) ──────────────────────────────────────────
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: WebView2 SDK (NuGet — where JUCE's CMake looks for it)
+        shell: pwsh
+        run: |
+          Register-PackageSource -ProviderName NuGet -Name nugetRepository -Location https://www.nuget.org/api/v2 -Force -ErrorAction SilentlyContinue
+          Install-Package Microsoft.Web.WebView2 -Scope CurrentUser -RequiredVersion 1.0.1901.177 -Source nugetRepository -Force
+      - name: Configure
+        shell: bash
+        run: cmake -S . -B build $CMAKE_FLAGS
+      - name: Build Patchy (Standalone, VST3, LV2, CLAP)
+        run: cmake --build build --config Release --target Patchy_All Patchy_CLAP --parallel
+      - name: Build the Pax
+        run: cmake --build build --config Release --target Pax_Install --parallel
+      - name: Unit tests
+        shell: bash
+        run: |
+          cmake --build build --config Release --target PatchyTests --parallel
+          ctest --test-dir build -C Release --output-on-failure
+
+  # ── Ubuntu ─────────────────────────────────────────────────────────────────
+  ubuntu:
+    name: Ubuntu 24.04
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake git pkg-config xvfb \
+            libasound2-dev libjack-jackd2-dev \
+            libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
+            libxinerama-dev libxrandr-dev libxrender-dev \
+            libgtk-3-dev libwebkit2gtk-4.1-dev \
+            libglu1-mesa-dev mesa-common-dev
+      - name: Configure
+        run: cmake -S . -B build $CMAKE_FLAGS
+      - name: Build Patchy (Standalone, VST3, LV2, CLAP)
+        run: cmake --build build --target Patchy_All Patchy_CLAP --parallel
+      - name: Build the Pax
+        run: cmake --build build --target Pax_Install --parallel
+      - name: Unit tests
+        run: |
+          cmake --build build --target PatchyTests --parallel
+          xvfb-run -a ctest --test-dir build --output-on-failure
+
+  # ── Arch Linux (container — the user's Garuda is Arch-based) ───────────────
+  arch:
+    name: Arch Linux
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    steps:
+      - name: Dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel cmake git pkgconf nodejs npm xorg-server-xvfb \
+            alsa-lib jack2 freetype2 fontconfig \
+            libx11 libxcomposite libxcursor libxext libxinerama libxrandr libxrender \
+            gtk3 webkit2gtk-4.1 glu mesa
+      - uses: actions/checkout@v4
+      - name: Trust the checkout (container runs as root)
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Configure
+        run: cmake -S . -B build $CMAKE_FLAGS
+      - name: Build Patchy (Standalone, VST3, LV2, CLAP)
+        run: cmake --build build --target Patchy_All Patchy_CLAP --parallel
+      - name: Build the Pax
+        run: cmake --build build --target Pax_Install --parallel
+      - name: Unit tests
+        run: |
+          cmake --build build --target PatchyTests --parallel
+          xvfb-run -a ctest --test-dir build --output-on-failure

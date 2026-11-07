@@ -4,7 +4,9 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.968
+> Version 0.0.969
+
+[![Build](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml/badge.svg?branch=dev)](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml)
 
 ---
 
@@ -446,7 +448,7 @@ The menu is organised into two flyout submenus, opening to the left on hover:
 - **Import…** — import a `.patchy` fragment with ghost-placement UX (adds to the graph, replaces nothing)
 - **Quit Patchy** `⌘Q` — Standalone only
 
-**Unsaved changes (Standalone):** any edit (an undo step, undo / redo, a node moved) marks the patch edited — a **•** after its name under the menu and in the window's title (*Patchy v0.0.968 — MyPatch •*). New, Open…, Open Recent, Quit (`⌘Q`) and the window's close button then ask *"Save changes to …?"* — **Save** (a never-saved patch asks for a name first) / **Don't Save** / **Cancel**. Saving or opening makes it clean again.
+**Unsaved changes (Standalone):** any edit (an undo step, undo / redo, a node moved) marks the patch edited — a **•** after its name under the menu and in the window's title (*Patchy v0.0.9xx — MyPatch ●*). New, Open…, Open Recent, Quit (`⌘Q`) and the window's close button then ask *"Save changes to …?"* — **Save** (a never-saved patch asks for a name first) / **Don't Save** / **Cancel**. Saving or opening makes it clean again.
 
 **Plugin:** Open… / Open Recent ask *"Replace the current graph?"* — **Export first…** (a .patchy copy, then replace) / **Replace** / **Cancel**; Clear graph… asks *"Clear the whole graph?"* — **Clear** / **Cancel** (only when the graph has nodes; ⌘Z brings it back either way).
 
@@ -617,7 +619,25 @@ Undo/Redo is accessible via `⌘Z` / `⌘⇧Z`, or via **☰ → Edit → Undo /
 - C++20 compiler
 - `libmosquitto` (MQTT support) — fetched and built from source by CMake as a static library (client only, no TLS) and linked into Patchy; nothing to install. The macOS build is universal (arm64 + x86_64) by default; `-DPATCHY_UNIVERSAL=OFF` builds for the host architecture only (faster debug builds).
 
-### Host (VST3 / AU / Standalone)
+**Linux** (Ubuntu / Debian names; Arch: `alsa-lib jack2 freetype2 fontconfig libx11 libxcomposite libxcursor libxext libxinerama libxrandr libxrender gtk3 webkit2gtk-4.1 glu mesa`):
+`libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev libgtk-3-dev libwebkit2gtk-4.1-dev libglu1-mesa-dev mesa-common-dev`
+
+**Windows** — Visual Studio 2022 and the Edge WebView2 SDK (NuGet, where JUCE's CMake looks for it):
+`Install-Package Microsoft.Web.WebView2 -Scope CurrentUser -RequiredVersion 1.0.1901.177 -Source https://www.nuget.org/api/v2`
+
+### Formats
+
+| | Standalone | VST3 | AU (+ Patchy FX) | LV2 | CLAP |
+|---|:---:|:---:|:---:|:---:|:---:|
+| macOS | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Windows | ✅ | ✅ | — | ✅ | ✅ |
+| Linux | ✅ | ✅ | — | ✅ | ✅ |
+
+CLAP comes from [clap-juce-extensions](https://github.com/free-audio/clap-juce-extensions) (target `Patchy_CLAP`, option `PATCHY_CLAP`, ON). `-DPATCHY_COPY_PLUGINS=OFF` builds without copying the plug-ins to the system folders.
+
+**CI** — every push builds everything (plug-ins, Pax, unit tests) on macOS, Windows, Ubuntu and Arch Linux with GitHub Actions (`.github/workflows/build.yml`); the badge at the top shows the result for `dev`. Pass / fail only — no downloads.
+
+### Host (VST3 / AU / LV2 / CLAP / Standalone)
 
 ```bash
 cmake -B cmake-build-release -DCMAKE_BUILD_TYPE=Release
@@ -628,9 +648,10 @@ Useful targets:
 
 | Target | Builds |
 |--------|--------|
-| `Patchy_All` | VST3 + AU (instrument) + Standalone |
-| `PatchyFX_All` | Patchy FX (AU MIDI-controlled effect) |
-| `Pax_Install` | Every bundled Pax, copied to `~/Library/Patchy/Pax/` |
+| `Patchy_All` | Standalone + VST3 + LV2 (+ AU instrument on macOS) |
+| `Patchy_CLAP` | CLAP |
+| `PatchyFX_All` | Patchy FX (AU MIDI-controlled effect, macOS only) |
+| `Pax_Install` | Every bundled Pax, copied to `~/Library/Patchy/Pax/` (Windows: `%APPDATA%\Patchy\Pax`, Linux: `~/.patchy/pax`) |
 | `Patchy_Everything` | All of the above in one go |
 | `PatchyTests` | Unit tests (`PATCHY_BUILD_TESTS`, ON by default); run the binary, optionally with a category name |
 
@@ -855,4 +876,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.968 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.969 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

@@ -12,7 +12,7 @@ if (CMAKE_HOST_APPLE AND PATCHY_UNIVERSAL)
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
 endif()
 
-project(Patchy VERSION 0.0.972)
+project(Patchy VERSION 0.0.973)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -117,7 +117,7 @@ endif()
 
 # ── Plugin target ─────────────────────────────────────────────────────────────
 juce_add_plugin(Patchy
-    VERSION                  "0.0.972"
+    VERSION                  "0.0.973"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGrp"
@@ -272,6 +272,10 @@ function(patchy_configure_target tgt)
     if (APPLE)
         target_link_libraries(${tgt} PRIVATE "-framework IOKit")
     endif()
+    # v0.0.973 — Windows: windows.h's min / max macros must not exist (std::min / std::max)
+    if (WIN32)
+        target_compile_definitions(${tgt} PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    endif()
 
     target_compile_definitions(${tgt} PRIVATE
             JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1
@@ -304,7 +308,7 @@ patchy_configure_target(Patchy)
 # VST3 already works as instrument and effect (Bitwig).
 if (APPLE)   # v0.0.969 — AU only: Mac only
 juce_add_plugin(PatchyFX
-    VERSION                  "0.0.972"
+    VERSION                  "0.0.973"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGfx"
@@ -398,6 +402,9 @@ if (PATCHY_BUILD_TESTS)
         juce::juce_gui_basics
     )
 
+    if (WIN32)
+        target_compile_definitions (PatchyTests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)   # v0.0.973
+    endif()
     target_compile_definitions (PatchyTests PRIVATE
         JUCE_STANDALONE_APPLICATION=1
         JUCE_USE_CURL=0

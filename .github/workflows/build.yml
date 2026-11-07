@@ -18,6 +18,10 @@ concurrency:
   cancel-in-progress: true   # a newer push replaces a running build of the same branch
 
 env:
+  # v0.0.973 — a fixed job count: a bare `--parallel` means `make -j` with NO
+  # limit, ~40 clangs at once on a 3-core / 7 GB macOS runner (swapping: the
+  # macOS build crawled for 35+ min without finishing a single Patchy file)
+  JOBS: 4
   CMAKE_FLAGS: >-
     -DCMAKE_BUILD_TYPE=Release
     -DPATCHY_COPY_PLUGINS=OFF
@@ -28,7 +32,10 @@ jobs:
   # ── macOS (universal arm64 + x86_64, as on the user's Mac) ────────────────
   macos:
     name: macOS
+    timeout-minutes: 90   # v0.0.973 — a stuck run stops by itself
     runs-on: macos-latest   # v0.0.970 — macos-14 was retired ("not supported")
+    env:
+      JOBS: 3               # 3 cores / 7 GB: one clang per core (universal = two archs each)
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -36,17 +43,21 @@ jobs:
       - name: Configure
         run: cmake -S . -B build $CMAKE_FLAGS
       - name: Build Patchy (Standalone, VST3, AU, LV2, CLAP) + Patchy FX
-        run: cmake --build build --target Patchy_All PatchyFX_All Patchy_CLAP --parallel
+        run: cmake --build build --target Patchy_All PatchyFX_All Patchy_CLAP --parallel $JOBS
       - name: Build the Pax
-        run: cmake --build build --target Pax_Install --parallel
+        run: cmake --build build --target Pax_Install --parallel $JOBS
       - name: Unit tests
         run: |
-          cmake --build build --target PatchyTests --parallel
+          cmake --build build --target PatchyTests --parallel $JOBS
           ctest --test-dir build --output-on-failure
 
   # ── Windows (MSVC, Edge WebView2) ──────────────────────────────────────────
   windows:
     name: Windows
+    timeout-minutes: 90   # v0.0.973 — a stuck run stops by itself
+    defaults:
+      run:
+        shell: bash          # v0.0.973 — so $JOBS expands (pwsh only where asked)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -66,18 +77,19 @@ jobs:
           -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
           -DVCPKG_TARGET_TRIPLET=x64-windows-static-md
       - name: Build Patchy (Standalone, VST3, LV2, CLAP)
-        run: cmake --build build --config Release --target Patchy_All Patchy_CLAP --parallel
+        run: cmake --build build --config Release --target Patchy_All Patchy_CLAP --parallel $JOBS
       - name: Build the Pax
-        run: cmake --build build --config Release --target Pax_Install --parallel
+        run: cmake --build build --config Release --target Pax_Install --parallel $JOBS
       - name: Unit tests
         shell: bash
         run: |
-          cmake --build build --config Release --target PatchyTests --parallel
+          cmake --build build --config Release --target PatchyTests --parallel $JOBS
           ctest --test-dir build -C Release --output-on-failure
 
   # ── Ubuntu ─────────────────────────────────────────────────────────────────
   ubuntu:
     name: Ubuntu 24.04
+    timeout-minutes: 90   # v0.0.973 — a stuck run stops by itself
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -99,17 +111,18 @@ jobs:
       - name: Build Patchy (Standalone, VST3, LV2, CLAP)
         # under a virtual display: JUCE's LV2 step loads Patchy and opens its
         # editor, whose WebKit helper dies without a screen (v0.0.970)
-        run: xvfb-run -a cmake --build build --target Patchy_All Patchy_CLAP --parallel
+        run: xvfb-run -a cmake --build build --target Patchy_All Patchy_CLAP --parallel $JOBS
       - name: Build the Pax
-        run: cmake --build build --target Pax_Install --parallel
+        run: cmake --build build --target Pax_Install --parallel $JOBS
       - name: Unit tests
         run: |
-          cmake --build build --target PatchyTests --parallel
+          cmake --build build --target PatchyTests --parallel $JOBS
           xvfb-run -a ctest --test-dir build --output-on-failure
 
   # ── Arch Linux (container — the user's Garuda is Arch-based) ───────────────
   arch:
     name: Arch Linux
+    timeout-minutes: 90   # v0.0.973 — a stuck run stops by itself
     runs-on: ubuntu-24.04
     container: archlinux:latest
     steps:
@@ -128,10 +141,10 @@ jobs:
       - name: Build Patchy (Standalone, VST3, LV2, CLAP)
         # under a virtual display: JUCE's LV2 step loads Patchy and opens its
         # editor, whose WebKit helper dies without a screen (v0.0.970)
-        run: xvfb-run -a cmake --build build --target Patchy_All Patchy_CLAP --parallel
+        run: xvfb-run -a cmake --build build --target Patchy_All Patchy_CLAP --parallel $JOBS
       - name: Build the Pax
-        run: cmake --build build --target Pax_Install --parallel
+        run: cmake --build build --target Pax_Install --parallel $JOBS
       - name: Unit tests
         run: |
-          cmake --build build --target PatchyTests --parallel
+          cmake --build build --target PatchyTests --parallel $JOBS
           xvfb-run -a ctest --test-dir build --output-on-failure

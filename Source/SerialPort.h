@@ -30,6 +30,9 @@
   #ifndef WIN32_LEAN_AND_MEAN
     #define WIN32_LEAN_AND_MEAN
   #endif
+  #ifndef NOMINMAX
+    #define NOMINMAX   // v0.0.973 — else windows.h's min / max macros break every std::min / std::max
+  #endif
   #include <windows.h>
 #else
   #define SERIALPORT_POSIX

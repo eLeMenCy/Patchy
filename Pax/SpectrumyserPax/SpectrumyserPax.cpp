@@ -26,6 +26,7 @@
 
 #include "../PaxAPI.h"
 #include <cstring>
+#include <cstdio>     // snprintf — v0.0.970: macOS headers brought it in implicitly, Linux's don't
 #include <algorithm>
 #include <cmath>
 #include <array>

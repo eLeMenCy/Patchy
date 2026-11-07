@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.969
+> Version 0.0.970
 
 [![Build](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml/badge.svg?branch=dev)](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml)
 
@@ -622,8 +622,11 @@ Undo/Redo is accessible via `⌘Z` / `⌘⇧Z`, or via **☰ → Edit → Undo /
 **Linux** (Ubuntu / Debian names; Arch: `alsa-lib jack2 freetype2 fontconfig libx11 libxcomposite libxcursor libxext libxinerama libxrandr libxrender gtk3 webkit2gtk-4.1 glu mesa`):
 `libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev libgtk-3-dev libwebkit2gtk-4.1-dev libglu1-mesa-dev mesa-common-dev`
 
-**Windows** — Visual Studio 2022 and the Edge WebView2 SDK (NuGet, where JUCE's CMake looks for it):
+**Windows** — Visual Studio 2022, the Edge WebView2 SDK (NuGet, where JUCE's CMake looks for it) and pthreads for libmosquitto (vcpkg):
 `Install-Package Microsoft.Web.WebView2 -Scope CurrentUser -RequiredVersion 1.0.1901.177 -Source https://www.nuget.org/api/v2`
+`vcpkg install pthreads:x64-windows-static-md`, then configure with `-DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows-static-md`
+
+**Linux** — building the LV2 loads Patchy and opens its window once (JUCE writes the plug-in's description), so it needs a display (headless: `xvfb-run -a cmake --build …`).
 
 ### Formats
 
@@ -876,4 +879,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.969 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.970 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

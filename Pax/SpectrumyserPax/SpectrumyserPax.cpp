@@ -29,6 +29,9 @@
 #include <cstdio>     // snprintf — v0.0.970: macOS headers brought it in implicitly, Linux's don't
 #include <algorithm>
 #include <cmath>
+#ifndef M_PI   // v0.0.974 — MSVC only defines it with _USE_MATH_DEFINES
+ #define M_PI 3.14159265358979323846
+#endif
 #include <array>
 #include <vector>
 

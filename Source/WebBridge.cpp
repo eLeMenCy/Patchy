@@ -208,6 +208,18 @@ WebBridge::WebBridge (GraphModel& model, PaxRegistry* reg,
         ;
 #endif
 
+    // v0.0.975 — JUCE's LV2 build step (juce_lv2_helper) loads Patchy and opens
+    // + closes its editor within the same millisecond to write the plug-in's
+    // description. On Linux the UI load then reached WebKit's helper process
+    // after the view was gone, and the build hung forever (CI, Arch). That
+    // process never shows a window: no web view there at all.
+    if (juce::File::getSpecialLocation (juce::File::currentExecutableFile)
+            .getFileNameWithoutExtension().startsWith ("juce_lv2_helper"))
+    {
+        juce::Logger::writeToLog ("WebBridge: inside juce_lv2_helper (LV2 build step) — no web view");
+        return;
+    }
+
     webView = std::make_unique<Browser> (*this, std::move (options));
     addAndMakeVisible (*webView);
 
@@ -239,6 +251,7 @@ void WebBridge::pushToUI (const juce::String& bridgeFn, juce::String json)
 
 void WebBridge::loadUI()
 {
+    if (webView == nullptr) return;   // v0.0.975 — the LV2 build step has none
 #if HAS_BUNDLED_UI
     // connected will be set true when UI sends "ready" message
     webView->goToURL (juce::WebBrowserComponent::getResourceProviderRoot());

@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.976
+> Version 0.0.977
 
 [![Build](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml/badge.svg?branch=dev)](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml)
 
@@ -617,6 +617,7 @@ Undo/Redo is accessible via `⌘Z` / `⌘⇧Z`, or via **☰ → Edit → Undo /
 - JUCE 8 (fetched automatically via CMake FetchContent)
 - Node.js 18+ and npm (for UI build)
 - C++20 compiler
+- Runs on macOS 11 (Big Sur) or later (`CMAKE_OSX_DEPLOYMENT_TARGET`, 11.0 by default), Windows 10 or later, Linux with WebKitGTK 4.1
 - `libmosquitto` (MQTT support) — fetched and built from source by CMake as a static library (client only, no TLS) and linked into Patchy; nothing to install. The macOS build is universal (arm64 + x86_64) by default; `-DPATCHY_UNIVERSAL=OFF` builds for the host architecture only (faster debug builds).
 
 **Linux** (Ubuntu / Debian names; Arch: `alsa-lib jack2 freetype2 fontconfig libx11 libxcomposite libxcursor libxext libxinerama libxrandr libxrender gtk3 webkit2gtk-4.1 glu mesa`):
@@ -879,4 +880,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.976 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.977 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

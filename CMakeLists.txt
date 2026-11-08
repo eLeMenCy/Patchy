@@ -12,7 +12,14 @@ if (CMAKE_HOST_APPLE AND PATCHY_UNIVERSAL)
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
 endif()
 
-project(Patchy VERSION 0.0.976)
+# ── Minimum macOS — v0.0.977 (2026-11-08) ───────────────────────────────────
+# Without it the build targets the build machine's own macOS: fine on the
+# user's Mac, but the CI's macOS 26 runner produced an app older Macs refuse
+# ("can't use this version of the application with this version of macOS").
+# 11.0 = Big Sur, the first macOS on Apple Silicon. Must be set before project().
+set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
+
+project(Patchy VERSION 0.0.977)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -117,7 +124,7 @@ endif()
 
 # ── Plugin target ─────────────────────────────────────────────────────────────
 juce_add_plugin(Patchy
-    VERSION                  "0.0.976"
+    VERSION                  "0.0.977"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGrp"
@@ -276,6 +283,11 @@ function(patchy_configure_target tgt)
     if (WIN32)
         target_compile_definitions(${tgt} PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     endif()
+    # v0.0.977 — MSVC: compile a target's files in parallel (/MP) — CI's Windows
+    # build took 7 to 45+ minutes, one file at a time per project
+    if (MSVC)
+        target_compile_options(${tgt} PRIVATE /MP)
+    endif()
 
     target_compile_definitions(${tgt} PRIVATE
             JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1
@@ -308,7 +320,7 @@ patchy_configure_target(Patchy)
 # VST3 already works as instrument and effect (Bitwig).
 if (APPLE)   # v0.0.969 — AU only: Mac only
 juce_add_plugin(PatchyFX
-    VERSION                  "0.0.976"
+    VERSION                  "0.0.977"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGfx"

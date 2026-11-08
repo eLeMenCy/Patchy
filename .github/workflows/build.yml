@@ -5,6 +5,13 @@
 # Windows, Ubuntu and Arch Linux (in a container, like the user's Garuda).
 # Pass / fail only: nothing is uploaded (builds will be sold later — user,
 # 2026-11-07). Free on a public repo (GitHub's standard runners).
+#
+# v0.0.976 — PRIVATE BUILDS for the user's own testing: Actions → Build →
+# "Run workflow" → tick "private release". The same four builds then zip
+# Patchy (every format + the Pax) per OS and attach the zips to a DRAFT
+# release — drafts are only visible to people with write access to the repo
+# (i.e. the owner), unlike artifacts, which any GitHub account can download
+# from a public repo. Pushes stay pass / fail only.
 
 name: Build
 
@@ -12,9 +19,17 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      private_release:
+        description: "Private release: attach the builds to a draft release (visible to you only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write   # v0.0.976 — creating / filling the draft release
 
 concurrency:
-  group: build-${{ github.ref }}
+  group: build-${{ github.ref }}-${{ github.event_name }}   # a push doesn't cancel a manual (private) run
   cancel-in-progress: true   # a newer push replaces a running build of the same branch
 
 env:
@@ -29,9 +44,31 @@ env:
     -DPATCHY_BUILD_TESTS=ON
 
 jobs:
+  # ── v0.0.976 — the draft release the private builds attach to ─────────────
+  draft:
+    name: Draft release (private)
+    if: github.event_name == 'workflow_dispatch' && inputs.private_release
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.make.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: make
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(sed -n 's/^project(Patchy VERSION \([0-9.]*\)).*/\1/p' CMakeLists.txt | head -1)
+          TAG="private-v${VERSION}-run${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" \
+            --title "Patchy v${VERSION} — private build #${GITHUB_RUN_NUMBER} (${GITHUB_SHA::7})" \
+            --notes "Private test build of ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}. Draft: visible to the repo owner only — do not publish. Delete it once tested."
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
   # ── macOS (universal arm64 + x86_64, as on the user's Mac) ────────────────
   macos:
     name: macOS
+    needs: draft
+    if: ${{ !cancelled() && !failure() }}   # runs on pushes too (draft skipped)
     timeout-minutes: 90   # v0.0.973 — a stuck run stops by itself
     runs-on: macos-latest   # v0.0.970 — macos-14 was retired ("not supported")
     env:
@@ -50,10 +87,31 @@ jobs:
         run: |
           cmake --build build --target PatchyTests --parallel $JOBS
           ctest --test-dir build --output-on-failure
+      - name: Package + attach to the draft release (private runs only)
+        if: github.event_name == 'workflow_dispatch' && inputs.private_release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.draft.outputs.tag }}
+        run: |
+          set -e
+          R=build/Patchy_artefacts/Release
+          mkdir -p dist/Patchy/Pax
+          for d in Standalone VST3 AU LV2 CLAP; do
+            [ -d "$R/$d" ] && cp -R "$R/$d" dist/Patchy/ || true
+          done
+          [ -d build/PatchyFX_artefacts/Release/AU ] && cp -R build/PatchyFX_artefacts/Release/AU/. dist/Patchy/AU/ || true
+          find build/pax -type f \( -name '*.dylib' -o -name '*.so' -o -name '*.dll' \) -exec cp {} dist/Patchy/Pax/ \;
+          find dist -maxdepth 3 | sort > dist-contents.txt; cat dist-contents.txt
+          ZIP="Patchy-${TAG#private-}-macOS.zip"
+          (cd dist && ditto -c -k --keepParent Patchy "../$ZIP")
+          gh release upload "$TAG" "$ZIP" --repo "$GITHUB_REPOSITORY" --clobber
 
   # ── Windows (MSVC, Edge WebView2) ──────────────────────────────────────────
   windows:
     name: Windows
+    needs: draft
+    if: ${{ !cancelled() && !failure() }}   # runs on pushes too (draft skipped)
     timeout-minutes: 90   # v0.0.973 — a stuck run stops by itself
     defaults:
       run:
@@ -85,10 +143,31 @@ jobs:
         run: |
           cmake --build build --config Release --target PatchyTests --parallel $JOBS
           ctest --test-dir build -C Release --output-on-failure
+      - name: Package + attach to the draft release (private runs only)
+        if: github.event_name == 'workflow_dispatch' && inputs.private_release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.draft.outputs.tag }}
+        run: |
+          set -e
+          R=build/Patchy_artefacts/Release
+          mkdir -p dist/Patchy/Pax
+          for d in Standalone VST3 AU LV2 CLAP; do
+            [ -d "$R/$d" ] && cp -R "$R/$d" dist/Patchy/ || true
+          done
+          [ -d build/PatchyFX_artefacts/Release/AU ] && cp -R build/PatchyFX_artefacts/Release/AU/. dist/Patchy/AU/ || true
+          find build/pax -type f \( -name '*.dylib' -o -name '*.so' -o -name '*.dll' \) -exec cp {} dist/Patchy/Pax/ \;
+          find dist -maxdepth 3 | sort > dist-contents.txt; cat dist-contents.txt
+          ZIP="Patchy-${TAG#private-}-Windows.zip"
+          (cd dist && cmake -E tar cf "../$ZIP" --format=zip Patchy)
+          gh release upload "$TAG" "$ZIP" --repo "$GITHUB_REPOSITORY" --clobber
 
   # ── Ubuntu ─────────────────────────────────────────────────────────────────
   ubuntu:
     name: Ubuntu 24.04
+    needs: draft
+    if: ${{ !cancelled() && !failure() }}   # runs on pushes too (draft skipped)
     timeout-minutes: 90   # v0.0.973 — a stuck run stops by itself
     runs-on: ubuntu-24.04
     steps:
@@ -118,10 +197,31 @@ jobs:
         run: |
           cmake --build build --target PatchyTests --parallel $JOBS
           xvfb-run -a ctest --test-dir build --output-on-failure
+      - name: Package + attach to the draft release (private runs only)
+        if: github.event_name == 'workflow_dispatch' && inputs.private_release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.draft.outputs.tag }}
+        run: |
+          set -e
+          R=build/Patchy_artefacts/Release
+          mkdir -p dist/Patchy/Pax
+          for d in Standalone VST3 AU LV2 CLAP; do
+            [ -d "$R/$d" ] && cp -R "$R/$d" dist/Patchy/ || true
+          done
+          [ -d build/PatchyFX_artefacts/Release/AU ] && cp -R build/PatchyFX_artefacts/Release/AU/. dist/Patchy/AU/ || true
+          find build/pax -type f \( -name '*.dylib' -o -name '*.so' -o -name '*.dll' \) -exec cp {} dist/Patchy/Pax/ \;
+          find dist -maxdepth 3 | sort > dist-contents.txt; cat dist-contents.txt
+          ZIP="Patchy-${TAG#private-}-Ubuntu.zip"
+          (cd dist && cmake -E tar cf "../$ZIP" --format=zip Patchy)
+          gh release upload "$TAG" "$ZIP" --repo "$GITHUB_REPOSITORY" --clobber
 
   # ── Arch Linux (container — the user's Garuda is Arch-based) ───────────────
   arch:
     name: Arch Linux
+    needs: draft
+    if: ${{ !cancelled() && !failure() }}   # runs on pushes too (draft skipped)
     timeout-minutes: 90   # v0.0.973 — a stuck run stops by itself
     runs-on: ubuntu-24.04
     container: archlinux:latest
@@ -129,7 +229,7 @@ jobs:
       - name: Dependencies
         run: |
           pacman -Syu --noconfirm --needed \
-            base-devel cmake git pkgconf nodejs npm xorg-server-xvfb \
+            base-devel cmake git pkgconf nodejs npm xorg-server-xvfb github-cli \
             alsa-lib jack2 freetype2 fontconfig \
             libx11 libxcomposite libxcursor libxext libxinerama libxrandr libxrender \
             gtk3 webkit2gtk-4.1 glu mesa
@@ -148,3 +248,22 @@ jobs:
         run: |
           cmake --build build --target PatchyTests --parallel $JOBS
           xvfb-run -a ctest --test-dir build --output-on-failure
+      - name: Package + attach to the draft release (private runs only)
+        if: github.event_name == 'workflow_dispatch' && inputs.private_release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.draft.outputs.tag }}
+        run: |
+          set -e
+          R=build/Patchy_artefacts/Release
+          mkdir -p dist/Patchy/Pax
+          for d in Standalone VST3 AU LV2 CLAP; do
+            [ -d "$R/$d" ] && cp -R "$R/$d" dist/Patchy/ || true
+          done
+          [ -d build/PatchyFX_artefacts/Release/AU ] && cp -R build/PatchyFX_artefacts/Release/AU/. dist/Patchy/AU/ || true
+          find build/pax -type f \( -name '*.dylib' -o -name '*.so' -o -name '*.dll' \) -exec cp {} dist/Patchy/Pax/ \;
+          find dist -maxdepth 3 | sort > dist-contents.txt; cat dist-contents.txt
+          ZIP="Patchy-${TAG#private-}-Arch.zip"
+          (cd dist && cmake -E tar cf "../$ZIP" --format=zip Patchy)
+          gh release upload "$TAG" "$ZIP" --repo "$GITHUB_REPOSITORY" --clobber

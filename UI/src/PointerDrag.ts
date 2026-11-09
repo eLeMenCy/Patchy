@@ -22,9 +22,17 @@ export function startPointerDrag(e: { button: number; clientX: number; clientY: 
   if (!usePointerDrag || e.button !== 0) return;
   const x0 = e.clientX, y0 = e.clientY;
   let ghost: HTMLDivElement | null = null;
-  const prevSelect = document.body.style.userSelect;
+  // v0.0.979 — no text selection from the very press: switching it off only
+  // once the drag started (5 px) was too late — on Garuda the graph stayed
+  // "selected" after the drop (purple background, a black square)
+  const body = document.body.style as CSSStyleDeclaration & { webkitUserSelect?: string };
+  const prevSelect = body.userSelect, prevWebkit = body.webkitUserSelect ?? '';
+  body.userSelect = 'none';
+  body.webkitUserSelect = 'none';
+  window.getSelection()?.removeAllRanges();
 
   const move = (ev: PointerEvent) => {
+    ev.preventDefault();
     if (!ghost) {
       if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 5) return;   // a click, not a drag (yet)
       ghost = document.createElement('div');
@@ -38,7 +46,6 @@ export function startPointerDrag(e: { button: number; clientX: number; clientY: 
         transform: 'translate(8px, 8px)',
       } as Partial<CSSStyleDeclaration>);
       document.body.appendChild(ghost);
-      document.body.style.userSelect = 'none';
     }
     ghost.style.left = ev.clientX + 'px';
     ghost.style.top  = ev.clientY + 'px';
@@ -48,7 +55,9 @@ export function startPointerDrag(e: { button: number; clientX: number; clientY: 
     window.removeEventListener('pointerup', up);
     window.removeEventListener('pointercancel', cancel);
     window.removeEventListener('keydown', esc);
-    document.body.style.userSelect = prevSelect;
+    body.userSelect = prevSelect;
+    body.webkitUserSelect = prevWebkit;
+    window.getSelection()?.removeAllRanges();
     if (!ghost) return;   // never moved: it was a click
     ghost.remove();
     if (drop)

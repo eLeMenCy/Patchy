@@ -104,6 +104,15 @@ jobs:
           find build/pax -type f \( -name '*.dylib' -o -name '*.so' -o -name '*.dll' \) -exec cp {} dist/Patchy/Pax/ \;
           find dist -maxdepth 3 | sort > dist-contents.txt; cat dist-contents.txt
           ZIP="Patchy-${TAG#private-}-macOS.zip"
+          # v0.0.978 — ad-hoc sign every bundle (a signature over the whole bundle):
+          # with only the linker's signature on the executable, macOS kept
+          # asking for the microphone (user, 2026-11-08); a Developer ID comes
+          # with the paid-downloads work
+          for b in dist/Patchy/Standalone/*.app dist/Patchy/VST3/*.vst3 dist/Patchy/AU/*.component dist/Patchy/CLAP/*.clap; do
+            if [ -e "$b" ]; then codesign --force --deep --sign - "$b"; fi
+          done
+          find dist/Patchy/LV2 dist/Patchy/Pax -type f \( -name '*.so' -o -name '*.dylib' \) -exec codesign --force --sign - {} \;
+          codesign --verify --deep --strict dist/Patchy/Standalone/*.app && echo "Standalone signature OK"
           (cd dist && ditto -c -k --keepParent Patchy "../$ZIP")
           gh release upload "$TAG" "$ZIP" --repo "$GITHUB_REPOSITORY" --clobber
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useContext, DragEvent, ReactNode } from 'react';
 import { flushSync } from 'react-dom';
-import { tidyLayout, TidyItem, TidyLink } from './TidyLayout';   // v0.0.966
+import { tidyLayout, TidyItem, TidyLink } from './TidyLayout';
+import { POINTER_DROP_EVENT, PointerDropDetail } from './PointerDrag';   // v0.0.978 — Linux   // v0.0.966
 import { DawContext } from './DawContext';
 import {
   ReactFlow,
@@ -2357,12 +2358,10 @@ function FlowCanvas() {
     return false;
   }, []);
 
-  const onDrop = useCallback((e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const raw = e.dataTransfer.getData('text/plain');
+  // v0.0.978 — what a drop does, from an HTML5 drop or (Linux) a pointer drag
+  const dropPayload = useCallback((raw: string, clientX: number, clientY: number) => {
     if (!raw) return;
+    const e = { clientX, clientY };
 
     // v0.0.938 — a wrap from the library: placed folded at the drop point
     // (not inside the Enter view: wraps are one level)
@@ -2400,6 +2399,25 @@ function FlowCanvas() {
     pendingDrop.current = { dropX: position.x, dropY: position.y };
     Bridge.addNode(cppNodeType, position.x, position.y, paxName, enteredRef.current ?? '');
   }, [screenToFlowPosition]);
+
+  const onDrop = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropPayload(e.dataTransfer.getData('text/plain'), e.clientX, e.clientY);
+  }, [dropPayload]);
+
+  // v0.0.978 — Linux: the sidebar drags with pointer events (PointerDrag.ts);
+  // a release over the canvas drops like an HTML5 drop
+  useEffect(() => {
+    const onPointerDrop = (ev: Event) => {
+      const { raw, x, y } = (ev as CustomEvent<PointerDropDetail>).detail;
+      const target = document.elementFromPoint(x, y);
+      if (!target || !wrapperRef.current?.contains(target)) return;   // released outside the canvas
+      dropPayload(raw, x, y);
+    };
+    window.addEventListener(POINTER_DROP_EVENT, onPointerDrop);
+    return () => window.removeEventListener(POINTER_DROP_EVENT, onPointerDrop);
+  }, [dropPayload]);
 
   // ── Ghost overlay: track mouse while fragment pending ──────────────────
   useEffect(() => {

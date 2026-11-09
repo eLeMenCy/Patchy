@@ -4,6 +4,7 @@ import { DawContext } from './DawContext';
 import { HintPanel, NODE_HINTS, HintContext } from './HintPanel';
 import { Bridge, PaxInfo, WrapLibraryItem } from './Bridge';
 import { detectPaxTheme, detectPaxCategoryKey, resolveCssColor } from './NodeUtils';
+import { usePointerDrag, startPointerDrag } from './PointerDrag';   // v0.0.978 — Linux
 
 const BUILTIN_GROUPS = [
   {
@@ -143,8 +144,9 @@ function WrapItem({ item }: { item: WrapLibraryItem }) {
   };
   const iconBtn: React.CSSProperties = { display: 'inline-flex', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, borderRadius: 3 };
   return (
-    <div draggable={!editing}
+    <div draggable={!editing && !usePointerDrag}
       onDragStart={e => { e.dataTransfer.setData('text/plain', JSON.stringify({ wrapFile: item.file })); e.dataTransfer.effectAllowed = 'copy'; }}
+      onPointerDown={e => { if (!editing) startPointerDrag(e, JSON.stringify({ wrapFile: item.file }), item.name, 'var(--generic)'); }}
       onMouseEnter={e => {
         const el = e.currentTarget as HTMLDivElement;
         el.style.borderColor = 'var(--generic)';
@@ -203,12 +205,13 @@ function DragItem({ nodeType, label, desc, accent, dim, icon, paxName = '', paxI
   // detectPaxTheme for Pax items).
   const accentHex = resolveCssColor(accent);
 
+  const payload = () => JSON.stringify({
+    nodeType:  paxName ? 0 : nodeType,
+    paxName,
+    paxType:   paxName ? nodeType : 0,
+  });
   const onDragStart = (e: DragEvent<HTMLDivElement>) => {
-    e.dataTransfer.setData('text/plain', JSON.stringify({
-      nodeType:  paxName ? 0 : nodeType,
-      paxName,
-      paxType:   paxName ? nodeType : 0,
-    }));
+    e.dataTransfer.setData('text/plain', payload());
     e.dataTransfer.effectAllowed = 'copy';
   };
 
@@ -243,7 +246,8 @@ Type: ${typeLabel} · ${ports.join(', ')}`
 
   return (
     <div
-      draggable onDragStart={onDragStart}
+      draggable={!usePointerDrag} onDragStart={onDragStart}
+      onPointerDown={e => startPointerDrag(e, payload(), label, accent)}
       style={{
         display: 'flex', alignItems: 'center', gap: 10,
         padding: '7px 10px', borderRadius: 'var(--radius)',

@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.977
+> Version 0.0.978
 
 [![Build](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml/badge.svg?branch=dev)](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml)
 
@@ -639,7 +639,7 @@ Undo/Redo is accessible via `⌘Z` / `⌘⇧Z`, or via **☰ → Edit → Undo /
 
 CLAP comes from [clap-juce-extensions](https://github.com/free-audio/clap-juce-extensions) (target `Patchy_CLAP`, option `PATCHY_CLAP`, ON). `-DPATCHY_COPY_PLUGINS=OFF` builds without copying the plug-ins to the system folders.
 
-**CI** — every push builds everything (plug-ins, Pax, unit tests) on macOS, Windows, Ubuntu and Arch Linux with GitHub Actions (`.github/workflows/build.yml`); the badge at the top shows the result for `dev`. Pass / fail only — no public downloads. **Private test builds:** Actions → Build → *Run workflow* → tick *private release* — the same builds are zipped per OS (every format + the Pax) and attached to a **draft** release, visible only to the repo owner (delete it once tested). Windows needs Windows 10 or later (JUCE 8, WebView2).
+**CI** — every push builds everything (plug-ins, Pax, unit tests) on macOS, Windows, Ubuntu and Arch Linux with GitHub Actions (`.github/workflows/build.yml`); the badge at the top shows the result for `dev`. Pass / fail only — no public downloads. **Private test builds:** Actions → Build → *Run workflow* → tick *private release* — the same builds are zipped per OS (every format + the Pax) and attached to a **draft** release, visible only to the repo owner (delete it once tested). Windows needs Windows 10 or later (JUCE 8, WebView2). The macOS zip is ad-hoc signed (no Developer ID yet): the first launch needs right-click → *Open*, or `xattr -dr com.apple.quarantine` on the unzipped folder. **Linux:** put the Pax in `~/.patchy/pax` (or a `PatchyPax` folder next to the Patchy binary).
 
 ### Host (VST3 / AU / LV2 / CLAP / Standalone)
 
@@ -880,4 +880,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.977 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.978 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

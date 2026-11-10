@@ -19,7 +19,7 @@ endif()
 # 11.0 = Big Sur, the first macOS on Apple Silicon. Must be set before project().
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
 
-project(Patchy VERSION 0.0.979)
+project(Patchy VERSION 0.0.980)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -124,7 +124,7 @@ endif()
 
 # ── Plugin target ─────────────────────────────────────────────────────────────
 juce_add_plugin(Patchy
-    VERSION                  "0.0.979"
+    VERSION                  "0.0.980"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGrp"
@@ -320,7 +320,7 @@ patchy_configure_target(Patchy)
 # VST3 already works as instrument and effect (Bitwig).
 if (APPLE)   # v0.0.969 — AU only: Mac only
 juce_add_plugin(PatchyFX
-    VERSION                  "0.0.979"
+    VERSION                  "0.0.980"
     COMPANY_NAME             "eLeMenCy"
     PLUGIN_MANUFACTURER_CODE "ELMc"
     PLUGIN_CODE              "NGfx"

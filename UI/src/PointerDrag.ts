@@ -71,3 +71,27 @@ export function startPointerDrag(e: { button: number; clientX: number; clientY: 
   window.addEventListener('pointercancel', cancel);
   window.addEventListener('keydown', esc);
 }
+
+/** v0.0.980 — Linux: a stray text selection painted the graph in the GTK
+ *  theme's selection colour (purple + a black square) — after a sidebar drag
+ *  (fixed in 0.0.979) and, once, while dragging a wire. There the graph gets
+ *  `user-select: none` (class `patchy-linux` on <html>, see index.css — text
+ *  fields keep it), and any selection left outside a text field is cleared
+ *  whenever a mouse button is released. Returns the uninstaller. */
+export function installLinuxSelectionGuard(): () => void {
+  if (!usePointerDrag) return () => {};
+  document.documentElement.classList.add('patchy-linux');
+  const editable = (n: Node | null) => {
+    const el = n instanceof Element ? n : n?.parentElement ?? null;
+    return !!el?.closest('input, textarea, [contenteditable="true"], [contenteditable=""]');
+  };
+  const up = () => {
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && !editable(sel.anchorNode)) sel.removeAllRanges();
+  };
+  window.addEventListener('pointerup', up, true);
+  return () => {
+    window.removeEventListener('pointerup', up, true);
+    document.documentElement.classList.remove('patchy-linux');
+  };
+}

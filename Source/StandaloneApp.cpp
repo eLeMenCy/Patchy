@@ -3,6 +3,7 @@
 #if JUCE_STANDALONE_APPLICATION
 
 #include "StandaloneApp.h"
+#include "DiagLog.h"   // v0.0.980 — quit breadcrumbs
 
 // ─────────────────────────────────────────────────────────────────────────────
 // StandaloneWindow
@@ -75,11 +76,16 @@ StandaloneWindow::StandaloneWindow()
     deviceManager.addChangeListener (this);   // v0.0.924 — after the restore (see changeListenerCallback)
 }
 
+// v0.0.980 — each quit step logs a timestamped line (Patchy.log): quitting
+// sometimes hung on Linux (user, Garuda, 2026-11-10) — the last line written
+// before a hang shows which step never returned
 StandaloneWindow::~StandaloneWindow()
 {
+    diagLog ("Quit 1/6: window closing — stopping the audio device callback");
     deviceManager.removeChangeListener (this);   // v0.0.924
     deviceManager.removeAudioCallback (&player);
     player.setProcessor (nullptr);
+    diagLog ("Quit 2/6: audio callback stopped — removing the editor");
     clearContentComponent();
     if (editor)
     {
@@ -87,7 +93,9 @@ StandaloneWindow::~StandaloneWindow()
         delete editor;
         editor = nullptr;
     }
+    diagLog ("Quit 4/6: editor deleted — deleting the processor (graph, devices, ports)");
     processor.reset();
+    diagLog ("Quit 5/6: processor deleted — closing the main audio device");
 }
 
 void StandaloneWindow::setupAudioDevice()
@@ -332,7 +340,9 @@ void StandaloneApp::initialise (const juce::String&)
 
 void StandaloneApp::shutdown()
 {
+    diagLog ("Quit 0/6: shutdown()");
     mainWindow.reset();
+    diagLog ("Quit 6/6: window gone — leaving");
 }
 
 START_JUCE_APPLICATION (StandaloneApp)

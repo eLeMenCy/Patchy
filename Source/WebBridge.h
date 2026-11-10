@@ -171,7 +171,15 @@ public:
                        std::function<void(const juce::String&, int, float)>                      onSetPaxParameter = nullptr,
                        std::function<void()>                                                          onNewGraph          = nullptr,
                        std::function<void(const juce::String&)>                                       onLoadGraph         = nullptr);
-    ~WebBridge() override { stopTimer(); graph.onEdited = prevOnEdited; }   // v0.0.968 — give the processor its hook back
+    ~WebBridge() override
+    {
+        stopTimer(); graph.onEdited = prevOnEdited;   // v0.0.968 — give the processor its hook back
+        // v0.0.980 — the web view's own teardown (on Linux: WebKitGTK's helper
+        // process) logged on its own: a suspect for the Linux quit hang
+        juce::Logger::writeToLog ("Quit 3/6: closing the web view");
+        webView.reset();
+        juce::Logger::writeToLog ("Quit 3/6: web view closed");
+    }
 
     // v0.0.968 — unsaved changes (Standalone only; in the plugin the DAW asks).
     // Any edit (undo step, undo / redo, a node moved) marks the patch edited;

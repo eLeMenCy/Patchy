@@ -269,3 +269,10 @@ input[type="range"][style*="vertical"]::-webkit-slider-thumb {
 .react-flow__attribution a:hover {
   color: var(--text) !important;
 }
+
+/* v0.0.980 — Linux (WebKitGTK): no text selection on the graph — a stray one
+   painted it in the GTK theme's selection colour; text fields keep theirs */
+.patchy-linux .react-flow { -webkit-user-select: none; user-select: none; }
+.patchy-linux .react-flow input,
+.patchy-linux .react-flow textarea,
+.patchy-linux .react-flow [contenteditable="true"] { -webkit-user-select: text; user-select: text; }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useContext, DragEvent, ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { tidyLayout, TidyItem, TidyLink } from './TidyLayout';
-import { POINTER_DROP_EVENT, PointerDropDetail } from './PointerDrag';   // v0.0.978 — Linux   // v0.0.966
+import { POINTER_DROP_EVENT, PointerDropDetail, installLinuxSelectionGuard } from './PointerDrag';   // v0.0.978 / 980 — Linux   // v0.0.966
 import { DawContext } from './DawContext';
 import {
   ReactFlow,
@@ -2405,6 +2405,9 @@ function FlowCanvas() {
     e.stopPropagation();
     dropPayload(e.dataTransfer.getData('text/plain'), e.clientX, e.clientY);
   }, [dropPayload]);
+
+  // v0.0.980 — Linux: no stray text selection on the graph
+  useEffect(() => installLinuxSelectionGuard(), []);
 
   // v0.0.978 — Linux: the sidebar drags with pointer events (PointerDrag.ts);
   // a release over the canvas drops like an HTML5 drop

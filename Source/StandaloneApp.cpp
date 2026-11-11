@@ -81,11 +81,11 @@ StandaloneWindow::StandaloneWindow()
 // before a hang shows which step never returned
 StandaloneWindow::~StandaloneWindow()
 {
-    diagLog ("Quit 1/6: window closing — stopping the audio device callback");
+    diagLog ("Quit 1/6: window closing - stopping the audio device callback");
     deviceManager.removeChangeListener (this);   // v0.0.924
     deviceManager.removeAudioCallback (&player);
     player.setProcessor (nullptr);
-    diagLog ("Quit 2/6: audio callback stopped — removing the editor");
+    diagLog ("Quit 2/6: audio callback stopped - removing the editor");
     clearContentComponent();
     if (editor)
     {
@@ -93,9 +93,9 @@ StandaloneWindow::~StandaloneWindow()
         delete editor;
         editor = nullptr;
     }
-    diagLog ("Quit 4/6: editor deleted — deleting the processor (graph, devices, ports)");
+    diagLog ("Quit 4/6: editor deleted - deleting the processor (graph, devices, ports)");
     processor.reset();
-    diagLog ("Quit 5/6: processor deleted — closing the main audio device");
+    diagLog ("Quit 5/6: processor deleted - closing the main audio device");
 }
 
 void StandaloneWindow::setupAudioDevice()
@@ -342,7 +342,7 @@ void StandaloneApp::shutdown()
 {
     diagLog ("Quit 0/6: shutdown()");
     mainWindow.reset();
-    diagLog ("Quit 6/6: window gone — leaving");
+    diagLog ("Quit 6/6: window gone - leaving");
 }
 
 START_JUCE_APPLICATION (StandaloneApp)

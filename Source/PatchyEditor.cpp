@@ -355,6 +355,12 @@ bool PatchyEditor::keyPressed (const juce::KeyPress& key, juce::Component*)
 
     if (! cmd) return false;
 
+   #if ! JUCE_MAC
+    // v0.0.982 — outside the Mac the web view gets the keystrokes and the page
+    // handles every Ctrl shortcut itself (UI/src/Keys.ts): never twice
+    return false;
+   #endif
+
     // v0.0.948 — ⌘. (Command-period, the classic Mac "stop"): panic. Handled
     // here only (not also in the WebView) so one press never toggles twice.
     if (key.getKeyCode() == '.' || key.getTextCharacter() == '.') { bridge.handlePanic(); return true; }

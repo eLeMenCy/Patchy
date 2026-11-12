@@ -276,3 +276,19 @@ input[type="range"][style*="vertical"]::-webkit-slider-thumb {
 .patchy-linux .react-flow input,
 .patchy-linux .react-flow textarea,
 .patchy-linux .react-flow [contenteditable="true"] { -webkit-user-select: text; user-select: text; }
+
+/* v0.0.982 — Preferences → Display → Reduce visual effects: the expensive
+   paint work off — shadows, glows, blur, transitions, and the wires' glow
+   (an SVG drop-shadow redrawn ~30×/s on every flashing wire). Wire flashes
+   and meters are colour / size changes, so they keep working; the Learn /
+   Panic pulse (a cheap opacity animation that shows a state) and the grey
+   filter of disabled nodes stay. */
+.patchy-lite *, .patchy-lite *::before, .patchy-lite *::after {
+  box-shadow: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  transition: none !important;
+}
+.patchy-lite .react-flow__edge-path,
+.patchy-lite .react-flow__edge path { filter: none !important; }

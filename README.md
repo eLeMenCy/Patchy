@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.981
+> Version 0.0.982
 
 [![Build](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml/badge.svg?branch=dev)](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml)
 
@@ -109,6 +109,7 @@
 - **Restructured burger menu** — `☰` top-right opens File and Edit flyout submenus with keyboard shortcuts
 - **Hint panel** — hover any node, button, port or edge to see a description in the sidebar hint panel; hovering a Value edge (a Pax adapter/converter's generic value port) shows its current, live numeric value, updating continuously while hovered
 - **Wraps** — select a few nodes, `⌘G`, and they fold into one box showing only the connections that cross its border; its ⚙ panel shows every Pax parameter inside; open it in place to work on the nodes, fold it back, unwrap (`⌘⇧G`); saved with the project, undoable; nothing changes in the processing. See [Wraps](#wraps)
+- **Reduce visual effects** — Preferences → Display: no shadows, glows, blur, transitions or glowing wires, for older machines (Linux especially); wire flashes and meters keep working
 - **Snap to grid** — dragged nodes land on an invisible grid (6 / 12 / 24 / 48 px, in line with the canvas dots); `G` switches it, `⌘` held while dragging places a node freely; Preferences → Grid
 - **Tidy layout** — `⌥⌘L` (or ☰ → Edit → Tidy layout) lays the graph out left to right in signal order: separate chains stacked, a folded or open wrap moved as one box (its inside is tidied in its Enter view only), nodes with no wires left where they are unless covered (then the nearest free spot); on the grid when snap is on; one undo step; nodes glide into place (Preferences → Tidy layout)
 - **Fold/Unfold** — double-click header to collapse nodes; edges merge gracefully to centre
@@ -580,6 +581,8 @@ Undo/Redo is accessible via `⌘Z` / `⌘⇧Z`, or via **☰ → Edit → Undo /
 
 ## Keyboard Shortcuts
 
+**Linux / Windows:** `⌘` is **Ctrl**, `⌥` is **Alt**, `⇧` is **Shift** (e.g. `⌥⌘L` = Ctrl+Alt+L); the menus show them that way.
+
 | Shortcut | Action |
 |----------|--------|
 | `⌘N` | New graph (Standalone) |
@@ -880,4 +883,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.981 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.982 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

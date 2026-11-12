@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useContext, DragEvent, ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { tidyLayout, TidyItem, TidyLink } from './TidyLayout';
+import { isMac, cmdDown, CMD_KEY_NAME, shortcutLabel } from './Keys';   // v0.0.982 — Ctrl outside the Mac
 import { POINTER_DROP_EVENT, PointerDropDetail, installLinuxSelectionGuard } from './PointerDrag';   // v0.0.978 / 980 — Linux   // v0.0.966
 import { DawContext } from './DawContext';
 import {
@@ -1300,7 +1301,7 @@ function FlowCanvas() {
   // Keyboard shortcuts: Cmd+Z = undo, Cmd+Shift+Z = redo
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      const cmd = e.metaKey;  // Mac only — Cmd+Z, not Ctrl+Z
+      const cmd = cmdDown(e);  // v0.0.982 — ⌘Z on the Mac, Ctrl+Z elsewhere
       if (!cmd) return;
       // Phase 6 rename fix, 2026-09-25 — never undo/redo the graph while
       // typing in a text field (native text undo applies instead).
@@ -1327,7 +1328,7 @@ function FlowCanvas() {
     const typing = () => document.activeElement instanceof HTMLInputElement ||
                          document.activeElement instanceof HTMLTextAreaElement;
     const down = (e: KeyboardEvent) => {
-      if (e.key === 'Meta') { setFreeDrag(true); return; }
+      if (e.key === CMD_KEY_NAME) { setFreeDrag(true); return; }   // v0.0.982 — Ctrl outside the Mac
       if ((e.key === 'g' || e.key === 'G') && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.repeat && !typing()) {
         const next = { ...prefsRef.current, snapGrid: !(prefsRef.current.snapGrid ?? false) };
         setPrefs(next);
@@ -1335,7 +1336,7 @@ function FlowCanvas() {
         Bridge.showToast(next.snapGrid ? `Snap to grid on (${next.gridSize ?? 12} px) — hold ⌘ while dragging to place freely` : 'Snap to grid off');
       }
     };
-    const up   = (e: KeyboardEvent) => { if (e.key === 'Meta') setFreeDrag(false); };
+    const up   = (e: KeyboardEvent) => { if (e.key === CMD_KEY_NAME) setFreeDrag(false); };
     const blur = () => setFreeDrag(false);
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
@@ -1614,10 +1615,10 @@ function FlowCanvas() {
     const handler = (e: KeyboardEvent) => {
       const ae = document.activeElement as HTMLElement | null;
       if (ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT' || ae.isContentEditable)) return;
-      if (enteredRef.current && (e.key === 'Escape' || (e.metaKey && e.key === 'ArrowDown'))) {
+      if (enteredRef.current && (e.key === 'Escape' || (cmdDown(e) && e.key === 'ArrowDown'))) {
         e.preventDefault(); exitWrap(); return;
       }
-      if (!enteredRef.current && e.metaKey && e.key === 'ArrowUp') {
+      if (!enteredRef.current && cmdDown(e) && e.key === 'ArrowUp') {
         const sel = new Set(getNodes().filter(n => n.selected && !isWrapViewId(n.id)).map(n => n.id));
         const target = wrapsRef.current.find(w => selectedWraps.has(w.id))
                     ?? wrapsRef.current.find(w => w.open && w.nodeIds.some(id => sel.has(id)));
@@ -1870,9 +1871,28 @@ function FlowCanvas() {
   useEffect(() => {
     if (!isStandalone) return;
     const down = (e: KeyboardEvent) => {
-      if (e.code !== 'KeyS' || !e.metaKey || e.altKey || e.ctrlKey || e.repeat) return;
+      if (e.code !== 'KeyS' || !cmdDown(e) || e.altKey || (isMac && e.ctrlKey) || e.repeat) return;
       e.preventDefault();
       if (e.shiftKey) Bridge.fileSaveAs(); else Bridge.fileSave();
+    };
+    window.addEventListener('keydown', down);
+    return () => window.removeEventListener('keydown', down);
+  }, [isStandalone]);
+
+  // v0.0.982 — outside the Mac the keystrokes go to the web view and C++
+  // (PatchyEditor::keyPressed, Mac-only now) never sees them: Ctrl+N / O / Q
+  // (Standalone — in the plugin they're the DAW's) and Ctrl+. (panic) here.
+  // (Ctrl+Z / S / G / L and Ctrl+↑↓ have their own handlers above / below.)
+  useEffect(() => {
+    if (isMac) return;
+    const down = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.altKey || e.metaKey || e.repeat) return;
+      if (e.key === '.') { e.preventDefault(); Bridge.panic(); return; }
+      if (!isStandalone || e.shiftKey) return;
+      const k = e.key.toLowerCase();
+      if      (k === 'n') { e.preventDefault(); Bridge.fileNew(); }
+      else if (k === 'o') { e.preventDefault(); Bridge.fileOpen(); }
+      else if (k === 'q') { e.preventDefault(); Bridge.quit(); }
     };
     window.addEventListener('keydown', down);
     return () => window.removeEventListener('keydown', down);
@@ -1987,7 +2007,7 @@ function FlowCanvas() {
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       // ⌥ changes e.key ("¬"): match the physical key
-      if (e.code === 'KeyL' && e.metaKey && e.altKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); tidyGraph(); }
+      if (e.code === 'KeyL' && cmdDown(e) && e.altKey && !(isMac ? e.ctrlKey : e.metaKey) && !e.shiftKey) { e.preventDefault(); tidyGraph(); }   // ⌥⌘L / Ctrl+Alt+L
     };
     window.addEventListener('keydown', down);
     return () => window.removeEventListener('keydown', down);
@@ -2024,7 +2044,7 @@ function FlowCanvas() {
     const handler = (e: KeyboardEvent) => {
       const ae = document.activeElement as HTMLElement | null;
       if (ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT' || ae.isContentEditable)) return;
-      const native = e.metaKey && (e.key === 'g' || e.key === 'G');
+      const native = cmdDown(e) && (e.key === 'g' || e.key === 'G');
       const wrap   = e.key === 'Wrap'   || (native && !e.shiftKey);
       const unwrap = e.key === 'Unwrap' || (native &&  e.shiftKey);
       if (!wrap && !unwrap) return;
@@ -2406,6 +2426,11 @@ function FlowCanvas() {
     dropPayload(e.dataTransfer.getData('text/plain'), e.clientX, e.clientY);
   }, [dropPayload]);
 
+  // v0.0.982 — Preferences → Display → Reduce visual effects (index.css .patchy-lite)
+  useEffect(() => {
+    document.documentElement.classList.toggle('patchy-lite', !!prefs.reduceEffects);
+  }, [prefs.reduceEffects]);
+
   // v0.0.980 — Linux: no stray text selection on the graph
   useEffect(() => installLinuxSelectionGuard(), []);
 
@@ -2716,10 +2741,10 @@ function FlowCanvas() {
                       minWidth: 170, zIndex: 100,
                     }}>
                     {isStandalone
-                      ? <MenuRow label="New" shortcut="⌘N" onClick={() => { Bridge.fileNew(); setShowFileMenu(false); }} />
+                      ? <MenuRow label="New" shortcut={shortcutLabel('⌘N')} onClick={() => { Bridge.fileNew(); setShowFileMenu(false); }} />
                       // plugin: one undo step; v0.0.968 — the backend asks (native dialog, like Open)
                       : <MenuRow label="Clear graph…" onClick={() => { Bridge.fileNew(); setShowFileMenu(false); }} />}
-                    <MenuRow label="Open…" shortcut={isStandalone ? '⌘O' : undefined} onClick={() => { Bridge.fileOpen(); setShowFileMenu(false); }} />
+                    <MenuRow label="Open…" shortcut={isStandalone ? shortcutLabel('⌘O') : undefined} onClick={() => { Bridge.fileOpen(); setShowFileMenu(false); }} />
                     {/* v0.0.923 — Open Recent (opens further left, like the File submenu) */}
                     <div style={{ position: 'relative' }}
                          onMouseEnter={() => { setRecentDown(roomLeft(fileSubRef.current) < 240); setRecentOpen(true); }}
@@ -2753,8 +2778,8 @@ function FlowCanvas() {
                       )}
                     </div>
                     {/* v0.0.967 — plugin: no Save / Save As (the DAW saves the graph with the song); Export keeps a .patchy */}
-                    {isStandalone && <MenuRow label={fileState.hasFile ? 'Save' : 'Save…'} shortcut="⌘S" onClick={() => { Bridge.fileSave(); setShowFileMenu(false); }} />}
-                    {isStandalone && <MenuRow label="Save As…" shortcut="⌘⇧S" onClick={() => { Bridge.fileSaveAs(); setShowFileMenu(false); }} />}
+                    {isStandalone && <MenuRow label={fileState.hasFile ? 'Save' : 'Save…'} shortcut={shortcutLabel('⌘S')} onClick={() => { Bridge.fileSave(); setShowFileMenu(false); }} />}
+                    {isStandalone && <MenuRow label="Save As…" shortcut={shortcutLabel('⌘⇧S')} onClick={() => { Bridge.fileSaveAs(); setShowFileMenu(false); }} />}
                     <MenuDivider />
                     {(() => {
                       // v0.0.930 — a selected folded wrap exports its nodes
@@ -2796,7 +2821,7 @@ function FlowCanvas() {
                     {/* v0.0.967 — Standalone: Quit (a plugin can't quit its host) */}
                     {isStandalone && <>
                       <MenuDivider />
-                      <MenuRow label="Quit Patchy" shortcut="⌘Q" onClick={() => { setShowFileMenu(false); Bridge.quit(); }} />
+                      <MenuRow label="Quit Patchy" shortcut={shortcutLabel('⌘Q')} onClick={() => { setShowFileMenu(false); Bridge.quit(); }} />
                     </>}
                   </div>
                 )}
@@ -2812,17 +2837,17 @@ function FlowCanvas() {
                       boxShadow: '0 8px 32px rgba(0,0,0,.6)',
                       minWidth: 150, zIndex: 100,
                     }}>
-                    <MenuRow label="Undo" shortcut="⌘Z"   enabled={undoState.canUndo} onClick={() => { Bridge.undo(); setShowFileMenu(false); }} />
-                    <MenuRow label="Redo" shortcut="⌘⇧Z" enabled={undoState.canRedo} onClick={() => { Bridge.redo(); setShowFileMenu(false); }} />
+                    <MenuRow label="Undo" shortcut={shortcutLabel('⌘Z')}   enabled={undoState.canUndo} onClick={() => { Bridge.undo(); setShowFileMenu(false); }} />
+                    <MenuRow label="Redo" shortcut={shortcutLabel('⌘⇧Z')} enabled={undoState.canRedo} onClick={() => { Bridge.redo(); setShowFileMenu(false); }} />
                     <MenuDivider />
-                    <MenuRow label="Cut"    shortcut="⌘X" enabled={false} />
-                    <MenuRow label="Copy"   shortcut="⌘C" enabled={false} />
-                    <MenuRow label="Paste"  shortcut="⌘V" enabled={false} />
+                    <MenuRow label="Cut"    shortcut={shortcutLabel('⌘X')} enabled={false} />
+                    <MenuRow label="Copy"   shortcut={shortcutLabel('⌘C')} enabled={false} />
+                    <MenuRow label="Paste"  shortcut={shortcutLabel('⌘V')} enabled={false} />
                     <MenuDivider />
-                    <MenuRow label="Wrap"   shortcut="⌘G"  enabled={canWrap()}   onClick={() => { wrapSelection();   setShowFileMenu(false); }} />
-                    <MenuRow label="Unwrap" shortcut="⌘⇧G" enabled={canUnwrap()} onClick={() => { unwrapSelection(); setShowFileMenu(false); }} />
+                    <MenuRow label="Wrap"   shortcut={shortcutLabel('⌘G')}  enabled={canWrap()}   onClick={() => { wrapSelection();   setShowFileMenu(false); }} />
+                    <MenuRow label="Unwrap" shortcut={shortcutLabel('⌘⇧G')} enabled={canUnwrap()} onClick={() => { unwrapSelection(); setShowFileMenu(false); }} />
                     <MenuDivider />
-                    <MenuRow label="Tidy layout" shortcut="⌥⌘L" onClick={() => { tidyGraph(); setShowFileMenu(false); }} />
+                    <MenuRow label="Tidy layout" shortcut={shortcutLabel('⌥⌘L')} onClick={() => { tidyGraph(); setShowFileMenu(false); }} />
                     <MenuDivider />
                     {(() => {
                       const selectedNodes = getNodes().filter(n => n.selected && !isWrapViewId(n.id));
@@ -2869,7 +2894,7 @@ function FlowCanvas() {
               muted) — lit red until pressed again */}
           <button
             onClick={() => Bridge.panic()}
-            onMouseEnter={() => setHint({ title: panic.latched ? 'Panic — engaged' : 'Panic (⌘.)',
+            onMouseEnter={() => setHint({ title: panic.latched ? 'Panic — engaged' : `Panic (${shortcutLabel('⌘.')})`,
               body: panic.latched
                 ? `Click to release: ${[panic.blackout && 'DMX / ArtNet lights back', panic.mute && 'audio back'].filter(Boolean).join(', ') || 'back to normal'}.`
                 : `Sends All Notes Off, All Sound Off and Sustain off on all 16 channels to every MIDI Out${panic.blackout || panic.mute ? `, and holds ${[panic.blackout && 'a DMX / ArtNet blackout', panic.mute && 'all audio muted'].filter(Boolean).join(' and ')} until clicked again` : ''}. Options: Preferences → Panic.` })}

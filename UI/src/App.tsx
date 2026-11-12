@@ -1883,16 +1883,18 @@ function FlowCanvas() {
   // (PatchyEditor::keyPressed, Mac-only now) never sees them: Ctrl+N / O / Q
   // (Standalone — in the plugin they're the DAW's) and Ctrl+. (panic) here.
   // (Ctrl+Z / S / G / L and Ctrl+↑↓ have their own handlers above / below.)
+  // v0.0.983 — on the Mac too, ⌘N / ⌘O: while the WKWebView has focus, C++
+  // never sees ⌘ keys either (⌘O beeped, user 2026-11-12). Not ⌘Q there (the
+  // app menu's Quit owns it) nor ⌘. (C++, as before).
   useEffect(() => {
-    if (isMac) return;
     const down = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.altKey || e.metaKey || e.repeat) return;
-      if (e.key === '.') { e.preventDefault(); Bridge.panic(); return; }
+      if (!cmdDown(e) || e.altKey || (isMac ? e.ctrlKey : e.metaKey) || e.repeat) return;
+      if (!isMac && e.key === '.') { e.preventDefault(); Bridge.panic(); return; }
       if (!isStandalone || e.shiftKey) return;
       const k = e.key.toLowerCase();
       if      (k === 'n') { e.preventDefault(); Bridge.fileNew(); }
       else if (k === 'o') { e.preventDefault(); Bridge.fileOpen(); }
-      else if (k === 'q') { e.preventDefault(); Bridge.quit(); }
+      else if (k === 'q' && !isMac) { e.preventDefault(); Bridge.quit(); }
     };
     window.addEventListener('keydown', down);
     return () => window.removeEventListener('keydown', down);
@@ -2629,11 +2631,11 @@ function FlowCanvas() {
                           border: '1px solid var(--border-hi)', fontFamily: "'JetBrains Mono', monospace", fontSize: 11,
                           boxShadow: '0 4px 16px rgba(0,0,0,.4)', userSelect: 'none' }}>
               <span onClick={exitWrap} style={{ cursor: 'pointer', color: 'var(--accent)' }}
-                onMouseEnter={() => setHint({ title: 'Back to the main graph', body: 'Leaves this wrap (⌘↓ or Esc). The wrap stays folded or open as it was.' })}
+                onMouseEnter={() => setHint({ title: 'Back to the main graph', body: `Leaves this wrap (${shortcutLabel('⌘↓')} or Esc). The wrap stays folded or open as it was.` })}
                 onMouseLeave={() => setHint(null)}>Main</span>
               <span style={{ color: 'var(--text-muted)' }}>‹</span>
               <span style={{ color: 'var(--text)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{w?.name || 'WRAP'}</span>
-              <span style={{ color: 'var(--text-muted)', fontSize: 9 }}>{w?.nodeIds.length ?? 0} nodes · ⌘↓ back</span>
+              <span style={{ color: 'var(--text-muted)', fontSize: 9 }}>{w?.nodeIds.length ?? 0} nodes · {shortcutLabel('⌘↓')} back</span>
             </div>
           );
         })()}

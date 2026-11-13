@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.983
+> Version 0.0.984
 
 [![Build](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml/badge.svg?branch=dev)](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml)
 
@@ -583,6 +583,8 @@ Undo/Redo is accessible via `⌘Z` / `⌘⇧Z`, or via **☰ → Edit → Undo /
 
 **Linux / Windows:** `⌘` is **Ctrl**, `⌥` is **Alt**, `⇧` is **Shift** (e.g. `⌥⌘L` = Ctrl+Alt+L); the menus show them that way.
 
+**Plugin on Linux:** while the Patchy window has the keyboard focus, the DAW's own shortcuts (e.g. Ctrl+O / Ctrl+N in Reaper) don't reach it — the web view keeps the keystrokes. Click the DAW's window first.
+
 | Shortcut | Action |
 |----------|--------|
 | `⌘N` | New graph (Standalone) |
@@ -883,4 +885,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.983 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.984 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

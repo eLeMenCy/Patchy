@@ -446,12 +446,12 @@ export function useNodeSettings (id: string) {
  * the node from the ReactFlow graph.
  */
 export function useNodeDelete (id: string) {
-  const { deleteElements } = useReactFlow();
-
+  // v0.0.985 — the backend only: deleteElements() also ran App's
+  // onBeforeDelete, which sent removeNode a second time → two undo steps
+  // (user: the × needed two undos). The graph push that follows redraws.
   const handleDelete = useCallback(() => {
     Bridge.removeNode(id);
-    deleteElements({ nodes: [{ id }] });
-  }, [id, deleteElements]);
+  }, [id]);
 
   return { handleDelete };
 }

@@ -1030,7 +1030,7 @@ function FlowCanvas() {
   };
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { setHint } = useContext(HintContext);
-  const { screenToFlowPosition, setViewport, getViewport, fitView, updateNode, getNodes, getEdges, deleteElements, getInternalNode } = useReactFlow();
+  const { screenToFlowPosition, setViewport, getViewport, fitView, updateNode, getNodes, getEdges, getInternalNode } = useReactFlow();
   const pendingDrop     = useRef<{ dropX: number; dropY: number } | null>(null);
   const knownNodeIds    = useRef<Set<string>>(new Set());
   const burgerBtnRef    = useRef<HTMLButtonElement>(null);
@@ -2860,8 +2860,7 @@ function FlowCanvas() {
                           shortcut="⌫"
                           enabled={hasSelection}
                           onClick={() => {
-                            selectedNodes.forEach(n => Bridge.removeNode(n.id));
-                            deleteElements({ nodes: selectedNodes.map(n => ({ id: n.id })) });
+                            selectedNodes.forEach(n => Bridge.removeNode(n.id));   // v0.0.985 — no deleteElements: it sent them twice (onBeforeDelete)
                             setShowFileMenu(false);
                           }}
                         />

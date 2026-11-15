@@ -85,6 +85,7 @@ struct NodeData
     int               nodeType        = 1;
     juce::String      paxName;        // empty = built-in, non-empty = dynamic Pax
     juce::String      selectedDeviceId;  // for nodeType 4 and 5
+    juce::String      selectedDeviceName;   // v0.0.986 — MIDI In / Out: the device's name, to find it again when its id changes (re-plug, another machine)
     juce::String      settingsJson;      // UI settings blob (JSON string)
     // User-given display name, 2026-09-25 — Phase 6 "universal, persistent
     // node rename". Separate from `label` on purpose: GenericNode.tsx derives

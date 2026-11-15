@@ -25,6 +25,9 @@ import type { RawWrap, RawWrapPin, PaxParamInfo } from './Bridge';
 import { HintContext } from './HintPanel';
 import { NodeHandle, NodeHeaderButton, EditableTitle, freqLabel, niceStep, readoutBoxStyle } from './NodeUtils';
 import ValueBox from './ValueBox';   // v0.0.943
+import { DeviceName, MiniWave, MiniMidi, MqttSend } from './WrapLive';   // v0.0.986
+import { parseRule, ruleSummary } from './MorpherCore';
+import { fromAdvanced, basicSentence } from './MorpherBasic';
 
 export const WRAP_ACCENT = 'var(--generic)';
 
@@ -74,12 +77,14 @@ export interface WrapActions {
 //   DMX / ArtNet Console: 0 Blackout
 export interface WrapBuiltin {
   nodeId:   string;
-  kind:     'player' | 'dmxConsole' | 'artNetConsole' | 'midiOut' | 'morpher' | 'midiPlayer' | 'keyboard';   // v0.0.956 + MIDI Keyboard (faders)   // v0.0.951 — + MIDI Out, Morpher; v0.0.954 MIDI File Player
+  kind:     'player' | 'dmxConsole' | 'artNetConsole' | 'midiOut' | 'morpher' | 'midiPlayer' | 'keyboard'
+          | 'midiIn' | 'audioIn' | 'audioOut' | 'audioMon' | 'midiMon' | 'mqttConsole';   // v0.0.986 — devices, monitors, MQTT Console   // v0.0.956 + MIDI Keyboard (faders)   // v0.0.951 — + MIDI Out, Morpher; v0.0.954 MIDI File Player
   name:     string;
   accent:   string;
   settings: Record<string, unknown>;   // the node's settingsJson, parsed
   disabled?: boolean;     // v0.0.951 — its ⏻ is off
   canDisable?: boolean;   // consoles have no ⏻
+  deviceId?: string;      // v0.0.986 — MIDI / Audio In / Out: the selected device
 }
 // v0.0.950 — a console also has 1-4 Faders (index 1-4), each on a channel of
 // your choice (◀ [ch] ▶), remembered in the console's settings ("wrapFaders")
@@ -96,8 +101,12 @@ export const controlsOf = (b: WrapBuiltin): string[] =>
   b.kind === 'player'  ? ['Transport', 'Level']
   : b.kind === 'midiPlayer' ? ['Transport']
   : b.kind === 'keyboard' ? fadersOfSettings (b.settings).map (faderLabel)   // v0.0.956 — its faders
-  : b.kind === 'midiOut' ? ['Channels']
-  : b.kind === 'morpher' ? []                       // its ⏻ (bypass) only, on its title
+  : b.kind === 'midiOut' ? ['Channels', 'Device']   // v0.0.986 — + Device (index 1: pins of 0 unchanged)
+  : b.kind === 'morpher' ? ['Rule']                 // v0.0.986 — its rule as a sentence (read-only); its ⏻ (bypass) on its title
+  : b.kind === 'midiIn' || b.kind === 'audioIn' || b.kind === 'audioOut' ? ['Device']   // v0.0.986
+  : b.kind === 'audioMon' ? ['Wave']
+  : b.kind === 'midiMon' ? ['MIDI']
+  : b.kind === 'mqttConsole' ? ['Send']
   : ['Blackout', ...fadersOf (b).map ((_, k) => `Fader ${k + 1}`)];
 /** v0.0.951 — pin index of a node's ⏻ (any node with a ⏻ in the panel) */
 export const POWER_PIN = -1;
@@ -430,6 +439,31 @@ function BuiltinControl ({ b, i, actions, playing, labelNode }: {
       </div>
     );
   }
+
+  // v0.0.986 — the selected device (read-only, red when missing)
+  if ((b.kind === 'midiOut' && i === 1) || b.kind === 'midiIn' || b.kind === 'audioIn' || b.kind === 'audioOut') {
+    const t = b.kind === 'midiIn' ? 1 : b.kind === 'midiOut' ? 2 : b.kind === 'audioIn' ? 3 : 4;
+    return <div style={row}>{label}<DeviceName nodeType={t} deviceId={b.deviceId} /></div>;
+  }
+  // v0.0.986 — Morpher: its rule as on the folded node (read-only)
+  if (b.kind === 'morpher') {
+    const rule = parseRule (JSON.stringify (b.settings));
+    const basic = rule.mode === 'basic' ? fromAdvanced (rule) : null;
+    const s = basic ? basicSentence (basic, rule.noteNames) : null;
+    return (
+      <div>{label}
+        <div style={{ fontSize: 9, color: 'var(--text-dim)', marginTop: 2, fontFamily: "'JetBrains Mono', monospace" }}>
+          {s ? `${s.inText} → ${s.outText}` : ruleSummary (rule)}
+        </div>
+      </div>
+    );
+  }
+  // v0.0.986 — monitors: a live view; MQTT Console: send a value
+  if (b.kind === 'audioMon') return <div>{label}<MiniWave nodeId={b.nodeId} paused={b.settings.paused === true} /></div>;
+  if (b.kind === 'midiMon')  return <div>{label}<MiniMidi nodeId={b.nodeId} paused={b.settings.paused === true} /></div>;
+  if (b.kind === 'mqttConsole')
+    return <div>{label}<MqttSend nodeId={b.nodeId} accent={b.accent}
+                                 topics={Array.isArray (b.settings.topicHistory) ? (b.settings.topicHistory as string[]) : []} /></div>;
 
   // v0.0.951 — MIDI Out: its channel filter (16 buttons; none = all channels)
   if (b.kind === 'midiOut') {
@@ -799,10 +833,10 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
             {[...pinned.map (e => ({ k: pinKey (e.q.nodeId, e.q.index), el: (() => { const { q, x, p } = e;
               const def = `${pairRole (x, q.index) ? pairLabel (p) : p.name} · ${x.name}`;
               return (
-                <div key={pinKey (q.nodeId, q.index)} style={{ padding: '3px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div key={pinKey (q.nodeId, q.index)} style={{ padding: '3px 0', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
                   <span onClick={() => togglePin (q.nodeId, q.index)}
                     {...hint ('Unpin', 'Takes this control off the box (it stays in the ⚙ panel). Undoable.')}
-                    style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0, color: WRAP_ACCENT }}>
+                    style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0, color: WRAP_ACCENT, marginTop: 1 }}>
                     <Pin size={10} fill="currentColor" />
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -820,10 +854,10 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
               ...pinnedB.map (({ q, b }) => {
                 const def = `${controlsOf (b)[q.index]} · ${b.name}`;
                 return { k: pinKey (q.nodeId, q.index), el: (
-                  <div key={pinKey (q.nodeId, q.index)} style={{ padding: '3px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div key={pinKey (q.nodeId, q.index)} style={{ padding: '3px 0', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
                     <span onClick={() => togglePin (q.nodeId, q.index)}
                       {...hint ('Unpin', 'Takes this control off the box (it stays in the ⚙ panel). Undoable.')}
-                      style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0, color: WRAP_ACCENT }}>
+                      style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0, color: WRAP_ACCENT, marginTop: 1 }}>
                       <Pin size={10} fill="currentColor" />
                     </span>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -841,10 +875,10 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
               ...pinnedP.map (({ q, nd }) => {
                 const def = nd.name;
                 return { k: pinKey (q.nodeId, q.index), el: (
-                  <div key={pinKey (q.nodeId, q.index)} style={{ padding: '3px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div key={pinKey (q.nodeId, q.index)} style={{ padding: '3px 0', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
                     <span onClick={() => togglePin (q.nodeId, q.index)}
                       {...hint ('Unpin', 'Takes this ⏻ off the box (it stays in the ⚙ panel). Undoable.')}
-                      style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0, color: WRAP_ACCENT }}>
+                      style={{ cursor: 'pointer', display: 'inline-flex', flexShrink: 0, color: WRAP_ACCENT, marginTop: 1 }}>
                       <Pin size={10} fill="currentColor" />
                     </span>
                     <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
@@ -889,7 +923,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
                 };
                 return (
                   <div key={e.k} ref={el => { rowRefs.current[idx] = el; }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 3, position: 'relative',
+                    style={{ display: 'flex', alignItems: 'flex-start', gap: 3, position: 'relative',   // v0.0.986 — ⋮⋮ at the top (user: centred on a tall control, e.g. MIDI events, it was confusing)
                              transform: `translateY(${ty}px)`,
                              transition: grabbed || ! drag ? 'none' : 'transform 150ms ease',
                              zIndex: grabbed ? 5 : 'auto',
@@ -898,7 +932,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
                     <span onPointerDown={onGrip}
                       {...hint ('Move', 'Drag to change this control\'s place on the box — the others make room. Undoable.')}
                       style={{ cursor: grabbed ? 'grabbing' : 'grab', color: grabbed ? WRAP_ACCENT : 'var(--text-dim)', fontSize: 12,
-                               lineHeight: 1, padding: '0 2px', userSelect: 'none', touchAction: 'none' }}>⋮⋮</span>
+                               lineHeight: 1, padding: '3px 2px 0', userSelect: 'none', touchAction: 'none' }}>⋮⋮</span>
                     <div style={{ flex: 1, minWidth: 0 }}>{e.el}</div>
                   </div>
                 );

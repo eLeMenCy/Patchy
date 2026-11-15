@@ -404,6 +404,7 @@ bool PatchyProcessor::triggerPanic()
 
 void PatchyProcessor::rebuildProcessingGraph()
 {
+    rebindMidiDevicesByName();   // v0.0.986 — ids that changed (re-plug, another machine): found again by name before the selections are applied
 
     // Pre-create monitor buffers for type-5 (MIDI) and type-6 (Audio) nodes.
     auto snapshot = graphModel.toVar();
@@ -1051,6 +1052,7 @@ void PatchyProcessor::setStateInformation (const void* data, int sizeInBytes)
             (float) nd->getProperty ("y"),
             paxName, portSpec);
         restoredNode.selectedDeviceId = nd->getProperty ("selectedDeviceId").toString();
+        restoredNode.selectedDeviceName = nd->getProperty ("selectedDeviceName").toString();   // v0.0.986
         restoredNode.settingsJson     = nd->getProperty ("settingsJson").toString();
         restoredNode.disabled         = (bool) nd->getProperty ("disabled");
         // Phase 6 rename fix, 2026-09-25 — this is the file-open / plugin-

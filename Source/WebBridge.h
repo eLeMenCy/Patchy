@@ -211,6 +211,7 @@ public:
     std::function<void(bool)> onSetPaxAutoScan;   // Preferences: false = manual rescan
     std::function<void()>     onPaxRescan;
     std::function<juce::StringArray()> getOwnVirtualMidiPorts;   // v0.0.960 — left out of the MIDI device lists
+    std::function<bool()> onRebindMidiDevices;   // v0.0.986 — a MIDI device back under a new id: true when a node was rebound
     std::function<juce::String()>      getTrackName;             // v0.0.960 — the DAW track (empty in the Standalone)
     void refreshMidiDevices() { pushMidiDevices(); }              // v0.0.960 — after a virtual port appears / goes
     // v0.0.960 — the system's MIDI device list changed (another Patchy's

@@ -378,9 +378,12 @@ function wrapBuiltinsOf (p: RawWrap, nodes: Node<any>[]): WrapBuiltin[] {
   const ids = new Set(p.nodeIds);
   const kindOf = (t: number): WrapBuiltin['kind'] | null =>
     t === 26 ? 'player' : t === 17 ? 'dmxConsole' : t === 19 ? 'artNetConsole'
-    : t === 2 ? 'midiOut' : t === 28 ? 'morpher' : t === 29 ? 'midiPlayer' : t === 7 ? 'keyboard' : null;   // v0.0.956 + Keyboard faders   // v0.0.951 — + MIDI Out, Morpher (its ⏻); v0.0.954 MIDI File Player
+    : t === 2 ? 'midiOut' : t === 28 ? 'morpher' : t === 29 ? 'midiPlayer' : t === 7 ? 'keyboard'
+    : t === 1 ? 'midiIn' : t === 3 ? 'audioIn' : t === 4 ? 'audioOut' : t === 6 ? 'audioMon' : t === 5 ? 'midiMon' : t === 25 ? 'mqttConsole'   // v0.0.986
+    : null;   // v0.0.956 + Keyboard faders   // v0.0.951 — + MIDI Out, Morpher (its ⏻); v0.0.954 MIDI File Player
   const accentOf: Record<WrapBuiltin['kind'], string> = { player: 'var(--audio)', dmxConsole: 'var(--dmx)', artNetConsole: 'var(--artnet)',
-                                                          midiOut: 'var(--midi)', morpher: 'var(--midi)', midiPlayer: 'var(--midi)', keyboard: 'var(--midi)' };
+                                                          midiOut: 'var(--midi)', morpher: 'var(--midi)', midiPlayer: 'var(--midi)', keyboard: 'var(--midi)',
+                                                          midiIn: 'var(--midi)', audioIn: 'var(--audio)', audioOut: 'var(--audio)', audioMon: 'var(--audio)', midiMon: 'var(--midi)', mqttConsole: 'var(--mqtt)' };
   return nodes
     .filter(n => ids.has(n.id) && kindOf(n.data?.nodeType) !== null)
     .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x)
@@ -389,7 +392,7 @@ function wrapBuiltinsOf (p: RawWrap, nodes: Node<any>[]): WrapBuiltin[] {
       let settings: Record<string, unknown> = {};
       try { settings = n.data.settingsJson ? JSON.parse(n.data.settingsJson as string) : {}; } catch { /* keep {} */ }
       return { nodeId: n.id, kind, accent: accentOf[kind], settings,
-               disabled: !!n.data.disabled, canDisable: canDisable(n),
+               disabled: !!n.data.disabled, canDisable: canDisable(n), deviceId: n.data.selectedDeviceId as string | undefined,
                name: (n.data.customName as string) || (settings.customName as string) || (n.data.label as string) || kind };
     })
     .filter(b => b.kind !== 'keyboard' || fadersOfSettings(b.settings).length > 0);   // v0.0.956 — a Keyboard shows only with faders

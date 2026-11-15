@@ -136,6 +136,7 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
     // v0.0.958 — Pax folder: autoscan on / off (Preferences), "Rescan Pax now"
     bridge.onSetPaxAutoScan = [&p](bool on) { p.setPaxAutoScan (on); };
     bridge.getOwnVirtualMidiPorts = [&p]() { return p.getOwnVirtualMidiPorts(); };   // v0.0.960
+    bridge.onRebindMidiDevices    = [&p]() { return p.applyMidiDeviceRebind(); };    // v0.0.986
     bridge.getTrackName           = [&p]() { return p.getTrackName(); };
     bridge.onPaxRescan      = [&p]() { p.rescanPaxNow(); };
     // MidiFilePlayerNode (v0.0.954) — all live, on the shared MidiFilePlayerState

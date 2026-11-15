@@ -181,10 +181,65 @@ public:
 
         // Persist in the model for save/restore
         if (auto* node = graphModel.findNode (nodeId))
+        {
             node->selectedDeviceId = deviceId;
+            // v0.0.986 — and its name, to find it again if its id changes
+            node->selectedDeviceName = {};
+            for (const auto& d : node->nodeType == 1 ? juce::MidiInput::getAvailableDevices() : juce::MidiOutput::getAvailableDevices())
+                if (d.identifier == deviceId) { node->selectedDeviceName = d.name; break; }
+        }
 
         syncVirtualMidiPorts (processingGraph);   // v0.0.960
         if (pendingGraph != nullptr) syncVirtualMidiPorts (*pendingGraph);
+    }
+
+    // ── v0.0.986 — MIDI devices found again by name ─────────────────────────
+    /** A MIDI device's id can change (macOS gives a re-plugged device — or a
+        virtual cable — a new CoreMIDI id; another machine has other ids): a
+        MIDI In / Out node whose id isn't listed takes the listed device of the
+        same name. Model only; returns the nodes that changed. Also fills in the
+        name for nodes saved before v0.0.986 (their id still listed). */
+    juce::StringArray rebindMidiDevicesByName()
+    {
+        const auto ins  = juce::MidiInput::getAvailableDevices();
+        const auto outs = juce::MidiOutput::getAvailableDevices();
+        juce::StringArray ids, changed;
+        for (const auto& n : graphModel.getNodes())
+            if (n.nodeType == 1 || n.nodeType == 2) ids.add (n.id);
+        for (const auto& id : ids)
+        {
+            auto* n = graphModel.findNode (id);
+            if (n == nullptr) continue;
+            const juce::String cur = n->selectedDeviceId;
+            if (cur.isEmpty() || cur == "DAW" || cur.startsWith ("virtual")) continue;
+            const auto& list = n->nodeType == 1 ? ins : outs;
+            const juce::MidiDeviceInfo* byId = nullptr;
+            const juce::MidiDeviceInfo* byName = nullptr;
+            for (const auto& d : list)
+            {
+                if (d.identifier == cur) byId = &d;
+                if (byName == nullptr && n->selectedDeviceName.isNotEmpty() && d.name == n->selectedDeviceName) byName = &d;
+            }
+            if (byId != nullptr) { n->selectedDeviceName = byId->name; continue; }
+            if (byName != nullptr)
+            {
+                juce::Logger::writeToLog ("MIDI device \"" + byName->name + "\" found again under a new id (" + cur + " -> " + byName->identifier + ")");
+                n->selectedDeviceId = byName->identifier;
+                changed.add (id);
+            }
+        }
+        return changed;
+    }
+
+    /** Hot-plug (WebBridge's device-list callback, message thread): rebinds and
+        reopens the nodes concerned. True when any node changed. */
+    bool applyMidiDeviceRebind()
+    {
+        const auto changed = rebindMidiDevicesByName();
+        for (const auto& id : changed)
+            if (auto* n = graphModel.findNode (id))
+                setMidiDevice (id, n->selectedDeviceId);
+        return ! changed.isEmpty();
     }
 
     // ── v0.0.960 — virtual MIDI ports (see VirtualMidiPorts.h) ─────────────

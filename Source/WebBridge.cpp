@@ -146,8 +146,18 @@ WebBridge::WebBridge (GraphModel& model, PaxRegistry* reg,
     graph.onEdited = [this]
     {
         if (prevOnEdited) prevOnEdited();
-        if (isStandalone && juce::Time::getMillisecondCounter() >= trackEditsFrom)
-            setUnsaved (true);
+        // v0.0.986 — an untitled graph emptied of all its nodes has nothing to
+        // save: no ●, no "Save?" on New / Open / Quit (user, 2026-11-15). A file
+        // emptied still counts (its saved version has nodes).
+        if (! isStandalone || juce::Time::getMillisecondCounter() < trackEditsFrom) return;
+        setUnsaved (true);
+        // The hook fires as the undo snapshot is taken — before the change
+        // itself (a node deleted is still there): look again once it's done.
+        juce::MessageManager::callAsync ([this, sp = juce::Component::SafePointer<WebBridge> (this)]
+        {
+            if (sp != nullptr && ! currentFile.existsAsFile() && graph.getNodes().empty())
+                setUnsaved (false);
+        });
     };
 #if HAS_BUNDLED_UI
     // ── Open the bundled zip ──────────────────────────────────────────────

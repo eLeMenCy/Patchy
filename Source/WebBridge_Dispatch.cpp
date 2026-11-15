@@ -176,9 +176,15 @@ void WebBridge::handleReady ()
     juce::Logger::writeToLog ("WebBridge: UI ready.");
     pushPaxList();
     if (! wasConnected)   // v0.0.960 — follow the system's MIDI device list from now on
-        midiDeviceListConnection = juce::MidiDeviceListConnection::make ([this] { if (connected) pushMidiDevices(); });
+        midiDeviceListConnection = juce::MidiDeviceListConnection::make ([this]
+        {
+            if (! connected) return;
+            if (onRebindMidiDevices && onRebindMidiDevices()) pushGraphToUI();   // v0.0.986 — re-plugged under a new id
+            pushMidiDevices();
+        });
     pushWrapLibrary();   // v0.0.938
     pushFileState();
+    if (onRebindMidiDevices && onRebindMidiDevices()) pushGraphToUI();   // v0.0.986 — e.g. re-plugged while the plugin's window was closed
     pushMidiDevices();
     pushAudioDevices();
     pushStartupFadeDevices();

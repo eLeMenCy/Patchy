@@ -539,6 +539,7 @@ juce::var GraphModel::toVar() const
         obj->setProperty ("nodeType",   n.nodeType);
         obj->setProperty ("paxName",        n.paxName);
         obj->setProperty ("selectedDeviceId", n.selectedDeviceId);
+        if (n.selectedDeviceName.isNotEmpty()) obj->setProperty ("selectedDeviceName", n.selectedDeviceName);   // v0.0.986
         obj->setProperty ("settingsJson",     n.settingsJson);
         obj->setProperty ("customName",       n.customName);   // Phase 6 rename, 2026-09-25
         obj->setProperty ("disabled",         n.disabled);
@@ -862,6 +863,7 @@ void GraphModel::restoreSnapshot (const juce::var& snapshot)
 
             // Always restore selectedDeviceId — empty string means "no device"
             nd.selectedDeviceId = nObj->getProperty ("selectedDeviceId").toString();
+            nd.selectedDeviceName = nObj->getProperty ("selectedDeviceName").toString();   // v0.0.986
 
             nd.settingsJson = nObj->getProperty ("settingsJson").toString();
             nd.disabled     = (bool) nObj->getProperty ("disabled");

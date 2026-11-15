@@ -159,6 +159,7 @@ void WebBridge::commitFragment (const juce::DynamicObject& frag, float dx, float
         auto& nd = graph.restoreNode (savedId, nodeType, x, y, paxName, spec);
         juce::String devId = nObj->getProperty ("selectedDeviceId").toString();
         if (devId.isNotEmpty()) nd.selectedDeviceId = devId;
+        nd.selectedDeviceName = nObj->getProperty ("selectedDeviceName").toString();   // v0.0.986
         juce::String settings = nObj->getProperty ("settingsJson").toString();
         if (settings.isNotEmpty()) nd.settingsJson = settings;
         juce::String label = nObj->getProperty ("label").toString();

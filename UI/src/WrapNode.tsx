@@ -25,7 +25,7 @@ import type { RawWrap, RawWrapPin, PaxParamInfo } from './Bridge';
 import { HintContext } from './HintPanel';
 import { NodeHandle, NodeHeaderButton, EditableTitle, freqLabel, niceStep, readoutBoxStyle } from './NodeUtils';
 import ValueBox from './ValueBox';   // v0.0.943
-import { DeviceName, MiniWave, MiniMidi, MqttSend } from './WrapLive';   // v0.0.986
+import { DeviceName, MiniWave, MiniMidi, MqttSend, NetStatus, MiniLog, MiniLevels, matrixText } from './WrapLive';   // v0.0.986 / 987
 import { parseRule, ruleSummary } from './MorpherCore';
 import { fromAdvanced, basicSentence } from './MorpherBasic';
 
@@ -78,13 +78,15 @@ export interface WrapActions {
 export interface WrapBuiltin {
   nodeId:   string;
   kind:     'player' | 'dmxConsole' | 'artNetConsole' | 'midiOut' | 'morpher' | 'midiPlayer' | 'keyboard'
-          | 'midiIn' | 'audioIn' | 'audioOut' | 'audioMon' | 'midiMon' | 'mqttConsole';   // v0.0.986 — devices, monitors, MQTT Console   // v0.0.956 + MIDI Keyboard (faders)   // v0.0.951 — + MIDI Out, Morpher; v0.0.954 MIDI File Player
+          | 'midiIn' | 'audioIn' | 'audioOut' | 'audioMon' | 'midiMon' | 'mqttConsole'   // v0.0.986 — devices, monitors, MQTT Console
+          | 'net' | 'logMon' | 'dmxMon' | 'matrix';   // v0.0.987 — UDP / OSC / Art-Net / DMX / MQTT devices, their monitors, MIDI CH. Matrix   // v0.0.956 + MIDI Keyboard (faders)   // v0.0.951 — + MIDI Out, Morpher; v0.0.954 MIDI File Player
   name:     string;
   accent:   string;
   settings: Record<string, unknown>;   // the node's settingsJson, parsed
   disabled?: boolean;     // v0.0.951 — its ⏻ is off
   canDisable?: boolean;   // consoles have no ⏻
   deviceId?: string;      // v0.0.986 — MIDI / Audio In / Out: the selected device
+  nodeType?: number;      // v0.0.987 — 'net' / 'logMon' / 'dmxMon': which node exactly
 }
 // v0.0.950 — a console also has 1-4 Faders (index 1-4), each on a channel of
 // your choice (◀ [ch] ▶), remembered in the console's settings ("wrapFaders")
@@ -107,6 +109,11 @@ export const controlsOf = (b: WrapBuiltin): string[] =>
   : b.kind === 'audioMon' ? ['Wave']
   : b.kind === 'midiMon' ? ['MIDI']
   : b.kind === 'mqttConsole' ? ['Send']
+  : b.kind === 'net' ? [b.nodeType === 14 || b.nodeType === 15 ? 'Port' : b.nodeType === 22 || b.nodeType === 23 ? 'Broker'
+                       : (b.nodeType ?? 0) % 2 === 0 ? 'Listening' : 'Target']   // v0.0.987 — In types are even (8, 10, 12, 14)
+  : b.kind === 'logMon' ? ['Messages']
+  : b.kind === 'dmxMon' ? ['Levels']
+  : b.kind === 'matrix' ? ['Mapping']
   : ['Blackout', ...fadersOf (b).map ((_, k) => `Fader ${k + 1}`)];
 /** v0.0.951 — pin index of a node's ⏻ (any node with a ⏻ in the panel) */
 export const POWER_PIN = -1;
@@ -461,6 +468,20 @@ function BuiltinControl ({ b, i, actions, playing, labelNode }: {
   // v0.0.986 — monitors: a live view; MQTT Console: send a value
   if (b.kind === 'audioMon') return <div>{label}<MiniWave nodeId={b.nodeId} paused={b.settings.paused === true} /></div>;
   if (b.kind === 'midiMon')  return <div>{label}<MiniMidi nodeId={b.nodeId} paused={b.settings.paused === true} /></div>;
+  // v0.0.987 — the other built-in nodes (read-only)
+  if (b.kind === 'net') return <div style={row}>{label}<NetStatus nodeId={b.nodeId} nodeType={b.nodeType ?? 0} settings={b.settings} /></div>;
+  if (b.kind === 'logMon') return <div>{label}<MiniLog nodeId={b.nodeId} nodeType={b.nodeType ?? 0} paused={b.settings.paused === true} /></div>;
+  if (b.kind === 'dmxMon') {
+    const count = typeof b.settings.visibleCount === 'number' ? b.settings.visibleCount : 8;
+    const start = typeof b.settings.startChannel === 'number' ? b.settings.startChannel : 0;
+    return <div>{label}<MiniLevels nodeId={b.nodeId} artNet={b.nodeType === 18} start={start} count={count} accent={b.accent} /></div>;
+  }
+  if (b.kind === 'matrix')
+    return (
+      <div>{label}
+        <div style={{ fontSize: 9, color: 'var(--text-dim)', marginTop: 2, fontFamily: "'JetBrains Mono', monospace" }}>{matrixText (b.settings)}</div>
+      </div>
+    );
   if (b.kind === 'mqttConsole')
     return <div>{label}<MqttSend nodeId={b.nodeId} accent={b.accent}
                                  topics={Array.isArray (b.settings.topicHistory) ? (b.settings.topicHistory as string[]) : []} /></div>;
@@ -661,8 +682,8 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
   };
   // pinned ⏻s: any node of the wrap that's in the panel and has one
   const powerNodes = [
-    ...pax.map (x => ({ nodeId: x.nodeId, name: x.name, disabled: !! x.disabled })),
-    ...builtins.filter (b => b.canDisable).map (b => ({ nodeId: b.nodeId, name: b.name, disabled: !! b.disabled })),
+    ...pax.map (x => ({ nodeId: x.nodeId, name: x.name, disabled: !! x.disabled, accent: x.accent })),
+    ...builtins.filter (b => b.canDisable).map (b => ({ nodeId: b.nodeId, name: b.name, disabled: !! b.disabled, accent: b.accent })),
   ];
   const pinnedP = pins.flatMap (q => {
     if (q.index !== POWER_PIN) return [];
@@ -830,7 +851,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
         {(pinned.length > 0 || pinnedB.length > 0 || pinnedP.length > 0) && ! showSettings && (
           <div className="nodrag" onDoubleClick={e => e.stopPropagation()}
             style={{ marginTop: ports.length > 0 ? 6 : 0, paddingTop: 4, borderTop: '1px dashed var(--border)', minWidth: 220 }}>
-            {[...pinned.map (e => ({ k: pinKey (e.q.nodeId, e.q.index), el: (() => { const { q, x, p } = e;
+            {[...pinned.map (e => ({ k: pinKey (e.q.nodeId, e.q.index), off: !! e.x.disabled, el: (() => { const { q, x, p } = e;
               const def = `${pairRole (x, q.index) ? pairLabel (p) : p.name} · ${x.name}`;
               return (
                 <div key={pinKey (q.nodeId, q.index)} style={{ padding: '3px 0', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
@@ -845,7 +866,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
                     labelNode={
                       <EditableTitle display={q.label || def} value={q.label} placeholder={def}
                         onCommit={name => renamePin (q.nodeId, q.index, name)}
-                        textStyle={{ fontSize: 9, color: p.readOnly ? x.liveColour : 'var(--text-muted)', letterSpacing: '0.04em' }} />
+                        textStyle={{ fontSize: 9, color: p.readOnly ? x.liveColour : x.accent, letterSpacing: '0.04em' }} />
                     } />
                   </div>
                 </div>
@@ -853,7 +874,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
               // v0.0.949 — pinned built-in controls
               ...pinnedB.map (({ q, b }) => {
                 const def = `${controlsOf (b)[q.index]} · ${b.name}`;
-                return { k: pinKey (q.nodeId, q.index), el: (
+                return { k: pinKey (q.nodeId, q.index), off: !! b.disabled, el: (
                   <div key={pinKey (q.nodeId, q.index)} style={{ padding: '3px 0', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
                     <span onClick={() => togglePin (q.nodeId, q.index)}
                       {...hint ('Unpin', 'Takes this control off the box (it stays in the ⚙ panel). Undoable.')}
@@ -865,7 +886,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
                         labelNode={
                           <EditableTitle display={q.label || def} value={q.label} placeholder={def}
                             onCommit={name => renamePin (q.nodeId, q.index, name)}
-                            textStyle={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.04em' }} />
+                            textStyle={{ fontSize: 9, color: b.accent, letterSpacing: '0.04em' }} />
                         } />
                     </div>
                   </div>
@@ -874,7 +895,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
               // v0.0.951 — pinned ⏻s
               ...pinnedP.map (({ q, nd }) => {
                 const def = nd.name;
-                return { k: pinKey (q.nodeId, q.index), el: (
+                return { k: pinKey (q.nodeId, q.index), off: false, el: (
                   <div key={pinKey (q.nodeId, q.index)} style={{ padding: '3px 0', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
                     <span onClick={() => togglePin (q.nodeId, q.index)}
                       {...hint ('Unpin', 'Takes this ⏻ off the box (it stays in the ⚙ panel). Undoable.')}
@@ -884,7 +905,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
                     <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                       <EditableTitle display={q.label || def} value={q.label} placeholder={def}
                         onCommit={name => renamePin (q.nodeId, q.index, name)}
-                        textStyle={{ fontSize: 9, color: nd.disabled ? 'var(--text-muted)' : 'var(--text-dim)', letterSpacing: '0.04em' }} />
+                        textStyle={{ fontSize: 9, color: nd.disabled ? 'var(--text-muted)' : nd.accent, letterSpacing: '0.04em' }} />
                       <PowerToggle disabled={nd.disabled} name={nd.name} size={12} onToggle={() => actions.setDisabled (nd.nodeId, ! nd.disabled)} />
                     </div>
                   </div>
@@ -933,7 +954,8 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
                       {...hint ('Move', 'Drag to change this control\'s place on the box — the others make room. Undoable.')}
                       style={{ cursor: grabbed ? 'grabbing' : 'grab', color: grabbed ? WRAP_ACCENT : 'var(--text-dim)', fontSize: 12,
                                lineHeight: 1, padding: '3px 2px 0', userSelect: 'none', touchAction: 'none' }}>⋮⋮</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>{e.el}</div>
+                    {/* v0.0.987 — a node switched off: all its pinned controls grey (its ⏻ row stays usable) */}
+                    <div style={{ flex: 1, minWidth: 0, ...(e.off ? { filter: 'grayscale(1)', opacity: 0.45 } : {}) }}>{e.el}</div>
                   </div>
                 );
               })}

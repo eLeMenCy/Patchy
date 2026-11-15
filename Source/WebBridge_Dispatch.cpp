@@ -631,21 +631,25 @@ void WebBridge::handleSetNodeParam (const juce::DynamicObject* obj)
     else if (key == "midiChMatrixCell" && onSetMidiChMatrixCell)
     {
         handleSetNodeParam_MidiChMatrixCell (nodeId, value);
+        pushGraphToUI();   // v0.0.987 — the UI's copy must follow, or a node re-mounted (a wrap folded / re-opened) shows its old cells
         return;
     }
     else if (key == "midiChMatrixGridSize" && onSetMidiChMatrixGridSize)
     {
         onSetMidiChMatrixGridSize (nodeId, value.getIntValue());
+        pushGraphToUI();   // v0.0.987 — see midiChMatrixCell
         return;
     }
     else if (key == "midiChMatrixDropUnmapped" && onSetMidiChMatrixDropUnmapped)
     {
         onSetMidiChMatrixDropUnmapped (nodeId, value == "1" || value == "true");
+        pushGraphToUI();   // v0.0.987
         return;
     }
     else if (key == "midiChMatrixReset" && onMidiChMatrixReset)
     {
         onMidiChMatrixReset (nodeId);
+        pushGraphToUI();   // v0.0.987
         return;
     }
     else if (key == "midiOutChannelFilter" && onSetMidiOutDeviceChannelFilter)

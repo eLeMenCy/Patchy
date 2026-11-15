@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.986
+> Version 0.0.987
 
 [![Build](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml/badge.svg?branch=dev)](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml)
 
@@ -515,7 +515,7 @@ Several nodes shown as one box, to tidy a busy canvas. A wrap is display and pro
 - **The box's ports** are the connections crossing its border when it was wrapped or folded, plus any made since; each shows the port name and the node it belongs to. Connecting to one connects to that inner port. Signal flashes and VU show on the box as on the nodes inside.
 - **Open in place** — the ⤢ button or double-click the box: the nodes come back where they are, inside a dashed frame; fold them back with the frame's ⤡ button. Moving the box moves its nodes; drag the frame by its title bar to move them all.
 - **The open frame's ports** — the frame shows the same ports as the folded box (inputs on its left edge, outputs on its right, labelled, ordered by their node from top to bottom, each side centred on the frame's height — the folded box keeps them at the top): wires from outside stop at the frame, and continue inside to their node — far less spaghetti. Both halves flash with the signal; connecting to a frame port connects to the inner port; a port with nothing connected outside keeps its inside part (dimmed). The frame's sides leave room for the labels, and the box and the frame list the ports in the same order.
-- **Pax controls** — the box shows a summary of the values of the Pax inside — live read-only values first, in the colour of their Pax's output wires (*● Current Value 0.786*; when several Pax share a name, the node's name is shown instead: *● OSC TO VALUE 0.5*), then the settings (*Min 0.00 · Max 1.00*), up to two lines — hover it to see all of them, live, right there (and in the hint panel); its ⚙ opens a panel with every Pax parameter inside, grouped by node — the same sliders / switches as on the nodes, one undo step per change. Every Pax is listed, the bespoke ones (Spectrumyser, Envelope, Audio→DMX, Audio Peak→OSC, Channel Filter) included — with their mode buttons (Amp / Band, RMS / Freq…) and their Low/High bands as one two-head slider within the node's zoom range (shown only in Band / Freq mode; Spectrumyser: only the bands in use). **Built-in nodes** are listed too, each with its ⏻ where it has one: Audio Player and MIDI File Player (transport, level), DMX / Art-Net Console (blackout, 1–4 faders on a channel of your choice), MIDI Keyboard (its faders), MIDI Out (channel filter), MIDI / Audio In / Out (the selected device, read-only — red when it's missing), MIDI Morpher (its rule as a sentence), Audio Monitor (a small live wave), MIDI Monitor (the last 3 events) and MQTT Console (pick a remembered topic, type a value, Send).
+- **Pax controls** — the box shows a summary of the values of the Pax inside — live read-only values first, in the colour of their Pax's output wires (*● Current Value 0.786*; when several Pax share a name, the node's name is shown instead: *● OSC TO VALUE 0.5*), then the settings (*Min 0.00 · Max 1.00*), up to two lines — hover it to see all of them, live, right there (and in the hint panel); its ⚙ opens a panel with every Pax parameter inside, grouped by node — the same sliders / switches as on the nodes, one undo step per change. Every Pax is listed, the bespoke ones (Spectrumyser, Envelope, Audio→DMX, Audio Peak→OSC, Channel Filter) included — with their mode buttons (Amp / Band, RMS / Freq…) and their Low/High bands as one two-head slider within the node's zoom range (shown only in Band / Freq mode; Spectrumyser: only the bands in use). **Built-in nodes** are listed too, each with its ⏻ where it has one: Audio Player and MIDI File Player (transport, level), DMX / Art-Net Console (blackout, 1–4 faders on a channel of your choice), MIDI Keyboard (its faders), MIDI Out (channel filter), MIDI / Audio In / Out (the selected device, read-only — red when it's missing), MIDI Morpher (its rule as a sentence), Audio Monitor (a small live wave), MIDI Monitor (the last 3 events), MQTT Console (pick a remembered topic, type a value, Send), and the UDP / OSC / Art-Net / DMX / MQTT devices, their monitors and MIDI CH. Matrix (see the table below).
 - **📌 Pins** — in the ⚙ panel, the pin next to a parameter puts that control on the folded box itself, ready to use (a live value shows as a large readout); hover its label and click the ✎ to rename it (e.g. *Drive* instead of *Level · AMP*), click its 📌 to unpin it. Pinned values leave the summary; while ⚙ is open the pinned controls hide (like the summary), so pinning never moves the list. Pin, unpin and rename are each one undo step and are saved with the project.
 
   **What can be pinned, node by node** (each listed in the ⚙ panel; ⏻ = its on / off switch can be pinned too):
@@ -534,8 +534,16 @@ Several nodes shown as one box, to tidy a busy canvas. A wrap is display and pro
   | Audio Player | Transport, Level | ✓ |
   | MIDI File Player | Transport | ✓ |
   | MIDI Morpher | Rule (its sentence, read-only) | ✓ (bypass) |
+  | UDP In / OSC In | Listening (port, mode; read-only) — red when the port is taken | ✓ |
+  | UDP Out / OSC Out | Target (host:port, mode / OSC address; read-only) | ✓ |
+  | Art-Net In / Out | Listening: universe — red when port 6454 is taken / Target: universe → host — red with no host | ✓ |
+  | DMX In / Out | Port (the serial port; read-only) — red when it's missing, in use or can't open | ✓ |
+  | MQTT Subscribe / Publish | Broker (host:port · topic; read-only) | ✓ |
+  | OSC / UDP / MQTT Monitor | Messages (the last 3) | — |
+  | DMX / Art-Net Monitor | Levels (the channels the node shows, as small bars) | — |
+  | MIDI CH. Matrix | Mapping (read-only, e.g. *1→2 · 3→3+4 · others dropped*) | ✓ |
 
-  The other built-in nodes (UDP / OSC / Art-Net / DMX / MQTT devices, the other monitors, MIDI CH. Matrix, …) have nothing to pin yet; their ⏻, where they have one, is on the node itself.
+  Every built-in node can now be listed in a wrap's ⚙ panel. (MQTT's connection state isn't shown in red yet: the UI doesn't get it.)
 - **Enter** — the → button on the folded box or the open frame, or `⌘↑` with a wrap (or a node in an open wrap) selected: the canvas shows **only this wrap's nodes**, its outside connections on two rails (left: from outside, right: to outside, labelled, flashing with the signal). Work as usual inside — a node dropped from the sidebar is created in the wrap. Back with **Main** in the breadcrumb at the top-left, `⌘↓` or `Esc`; the wrap stays folded or open as it was, and each view keeps its own zoom / position.
 - **Unwrap** — `⌘⇧G`, **☰ → Edit → Unwrap**, or the box / frame's unwrap button: the wrap goes, the nodes stay.
 - **✕** on the box deletes the wrap **and** its nodes (undoable).
@@ -904,4 +912,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.986 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.987 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

@@ -380,10 +380,13 @@ function wrapBuiltinsOf (p: RawWrap, nodes: Node<any>[]): WrapBuiltin[] {
     t === 26 ? 'player' : t === 17 ? 'dmxConsole' : t === 19 ? 'artNetConsole'
     : t === 2 ? 'midiOut' : t === 28 ? 'morpher' : t === 29 ? 'midiPlayer' : t === 7 ? 'keyboard'
     : t === 1 ? 'midiIn' : t === 3 ? 'audioIn' : t === 4 ? 'audioOut' : t === 6 ? 'audioMon' : t === 5 ? 'midiMon' : t === 25 ? 'mqttConsole'   // v0.0.986
+    : (t >= 8 && t <= 15) || t === 22 || t === 23 ? 'net' : t === 20 || t === 21 || t === 24 ? 'logMon'   // v0.0.987
+    : t === 16 || t === 18 ? 'dmxMon' : t === 27 ? 'matrix'
     : null;   // v0.0.956 + Keyboard faders   // v0.0.951 — + MIDI Out, Morpher (its ⏻); v0.0.954 MIDI File Player
   const accentOf: Record<WrapBuiltin['kind'], string> = { player: 'var(--audio)', dmxConsole: 'var(--dmx)', artNetConsole: 'var(--artnet)',
                                                           midiOut: 'var(--midi)', morpher: 'var(--midi)', midiPlayer: 'var(--midi)', keyboard: 'var(--midi)',
-                                                          midiIn: 'var(--midi)', audioIn: 'var(--audio)', audioOut: 'var(--audio)', audioMon: 'var(--audio)', midiMon: 'var(--midi)', mqttConsole: 'var(--mqtt)' };
+                                                          midiIn: 'var(--midi)', audioIn: 'var(--audio)', audioOut: 'var(--audio)', audioMon: 'var(--audio)', midiMon: 'var(--midi)', mqttConsole: 'var(--mqtt)',
+                                                          net: 'var(--udp)', logMon: 'var(--osc)', dmxMon: 'var(--dmx)', matrix: 'var(--midi)' };
   return nodes
     .filter(n => ids.has(n.id) && kindOf(n.data?.nodeType) !== null)
     .sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x)
@@ -391,8 +394,13 @@ function wrapBuiltinsOf (p: RawWrap, nodes: Node<any>[]): WrapBuiltin[] {
       const kind = kindOf(n.data.nodeType)!;
       let settings: Record<string, unknown> = {};
       try { settings = n.data.settingsJson ? JSON.parse(n.data.settingsJson as string) : {}; } catch { /* keep {} */ }
-      return { nodeId: n.id, kind, accent: accentOf[kind], settings,
-               disabled: !!n.data.disabled, canDisable: canDisable(n), deviceId: n.data.selectedDeviceId as string | undefined,
+      const t = n.data.nodeType as number;
+      // v0.0.987 — the protocol's own colour for the network devices and monitors
+      const proto = t === 8 || t === 9 || t === 21 ? 'var(--udp)' : t === 10 || t === 11 || t === 20 ? 'var(--osc)'
+                  : t === 12 || t === 13 || t === 18 ? 'var(--artnet)' : t === 14 || t === 15 || t === 16 ? 'var(--dmx)'
+                  : t === 22 || t === 23 || t === 24 ? 'var(--mqtt)' : null;
+      return { nodeId: n.id, kind, accent: proto ?? accentOf[kind], settings,
+               disabled: !!n.data.disabled, canDisable: canDisable(n), deviceId: n.data.selectedDeviceId as string | undefined, nodeType: t,
                name: (n.data.customName as string) || (settings.customName as string) || (n.data.label as string) || kind };
     })
     .filter(b => b.kind !== 'keyboard' || fadersOfSettings(b.settings).length > 0);   // v0.0.956 — a Keyboard shows only with faders

@@ -304,6 +304,20 @@ public:
         return ! mk2 && inCount.load() > 0 && outCount.load() > 0;
     }
 
+    /** v0.0.988 — message thread (each node's retryOpenIfNeeded, ~30 Hz):
+     *  true once the interface is gone — a read or write failed, or (not on
+     *  Windows) its device file vanished from /dev. An unplugged Enttec used
+     *  to stay "open" and silent forever (user, 2026-11-15). The nodes then
+     *  let go of the port and retry the open quietly: a re-plug reconnects. */
+    bool checkLost()
+    {
+       #if ! JUCE_WINDOWS
+        if (! lost.load() && ! juce::File (devicePath).exists())
+            lost.store (true);
+       #endif
+        return lost.load();
+    }
+
 private:
     explicit DmxSharedPort (const juce::String& path);
     void run() override;   // reader thread
@@ -317,6 +331,8 @@ private:
     std::vector<InListener*> ins;
     std::atomic<int>         inCount  { 0 };
     std::atomic<int>         outCount { 0 };
+    std::atomic<bool>        lost     { false };   // v0.0.988 — see checkLost()
+
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DmxSharedPort)
 };
@@ -377,7 +393,7 @@ public:
         port = DmxSharedPort::acquire (devicePath, result);
         if (port == nullptr)
         {
-            if (openState.failed (result == DmxSharedPort::OpenResult::inUse ? 1 : 2))
+            if (openState.failed (lostDevice ? 4 : result == DmxSharedPort::OpenResult::inUse ? 1 : 2))   // v0.0.988 — 4: unplugged
                 juce::Logger::writeToLog ("DmxInDeviceNode: failed to open " + devicePath
                                           + (result == DmxSharedPort::OpenResult::inUse
                                                  ? " (in use by another application) — retrying quietly"
@@ -385,6 +401,8 @@ public:
             return;
         }
         openState.clear();
+        if (lostDevice) juce::Logger::writeToLog ("DMX: " + devicePath + " reconnected");   // v0.0.988
+        lostDevice = false;
         isMk2.store (port->isMk2(), std::memory_order_relaxed);
         port->addIn (this);
         juce::Logger::writeToLog ("DmxInDeviceNode: listening on " + devicePath);
@@ -393,6 +411,17 @@ public:
     // v0.0.916 — message thread (WebBridge activity timer). See PortBindState.h.
     void retryOpenIfNeeded()
     {
+        // v0.0.988 — the interface was unplugged: let go of it (the shared
+        // port closes once every node has) and retry quietly, as for a
+        // failed open; reported as 4 "disconnected" after 1 s.
+        if (port != nullptr && port->checkLost())
+        {
+            juce::Logger::writeToLog ("DMX: " + devicePath + " disconnected — retrying quietly");
+            closePort();
+            lostDevice = true;
+            openState.failed (4);
+            return;
+        }
         if (port == nullptr && openState.shouldRetry())
             openPort();
     }
@@ -519,6 +548,7 @@ private:
 
     std::shared_ptr<DmxSharedPort> port;        // v0.0.916 — message thread
     PortBindState                  openState;   // v0.0.916 — 1 = in use, 2 = can't open
+    bool                           lostDevice = false;   // v0.0.988 — unplugged while open: status 4 until it's back
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DmxInDeviceNode)
 };
@@ -572,7 +602,7 @@ public:
         port = DmxSharedPort::acquire (devicePath, result);
         if (port == nullptr)
         {
-            if (openState.failed (result == DmxSharedPort::OpenResult::inUse ? 1 : 2))
+            if (openState.failed (lostDevice ? 4 : result == DmxSharedPort::OpenResult::inUse ? 1 : 2))   // v0.0.988 — 4: unplugged
                 juce::Logger::writeToLog ("DmxOutDeviceNode: failed to open " + devicePath
                                           + (result == DmxSharedPort::OpenResult::inUse
                                                  ? " (in use by another application) — retrying quietly"
@@ -580,6 +610,8 @@ public:
             return;
         }
         openState.clear();
+        if (lostDevice) juce::Logger::writeToLog ("DMX: " + devicePath + " reconnected");   // v0.0.988
+        lostDevice = false;
         isMk2.store (port->isMk2(), std::memory_order_relaxed);
         port->addOut();
         juce::Logger::writeToLog ("DmxOutDeviceNode: sending on " + devicePath
@@ -590,6 +622,17 @@ public:
     // v0.0.916 — see DmxInDeviceNode's own retryOpenIfNeeded()/statusForUi().
     void retryOpenIfNeeded()
     {
+        // v0.0.988 — the interface was unplugged: let go of it (the shared
+        // port closes once every node has) and retry quietly, as for a
+        // failed open; reported as 4 "disconnected" after 1 s.
+        if (port != nullptr && port->checkLost())
+        {
+            juce::Logger::writeToLog ("DMX: " + devicePath + " disconnected — retrying quietly");
+            closePort();
+            lostDevice = true;
+            openState.failed (4);
+            return;
+        }
         if (port == nullptr && openState.shouldRetry())
             openPort();
     }
@@ -751,6 +794,7 @@ private:
 
     std::shared_ptr<DmxSharedPort> port;        // v0.0.916 — set/reset on the message thread while the writer thread is stopped
     PortBindState                  openState;   // v0.0.916 — 1 = in use, 2 = can't open
+    bool                           lostDevice = false;   // v0.0.988 — unplugged while open: status 4 until it's back
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DmxOutDeviceNode)
 };

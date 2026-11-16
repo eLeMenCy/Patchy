@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.987
+> Version 0.0.988
 
 [![Build](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml/badge.svg?branch=dev)](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml)
 
@@ -74,7 +74,7 @@
 - **DAW mode** — full bidirectional audio and MIDI routing between Patchy and your DAW track via a virtual "DAW" device; two AU variants (Patchy instrument, Patchy FX effect); keeps running when the host pauses (Logic) while its window is open, or always as a per-project option; resizable plugin window (size saved per project)
 - **Standalone mode** — full standalone app with its own audio device selection, window bounds persistence and last-folder memory; Open Recent and optional reopen-last-project at launch
 - **Audio devices that behave** — hardware Audio In/Out devices follow the host's sample rate and buffer size; the Standalone restores your buffer size if the system changes it behind its back; optional startup fade per Audio In device and an automatic short fade after a device dropout (no click when an interface restarts its stream); the Mac won't idle-sleep while an audio device is open
-- **Port-in-use and device status** — UDP / OSC / Art-Net In nodes show when their port is taken by another app (red summary + cog dot, retried automatically); DMX In/Out show "in use", "can't open" and half-duplex conflicts; DMX / Art-Net Monitors show NO SIGNAL when input stops; several Art-Net In nodes share one socket on port 6454
+- **Port-in-use and device status** — UDP / OSC / Art-Net In nodes show when their port is taken by another app (red summary + cog dot, retried automatically); DMX In/Out show "in use", "can't open", "disconnected" (an interface unplugged while in use — it reconnects by itself when plugged back in) and half-duplex conflicts; DMX / Art-Net Monitors show NO SIGNAL when input stops; several Art-Net In nodes share one socket on port 6454
 - **Sidebar** — pinned, or auto-hide (slides out at the left edge, away again 3 s after the cursor leaves, at once on a click in the graph; stays while a hint is showing)
 - **Log file** — `~/Library/Logs/Patchy/Patchy.log` (lifecycle, devices, diagnostics)
 - **DAW device protection** — DAW loopback and DAW host devices locked by default; unlockable via Preferences
@@ -537,7 +537,7 @@ Several nodes shown as one box, to tidy a busy canvas. A wrap is display and pro
   | UDP In / OSC In | Listening (port, mode; read-only) — red when the port is taken | ✓ |
   | UDP Out / OSC Out | Target (host:port, mode / OSC address; read-only) | ✓ |
   | Art-Net In / Out | Listening: universe — red when port 6454 is taken / Target: universe → host — red with no host | ✓ |
-  | DMX In / Out | Port (the serial port; read-only) — red when it's missing, in use or can't open | ✓ |
+  | DMX In / Out | Port (the serial port; read-only) — red when it's disconnected, in use or can't open | ✓ |
   | MQTT Subscribe / Publish | Broker (host:port · topic; read-only) | ✓ |
   | OSC / UDP / MQTT Monitor | Messages (the last 3) | — |
   | DMX / Art-Net Monitor | Levels (the channels the node shows, as small bars) | — |
@@ -912,4 +912,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.987 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.988 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

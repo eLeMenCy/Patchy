@@ -249,7 +249,8 @@ public:
         struct timeval tv { timeoutMs / 1000, (timeoutMs % 1000) * 1000 };
         int ready = select (fd_ + 1, &fds, nullptr, nullptr, &tv);
         if (ready <= 0) return ready;   // 0 = timeout, -1 = error
-        return (int) ::read (fd_, buf, (size_t) maxLen);
+        const int r = (int) ::read (fd_, buf, (size_t) maxLen);
+        return r == 0 ? -1 : r;          // v0.0.988 — readable but no bytes: the device hung up (unplugged)
 #elif defined(SERIALPORT_WINDOWS)
         DWORD bytesRead = 0;
         return ReadFile (handle_, buf, (DWORD) maxLen, &bytesRead, nullptr) ? (int) bytesRead : -1;

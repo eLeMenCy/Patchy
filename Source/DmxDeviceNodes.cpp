@@ -52,6 +52,11 @@ std::shared_ptr<DmxSharedPort> DmxSharedPort::acquire (const juce::String& devic
 
     if (auto existing = dmxRegistry[devicePath].lock())
     {
+        if (existing->lost.load())   // v0.0.988 — unplugged: never hand it out again; once its holders let go, a fresh open
+        {
+            result = OpenResult::failed;
+            return nullptr;
+        }
         result = OpenResult::ok;
         return existing;
     }
@@ -88,7 +93,9 @@ DmxSharedPort::~DmxSharedPort()
 int DmxSharedPort::writePacket (const uint8_t* data, int len)
 {
     std::lock_guard<std::mutex> g (writeLock);
-    return serial.write (data, len);
+    const int n = serial.write (data, len);
+    if (n < 0) lost.store (true);   // v0.0.988 — the interface is gone (see checkLost())
+    return n;
 }
 
 void DmxSharedPort::addIn (InListener* listener)
@@ -155,7 +162,8 @@ void DmxSharedPort::run()
 
         uint8_t tmp[64];
         const int n = serial.read (tmp, sizeof (tmp), 5);  // 5 ms timeout — DMX frame = 22 ms
-        if (n <= 0) continue;
+        if (n < 0) { lost.store (true); break; }   // v0.0.988 — unplugged (was: spun on the error forever)
+        if (n == 0) continue;
 
         {
             std::lock_guard<std::mutex> g (inLock);

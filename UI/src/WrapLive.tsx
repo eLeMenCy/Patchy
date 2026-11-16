@@ -161,18 +161,7 @@ export function MqttSend ({ nodeId, topics, accent }: { nodeId: string; topics: 
 // state isn't reported to the UI yet — no red there for now.
 // ═════════════════════════════════════════════════════════════════════════════
 
-const DMX_STATUS = ['', 'in use', "can't open", 'half-duplex conflict'];
-
-// v0.0.987 — an unplugged Enttec keeps its port "open" (status 0) and the
-// serial port list was only fetched on request: while a DMX port is shown
-// in a wrap, the list is re-fetched every 2 s (one shared poll), so a port
-// that vanished turns red (user, 2026-11-15).
-let serialPollers = 0;
-let serialPollTimer: ReturnType<typeof setInterval> | null = null;
-function watchSerialPorts (): () => void {
-  if (serialPollers++ === 0) { Bridge.listSerialPorts (); serialPollTimer = setInterval (() => Bridge.listSerialPorts (), 2000); }
-  return () => { if (--serialPollers === 0 && serialPollTimer) { clearInterval (serialPollTimer); serialPollTimer = null; } };
-}
+const DMX_STATUS = ['', 'in use', "can't open", 'half-duplex conflict', 'disconnected'];   // v0.0.988 — 4: the backend saw it unplugged
 const UDP_MODE   = ['Unicast', 'Multicast', 'Broadcast'];
 
 /** UDP / OSC / Art-Net / DMX / MQTT device nodes: what they listen on or send to. */
@@ -180,7 +169,6 @@ export function NetStatus ({ nodeId, nodeType, settings }: { nodeId: string; nod
   const s = settings as Record<string, any>;
   const [inUse, setInUse]   = useState (0);
   const [dmxSt, setDmxSt]   = useState (0);
-  const [ports, setPorts]   = useState<string[] | null> (null);
   const watchesPort = nodeType === 8 || nodeType === 10 || nodeType === 12;
   const isDmx       = nodeType === 14 || nodeType === 15;
   useEffect (() => {
@@ -192,11 +180,6 @@ export function NetStatus ({ nodeId, nodeType, settings }: { nodeId: string; nod
       setDmxSt (prev => prev === (e.dmxStatus ?? 0) ? prev : (e.dmxStatus ?? 0));
     });
   }, [nodeId, watchesPort, isDmx]);
-  useEffect (() => {
-    if (! isDmx) return;
-    const off = Bridge.onSerialPorts (setPorts), stop = watchSerialPorts ();
-    return () => { off (); stop (); };
-  }, [isDmx]);
 
   let text = '', red = '';
   switch (nodeType) {
@@ -210,8 +193,7 @@ export function NetStatus ({ nodeId, nodeType, settings }: { nodeId: string; nod
     case 14: case 15: {
       const path = String (s.dmxDevicePath ?? '');
       text = path ? path.split ('/').pop () ?? path : '— none —';
-      if (path && dmxSt > 0) red = DMX_STATUS[dmxSt] ?? 'error';
-      else if (path && ports !== null && ! ports.includes (path)) red = 'missing';
+      if (path && dmxSt > 0) red = DMX_STATUS[dmxSt] ?? 'error';   // v0.0.988 — the backend reports an unplugged port (4); 987's 2 s serial-list poll is gone (on Windows, listing opens the COM ports)
       break;
     }
     case 22: case 23:

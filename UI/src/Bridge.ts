@@ -1285,6 +1285,7 @@ export const Bridge = {
     sendToJuce({ type: 'wrapChange', changes, moves });
   },
   wrapSetPins(wrapId: string, pins: RawWrapPin[]) { sendToJuce({ type: 'wrapSetPins', wrapId, pins }); },   // pin / unpin / rename, undoable
+  wrapRemovePort(wrapId: string, handleId: string) { sendToJuce({ type: 'wrapRemovePort', wrapId, handleId }); },   // v0.0.989 — an unwired port, undoable
   wrapMove(wrapId: string, x: number, y: number) { sendToJuce({ type: 'wrapMove', wrapId, x, y }); },
   setViewport(x: number, y: number, zoom: number) {
     sendToJuce({ type: 'setViewport', x, y, zoom });

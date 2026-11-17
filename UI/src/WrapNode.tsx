@@ -37,6 +37,7 @@ export interface WrapPort {
   nodeName: string;          // the inner node it belongs to
   dir:      'in' | 'out';
   colour:   string;
+  wired?:   boolean;         // v0.0.989 — a wire from outside uses it now (else it can be removed by hand)
 }
 
 export interface WrapActions {
@@ -69,6 +70,7 @@ export interface WrapActions {
   midiOutChannels: (nodeId: string, channels: number[]) => void;
   setDisabled:     (nodeId: string, disabled: boolean) => void;
   wrapPower:       (wrapId: string) => void;
+  removePort:      (wrapId: string, handleId: string) => void;   // v0.0.989 — an unwired remembered port, by hand
 }
 
 // v0.0.949 — a built-in node inside the wrap with controls worth reaching
@@ -223,7 +225,7 @@ function WrapParamControl ({ x, p, i, live, actions, labelNode, big = false }: {
   }, []);
   const v = x.values[i] ?? p.defaultValue;
   const row: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 };
-  const label = labelNode ?? <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{p.name}</span>;
+  const label = labelNode ?? <span style={{ fontSize: 9, color: p.readOnly ? x.liveColour : x.accent, textTransform: 'lowercase' }}>{p.name}</span>;   // v0.0.989 — its node's colour (was grey)
 
   if (p.readOnly)
     return (
@@ -264,7 +266,7 @@ function WrapParamControl ({ x, p, i, live, actions, labelNode, big = false }: {
     };
     return (
       <div>
-        <div style={row}>{labelNode ?? <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{pairLabel (p)}</span>}
+        <div style={row}>{labelNode ?? <span style={{ fontSize: 9, color: x.accent, textTransform: 'lowercase' }}>{pairLabel (p)}</span>}
           {/* v0.0.943 — both ends are value boxes; ⌥ + drag moves the pair
               together (Hz: same ratio, otherwise same distance) */}
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, color: 'var(--text-dim)' }}>
@@ -403,7 +405,7 @@ function BuiltinControl ({ b, i, actions, playing, labelNode }: {
 }) {
   const { setHint } = useContext (HintContext);
   const row: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 };
-  const label = labelNode ?? <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{controlsOf (b)[i]}</span>;
+  const label = labelNode ?? <span style={{ fontSize: 9, color: b.accent, textTransform: 'lowercase' }}>{controlsOf (b)[i]}</span>;   // v0.0.989 — its node's colour (was grey)
   const btn = (on: boolean, accent: string): React.CSSProperties => ({
     fontSize: 9, padding: '2px 8px', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
     border: `1px solid ${on ? accent : 'var(--border)'}`, color: on ? accent : 'var(--text-muted)',
@@ -593,7 +595,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
   const builtins = (data as WrapNodeData).builtins ?? [];   // v0.0.949
   const { setHint } = useContext (HintContext);
   const updateNodeInternals = useUpdateNodeInternals();
-  const [showSettings, setShowSettings] = useState (false);
+  const [showSettings, setShowSettings] = useState (() => panelOnMount.delete ((data as WrapNodeData).wrap.id));   // v0.0.989 — the frame's ⚙
 
   // v0.0.941 — fold to the header like any node (double-click the header, or
   // the global ⇕ fold), not saved — same as nodes. Ports then sit on the header.
@@ -760,8 +762,12 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
   });
 
   const portLabel = (p: WrapPort | undefined, align: 'left' | 'right') => p ? (
-    <div style={{ textAlign: align, minWidth: 0 }}>
-      <div style={{ fontSize: 10, color: 'var(--text)', whiteSpace: 'nowrap' }}>{p.label}</div>
+    <div className="wrap-port-row" style={{ textAlign: align, minWidth: 0 }}>
+      <div style={{ fontSize: 10, color: 'var(--text)', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center',
+                    justifyContent: align === 'right' ? 'flex-end' : 'flex-start' }}>
+        {align === 'right' && <PortX wrapId={wrap.id} q={p} actions={actions} />}{p.label}
+        {align === 'left'  && <PortX wrapId={wrap.id} q={p} actions={actions} />}
+      </div>
       <div style={{ fontSize: 8, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden',
                     textOverflow: 'ellipsis', maxWidth: 120 }}>{p.nodeName}</div>
     </div>
@@ -866,7 +872,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
                     labelNode={
                       <EditableTitle display={q.label || def} value={q.label} placeholder={def}
                         onCommit={name => renamePin (q.nodeId, q.index, name)}
-                        textStyle={{ fontSize: 9, color: p.readOnly ? x.liveColour : x.accent, letterSpacing: '0.04em' }} />
+                        textStyle={{ fontSize: 9, color: p.readOnly ? x.liveColour : x.accent, letterSpacing: '0.04em', textTransform: 'lowercase' }} />
                     } />
                   </div>
                 </div>
@@ -886,7 +892,7 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
                         labelNode={
                           <EditableTitle display={q.label || def} value={q.label} placeholder={def}
                             onCommit={name => renamePin (q.nodeId, q.index, name)}
-                            textStyle={{ fontSize: 9, color: b.accent, letterSpacing: '0.04em' }} />
+                            textStyle={{ fontSize: 9, color: b.accent, letterSpacing: '0.04em', textTransform: 'lowercase' }} />
                         } />
                     </div>
                   </div>
@@ -1093,8 +1099,14 @@ export interface WrapFrameData {
   drop?:   'join' | 'leave';   // v0.0.935 — ⌥-drag in progress: what a drop would do
   power?:  { anyOn: boolean; count: number };   // v0.0.951 — the wrap's ⏻
   frameH?: number;   // v0.0.967 — the frame's height (its ports are centred on it)
+  hasControls?: boolean;   // v0.0.989 — anything for the ⚙ panel (the frame's ⚙ shows then)
   [key: string]: unknown;
 }
+
+// v0.0.989 — the open frame's ⚙ folds the wrap and opens its ⚙ panel at once
+// (user: "you can go from the box to the open wrap, so from the open wrap to
+// the box"): the box reads this when it mounts.
+const panelOnMount = new Set<string> ();
 
 export const FRAME_PAD  = 18;
 export const FRAME_HEAD = 26;
@@ -1112,7 +1124,24 @@ export const framePortTop = (k: number, n: number, h: number) =>
 // One border port: two handles at the same spot — the outer one keeps the
 // inner port's own id (outside wires, connections, activity), the inner one
 // "<id>~in" carries the wire's inside half to the inner node.
-function FramePort ({ q, top }: { q: WrapPort; top: number }) {
+// v0.0.989 — a remembered port with no wire: a × on hover removes it (user:
+// "keep it as it is, with the option of removing a dangling port by hand";
+// reverted, then brought back the same evening — bigger).
+function PortX ({ wrapId, q, actions }: { wrapId: string; q: WrapPort; actions: WrapActions }) {
+  const { setHint } = useContext (HintContext);
+  if (q.wired) return null;
+  return (
+    <span className="wrap-port-x nodrag"
+      onClick={e => { e.stopPropagation (); setHint (null); actions.removePort (wrapId, q.handleId); }}
+      onDoubleClick={e => e.stopPropagation ()}
+      onMouseEnter={() => setHint ({ title: 'Remove this port', body: 'No wire uses it: takes it off the wrap. Undoable. It comes back if you connect a wire to that inner port again.' })}
+      onMouseLeave={() => setHint (null)}
+      style={{ cursor: 'pointer', color: '#ef4444', fontSize: 15, fontWeight: 700, lineHeight: '12px',
+               padding: '0 5px', pointerEvents: 'all', fontFamily: 'system-ui, sans-serif' }}>×</span>
+  );
+}
+
+function FramePort ({ q, top, wrapId, actions }: { q: WrapPort; top: number; wrapId: string; actions: WrapActions }) {
   const { setHint } = useContext (HintContext);
   const isIn = q.dir === 'in';
   const dot: React.CSSProperties = { background: q.colour, width: 10, height: 10, border: '2px solid var(--bg)', top, pointerEvents: 'all' };
@@ -1131,17 +1160,19 @@ function FramePort ({ q, top }: { q: WrapPort; top: number }) {
         style={{ ...dot, opacity: 0, pointerEvents: 'none',
                  ...(isIn ? { left: -14, right: 'auto' } : { right: -14, left: 'auto' }) } as React.CSSProperties} />
       {/* small label just inside the frame */}
-      <div style={{ position: 'absolute', top: top - 7, [isIn ? 'left' : 'right']: 10, pointerEvents: 'none',
+      <div className="wrap-port-row" style={{ position: 'absolute', top: top - 7, [isIn ? 'left' : 'right']: 10, pointerEvents: q.wired ? 'none' : 'auto',
                     fontSize: 8, lineHeight: '14px', whiteSpace: 'nowrap', color: 'var(--text-muted)',
                     fontFamily: "'JetBrains Mono', monospace", textAlign: isIn ? 'left' : 'right' }}>
+        {! isIn && <PortX wrapId={wrapId} q={q} actions={actions} />}
         <span style={{ color: 'var(--text-dim)' }}>{q.label}</span> · {q.nodeName}
+        {isIn && <PortX wrapId={wrapId} q={q} actions={actions} />}
       </div>
     </>
   );
 }
 
 export function WrapFrame ({ id, data, height }: NodeProps) {
-  const { wrap, actions, ports = [], drop, power } = data as WrapFrameData;
+  const { wrap, actions, ports = [], drop, power, hasControls } = data as WrapFrameData;
   // ⌥-drag highlight: join = solid, brighter; leave = red dashed
   const dropCol = drop === 'join' ? 'var(--accent)' : drop === 'leave' ? '#f87171' : null;
   const { setHint } = useContext (HintContext);
@@ -1178,6 +1209,17 @@ export function WrapFrame ({ id, data, height }: NodeProps) {
           {drop === 'join' ? 'drop to add' : drop === 'leave' ? 'drop to take out' : 'open'}
         </span>
         <div style={{ flex: 1 }} />
+        {/* v0.0.989 — same order as the folded box (user): ⚙, fold (the box's "open in place"), save, enter, ⏻, unwrap, ✕ */}
+        {hasControls && (   // v0.0.989 — straight to the folded box's ⚙ panel
+          <NodeHeaderButton onClick={() => { setHint (null); panelOnMount.add (wrap.id); actions.close (wrap.id); }}
+            onHint={{ onMouseEnter: () => setHint ({ title: 'Wrap settings', body: 'Folds the wrap and opens its ⚙ panel: the controls of every node inside.' }), onMouseLeave: () => setHint (null) }}>
+            <Settings size={11} color="var(--text-muted)" />
+          </NodeHeaderButton>
+        )}
+        <NodeHeaderButton onClick={() => actions.close (wrap.id)}
+          onHint={{ onMouseEnter: () => setHint ({ title: 'Fold the wrap', body: 'Folds these nodes back into one box.' }), onMouseLeave: () => setHint (null) }}>
+          <Minimize2 size={13} />
+        </NodeHeaderButton>
         <NodeHeaderButton onClick={() => actions.saveToLibrary (wrap.id)}
           onHint={{ onMouseEnter: () => setHint ({ title: 'Save to library', body: 'Saves this wrap to your wrap library under its name (sidebar → Wraps).' }), onMouseLeave: () => setHint (null) }}>
           <BookmarkPlus size={13} />
@@ -1185,10 +1227,6 @@ export function WrapFrame ({ id, data, height }: NodeProps) {
         <NodeHeaderButton onClick={() => actions.enter (wrap.id)}
           onHint={{ onMouseEnter: () => setHint ({ title: 'Enter', body: 'Shows only this wrap\'s nodes (⌘↑). Back with "Main" at the top, ⌘↓ or Esc.' }), onMouseLeave: () => setHint (null) }}>
           <LogIn size={13} />
-        </NodeHeaderButton>
-        <NodeHeaderButton onClick={() => actions.close (wrap.id)}
-          onHint={{ onMouseEnter: () => setHint ({ title: 'Fold the wrap', body: 'Folds these nodes back into one box.' }), onMouseLeave: () => setHint (null) }}>
-          <Minimize2 size={13} />
         </NodeHeaderButton>
         {power && power.count > 0 && (   // v0.0.951 — the wrap's ⏻
           <NodeHeaderButton onClick={() => actions.wrapPower (wrap.id)} active={power.anyOn} activeAccent={WRAP_ACCENT}
@@ -1207,8 +1245,8 @@ export function WrapFrame ({ id, data, height }: NodeProps) {
           <X size={13} />
         </NodeHeaderButton>
       </div>
-      {ins.map  ((q, k) => <FramePort key={q.handleId} q={q} top={topIn (k)} />)}
-      {outs.map ((q, k) => <FramePort key={q.handleId} q={q} top={topOut (k)} />)}
+      {ins.map  ((q, k) => <FramePort key={q.handleId} q={q} top={topIn (k)}  wrapId={wrap.id} actions={actions} />)}
+      {outs.map ((q, k) => <FramePort key={q.handleId} q={q} top={topOut (k)} wrapId={wrap.id} actions={actions} />)}
     </div>
   );
 }

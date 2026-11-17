@@ -292,3 +292,7 @@ input[type="range"][style*="vertical"]::-webkit-slider-thumb {
 }
 .patchy-lite .react-flow__edge-path,
 .patchy-lite .react-flow__edge path { filter: none !important; }
+
+/* v0.0.989 — a wrap's unwired port: its × shows on hover only */
+.wrap-port-x { opacity: 0; transition: opacity 0.1s; }
+.wrap-port-row:hover .wrap-port-x { opacity: 1; }

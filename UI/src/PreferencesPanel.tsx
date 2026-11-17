@@ -27,11 +27,12 @@ export interface GraphPreferences {
   gridSize: number;           // v0.0.965 — px: one of GRID_SIZES
   tidyAnimate: boolean;       // v0.0.966 — ⌥⌘L Tidy layout: nodes glide to their places (off: they jump)
   reduceEffects: boolean;     // v0.0.982 — no shadows / glows / blur / transitions / animations (old GPUs, Linux)
+  portMenu: boolean;          // v0.0.989 — right-click a port: its wires, each with a ✕
 }
 
 export const GRID_SIZES = [6, 12, 24, 48];   // the canvas dots are 24 apart: every size lines up with them
 
-export const DEFAULT_PREFS: GraphPreferences = { invertZoom: false, maxWrapFaders: 4, maxKbdFaders: 4, paxManualRescan: false, audioNewNodeMono: false, snapGrid: false, gridSize: 12, tidyAnimate: true, reduceEffects: false };
+export const DEFAULT_PREFS: GraphPreferences = { invertZoom: false, maxWrapFaders: 4, maxKbdFaders: 4, paxManualRescan: false, audioNewNodeMono: false, snapGrid: false, gridSize: 12, tidyAnimate: true, reduceEffects: false, portMenu: true };
 const STORAGE_KEY = 'nodegraph_prefs';
 
 export function loadPrefs(): GraphPreferences {
@@ -377,6 +378,14 @@ function GraphTab ({ prefs, onChange }: {
         desc="No shadows, glows, blur, transitions or glowing wires — a lighter UI on older machines (Linux especially). Wires still flash, meters still move."
         value={prefs.reduceEffects ?? false}
         onChange={v => patch({ reduceEffects: v })}
+      />
+      {/* v0.0.989 */}
+      <SectionHeader label="Wires" />
+      <ToggleRow
+        label="Port menu on right-click"
+        desc="Right-click a port: the list of its wires, each with a × to disconnect just that one. (Clicking a wire and pressing Delete works too.)"
+        value={prefs.portMenu ?? true}
+        onChange={v => patch({ portMenu: v })}
       />
       {/* v0.0.966 — ⌥⌘L */}
       <SectionHeader label="Tidy layout" />

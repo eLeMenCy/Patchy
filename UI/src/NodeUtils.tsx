@@ -904,7 +904,7 @@ export function EditableTitle ({ display, value, placeholder, onCommit, textStyl
   }, [scrolling, display]);
 
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
-  const caps: React.CSSProperties = { ...textStyle, textTransform: 'uppercase', whiteSpace: 'nowrap' };
+  const caps: React.CSSProperties = { textTransform: 'uppercase', ...textStyle, whiteSpace: 'nowrap' };   // v0.0.989 — textStyle may override the caps (wrap control labels)
 
   if (editing)
     return (

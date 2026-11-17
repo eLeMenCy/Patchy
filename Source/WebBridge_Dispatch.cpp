@@ -1076,6 +1076,16 @@ void WebBridge::handleWrapMessage (const juce::String& type, const juce::Dynamic
         if (! any) return;
         graph.pushExistingSnapshot (before);
     }
+    else if (type == "wrapRemovePort")   // v0.0.989 — a remembered port with no wire, removed by hand (user): one undo step
+    {
+        auto* p = graph.findWrap (wrapId);
+        if (p == nullptr) return;
+        const auto handle = obj->getProperty ("handleId").toString();
+        if (! p->ports.contains (handle)) return;
+        pendingSettingsSnapshot = juce::var(); pendingSettingsNodeId.clear();
+        graph.pushSnapshot();
+        p->ports.removeString (handle);
+    }
     else if (type == "wrapSetPins")   // v0.0.932 — pin / unpin / rename a pinned control: one undo step
     {
         auto* p = graph.findWrap (wrapId);

@@ -216,6 +216,14 @@ std::vector<Port> GraphModel::portsForType (int t, const juce::String& nid,
         // playback, sine, or noise), same shape as AudioInDeviceNode.
         mk ("Audio Out", PortType::Audio, PortDirection::Output);
     }
+    else if (t == 27)
+    {
+        // MidiChMatrixNode — v0.0.989: its ports were never declared here (its
+        // wires connect by handle id anyway), so a wrap couldn't route them
+        // through its border: an outside wire went straight to the matrix.
+        mk ("MIDI In",  PortType::Midi, PortDirection::Input);
+        mk ("MIDI Out", PortType::Midi, PortDirection::Output);
+    }
     else if (t == 28)
     {
         // MidiMorpherNode (v0.0.925): MIDI In + MIDI Out, one rule per node

@@ -54,6 +54,7 @@ import EnvelopeNode     from './EnvelopeNode';
 import AudioToDmxNode from './AudioToDmxNode';
 import AudioPeakToOscNode from './AudioPeakToOscNode';
 import GhostNode from './GhostNode';   // v0.0.941
+import PortMenu, { PortMenuState } from './PortMenu';   // v0.0.989
 import { _paxInfoMap, detectPaxTheme } from './NodeUtils';
 
 // ── Node type registry ────────────────────────────────────────────────────────
@@ -261,6 +262,8 @@ function wrapFacePorts (p: RawWrap, nodes: Node<any>[], edges: Edge[]): WrapPort
       nodeName: (n.data?.customName as string) || (n.data?.label as string) || '',
       dir:      h.endsWith('_in') ? 'in' : 'out',
       colour:   colourForHandleId(h),
+      // v0.0.989 — a wire from outside uses it (else a × can remove it)
+      wired:    edges.some(e => (e.targetHandle === h && !members.has(e.source)) || (e.sourceHandle === h && !members.has(e.target))),
     });
   }
   // v0.0.934 — top to bottom by their inner node (then left to right): the
@@ -1599,6 +1602,11 @@ function FlowCanvas() {
       setWraps(ps => ps.map(p => p.id === wrapId ? { ...p, pins } : p));
       Bridge.wrapSetPins(wrapId, pins);
     },
+    // v0.0.989 — an unwired remembered port, removed by hand (one undo step)
+    removePort: (wrapId, handleId) => {
+      setWraps(ps => ps.map(p => p.id === wrapId ? { ...p, ports: p.ports.filter(h => h !== handleId) } : p));
+      Bridge.wrapRemovePort(wrapId, handleId);
+    },
   }), [getNodes, getEdges, setWraps, updateNodeInternals, enterWrap]);
   const wrapActionsRef = useRef<WrapActions | null>(null);
   wrapActionsRef.current = wrapActions;
@@ -1614,6 +1622,20 @@ function FlowCanvas() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allCollapsed]);
+
+  // v0.0.989 — a port is remembered as soon as a wire crosses the border,
+  // open or folded. It used to be remembered only when folding: a wire
+  // deleted while the wrap was open took its port with it, folded it stayed
+  // (user: "very confusing"). Now it stays either way; × removes it.
+  useEffect(() => {
+    for (const p of wrapsRef.current) {
+      const fresh = [...new Set(wrapBoundaryHandles(new Set(p.nodeIds), edges))].filter(h => !p.ports.includes(h));
+      if (fresh.length === 0) continue;
+      const ports = [...p.ports, ...fresh];
+      setWraps(ps => ps.map(q => q.id === p.id ? { ...q, ports } : q));
+      Bridge.wrapSetOpen(p.id, p.open, ports);   // not undoable — like folding, it only remembers
+    }
+  }, [edges, wraps, setWraps]);
 
   // Left automatically if the wrap goes (unwrapped, deleted, undone)
   useEffect(() => {
@@ -1716,7 +1738,8 @@ function FlowCanvas() {
           width: w, height: h, zIndex: -1, dragHandle: '.wrap-frame-drag',
           selectable: false, deletable: false, focusable: false,
           style: { width: w, height: h, pointerEvents: 'none' },
-          data: { wrap: p, actions: wrapActions, ports: fports, drop: dropHint[p.id], power: wrapPowerOf(p, nodes), frameH: h },
+          data: { wrap: p, actions: wrapActions, ports: fports, drop: dropHint[p.id], power: wrapPowerOf(p, nodes), frameH: h,
+                  hasControls: wrapPaxOf(p, nodes).length > 0 || wrapBuiltinsOf(p, nodes).length > 0 },   // v0.0.989 — the frame's ⚙
         });
       } else {
         boxes.push({
@@ -2444,6 +2467,51 @@ function FlowCanvas() {
     document.documentElement.classList.toggle('patchy-lite', !!prefs.reduceEffects);
   }, [prefs.reduceEffects]);
 
+  // v0.0.989 — right-click a port: its wires, each with a ✕ (PortMenu.tsx).
+  // Works on node ports and on a wrap's box / frame ports (they carry the
+  // inner port's id). Capture phase: before the fragment ghost's handler.
+  const [portMenu, setPortMenu] = useState<PortMenuState | null>(null);
+  const edgesRef2 = useRef<Edge[]>([]);
+  edgesRef2.current = edges;
+  useEffect(() => {
+    if (prefs.portMenu === false) return;
+    const onCtx = (e: MouseEvent) => {
+      const el = (e.target as HTMLElement | null)?.closest?.('.react-flow__handle') as HTMLElement | null;
+      const hid = (el?.dataset.handleid ?? '').replace(/~in$/, '');
+      if (!hid) return;
+      e.preventDefault();
+      // the real wires (not the view's: folded / open wraps re-route their ends)
+      const es = edgesRef2.current.filter(x => !String(x.id).includes('~') && (x.sourceHandle === hid || x.targetHandle === hid));
+      if (es.length === 0) { setPortMenu(null); return; }
+      const ns = nodesRef.current;   // the real nodes (a folded wrap's members aren't in the view)
+      const nodeName = (id: string) => { const n = ns.find(m => m.id === id); return (n?.data?.customName as string) || (n?.data?.label as string) || id; };
+      const portLabel = (nodeId: string, h: string | null | undefined) => {
+        const n = ns.find(m => m.id === nodeId);
+        return ((n?.data?.ports as RawPort[] | undefined)?.find(q => q.id === h)?.label) ?? (h ?? '').split('_')[1] ?? '';
+      };
+      const own = es[0].sourceHandle === hid ? es[0].source : es[0].target;
+      setPortMenu({
+        x: e.clientX, y: e.clientY, colour: colourForHandleId(hid),
+        title: `${portLabel(own, hid)} · ${nodeName(own)}`,
+        items: es.map(x => {
+          const out = x.sourceHandle === hid;
+          const other = out ? x.target : x.source;
+          return { edgeId: x.id, text: `${out ? '→' : '←'} ${nodeName(other)} · ${portLabel(other, out ? x.targetHandle : x.sourceHandle)}` };
+        }),
+      });
+    };
+    window.addEventListener('contextmenu', onCtx, true);
+    return () => window.removeEventListener('contextmenu', onCtx, true);
+  }, [prefs.portMenu]);
+  const portMenuHover = useCallback((edgeId: string | null) => {
+    setEdges(es => es.map(x => (x.id === edgeId) !== !!x.selected ? { ...x, selected: x.id === edgeId } : x));
+  }, []);
+  const portMenuRemove = useCallback((edgeId: string) => {
+    Bridge.removeConnection(edgeId);   // undoable, like Delete on a selected wire
+    setPortMenu(m => { if (!m) return m; const items = m.items.filter(i => i.edgeId !== edgeId); return items.length ? { ...m, items } : null; });
+  }, []);
+  const portMenuClose = useCallback(() => { setPortMenu(null); portMenuHover(null); }, [portMenuHover]);
+
   // v0.0.980 — Linux: no stray text selection on the graph
   useEffect(() => installLinuxSelectionGuard(), []);
 
@@ -2961,6 +3029,7 @@ function FlowCanvas() {
           </div>
         </div>
         </div>
+      {portMenu && <PortMenu menu={portMenu} onRemove={portMenuRemove} onHover={portMenuHover} onClose={portMenuClose} />}
       {/* ── Fragment ghost overlay ── */}
       {pendingFragment && (
         <div

@@ -978,6 +978,8 @@ function FlowCanvas() {
   // outside connections as port rails at the sides. Viewports remembered per
   // wrap (and the main one) for the session.
   const [entered, setEntered] = useState<string | null>(null);
+  // v0.0.990 — the Enter view's rail entries seen during this visit (outside ends of wires)
+  const enterRailSeen = useRef<{ wrapId: string; in: Map<string, WrapPort>; out: Map<string, WrapPort> } | null>(null);
   const enteredRef = useRef<string | null>(null);
   enteredRef.current = entered;
   const viewports = useRef<Map<string, { x: number; y: number; zoom: number }>>(new Map());
@@ -1667,40 +1669,51 @@ function FlowCanvas() {
     // end on two port rails (left: from outside, right: to outside) whose
     // handles reuse the inner ports' ids, so wires keep their ids and flash
     const ew = entered ? wraps.find(q => q.id === entered) : undefined;
+    if (!ew) enterRailSeen.current = null;
     if (ew) {
       const members = new Set(ew.nodeIds);
       const inner   = nodes.filter(n => members.has(n.id));
-      const ports   = wrapFacePorts(ew, nodes, edges);
       const b = wrapBounds(ew.nodeIds, nodes) ?? { x0: 0, y0: 0, x1: 400, y1: 200 };
-      const rail = (side: 'in' | 'out', x: number): Node<any> => ({
-        id: RAIL_PREFIX + side, type: 'wrapRail', position: { x, y: b.y0 },
-        draggable: false, selectable: false, deletable: false, focusable: false, measured: railMeasured[side],
-        data: { side, ports: ports.filter(q => q.dir === side) },
-      });
+      // v0.0.990 — the rails show the OUTSIDE ends of the wires ("Outer · MIDI
+      // Out"), not the wrap's ports: an entry stays for the whole visit, dimmed
+      // and unwired once its wire is removed, and can be dragged to any inner
+      // port of its type → a real wire from that outside port (user: "allow the
+      // user to reconnect to any available rail port"). No dimmed stubs any
+      // more: remembered ports with no outside end belong to the main view.
+      if (enterRailSeen.current?.wrapId !== ew.id) enterRailSeen.current = { wrapId: ew.id, in: new Map(), out: new Map() };
+      const seen = enterRailSeen.current;
+      const byId = new Map<string, Node<any>>(nodes.map(n => [n.id, n]));
+      const entry = (h: string, dir: 'in' | 'out'): WrapPort => {
+        const n = byId.get(realNodeOfHandle(h));
+        const rp = (n?.data?.ports as RawPort[] | undefined)?.find(q => q.id === h);
+        return { handleId: h, dir, colour: colourForHandleId(h), wired: false,
+                 label: rp?.label ?? h.split('_')[1] ?? '', nodeName: (n?.data?.customName as string) || (n?.data?.label as string) || '' };
+      };
       const vEdges: Edge[] = [];
+      const wiredNow = new Set<string>();
       for (const e of edges) {
         const s = members.has(e.source), t = members.has(e.target);
         if (s && t) vEdges.push(e);
-        else if (t) vEdges.push({ ...e, source: RAIL_PREFIX + 'in',  sourceHandle: e.targetHandle });
-        else if (s) vEdges.push({ ...e, target: RAIL_PREFIX + 'out', targetHandle: e.sourceHandle });
+        else if (t && e.sourceHandle) {
+          if (!seen.in.has(e.sourceHandle)) seen.in.set(e.sourceHandle, entry(e.sourceHandle, 'in'));
+          wiredNow.add(e.sourceHandle);
+          vEdges.push({ ...e, source: RAIL_PREFIX + 'in' });                  // sourceHandle = the outside port
+        }
+        else if (s && e.targetHandle) {
+          if (!seen.out.has(e.targetHandle)) seen.out.set(e.targetHandle, entry(e.targetHandle, 'out'));
+          wiredNow.add(e.targetHandle);
+          vEdges.push({ ...e, target: RAIL_PREFIX + 'out' });                 // targetHandle = the outside port
+        }
       }
-      // v0.0.938 — a port with nothing connected outside (e.g. a wrap just
-      // dropped from the library) still shows its link to the inner node:
-      // a dimmed drawn-only stub, as on the open frame
-      for (const q of ports) {
-        const used = edges.some(e => (q.dir === 'in'  && e.targetHandle === q.handleId && !members.has(e.source))
-                                  || (q.dir === 'out' && e.sourceHandle === q.handleId && !members.has(e.target)));
-        if (used) continue;
-        const cls = edgeClassForHandle(q.handleId), node = realNodeOfHandle(q.handleId);
-        vEdges.push({
-          id: `stub~in:enter:${q.handleId}`, className: cls,
-          style: { strokeWidth: 2, stroke: EDGE_REST_COLOUR[cls], opacity: 0.55 },
-          selectable: false, deletable: false, reconnectable: false, focusable: false,
-          ...(q.dir === 'in'
-            ? { source: RAIL_PREFIX + 'in', sourceHandle: q.handleId, target: node, targetHandle: q.handleId }
-            : { source: node, sourceHandle: q.handleId, target: RAIL_PREFIX + 'out', targetHandle: q.handleId }),
-        } as Edge);
-      }
+      const railPorts = (side: 'in' | 'out') =>
+        [...(side === 'in' ? seen.in : seen.out).values()]
+          .filter(q => byId.has(realNodeOfHandle(q.handleId)))               // its outside node still exists
+          .map(q => ({ ...q, wired: wiredNow.has(q.handleId) }));
+      const rail = (side: 'in' | 'out', x: number): Node<any> => ({
+        id: RAIL_PREFIX + side, type: 'wrapRail', position: { x, y: b.y0 },
+        draggable: false, selectable: false, deletable: false, focusable: false, measured: railMeasured[side],
+        data: { side, ports: railPorts(side) },
+      });
       return { nodes: [...inner, rail('in', b.x0 - 300), rail('out', b.x1 + 140)], edges: vEdges };
     }
     if (wraps.length === 0) return { nodes, edges };
@@ -1991,8 +2004,8 @@ function FlowCanvas() {
     const links: TidyLink[] = [];
     for (const e of edgesRef.current) {
       let a = itemOf.get(e.source), b = itemOf.get(e.target);
-      if (ent && a && !b && e.sourceHandle) b = railItem('out', e.sourceHandle);
-      if (ent && b && !a && e.targetHandle) a = railItem('in',  e.targetHandle);
+      if (ent && a && !b && e.targetHandle) b = railItem('out', e.targetHandle);   // v0.0.990 — rails keyed by the outside port
+      if (ent && b && !a && e.sourceHandle) a = railItem('in',  e.sourceHandle);
       if (!a || !b) continue;
       links.push([a, b, off(a, handleY(a, e.sourceHandle, 'source')), off(b, handleY(b, e.targetHandle, 'target'))]);
     }

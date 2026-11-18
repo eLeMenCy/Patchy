@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.989
+> Version 0.0.990
 
 [![Build](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml/badge.svg?branch=dev)](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml)
 
@@ -545,7 +545,7 @@ Several nodes shown as one box, to tidy a busy canvas. A wrap is display and pro
   | MIDI CH. Matrix | Mapping (read-only, e.g. *1→2 · 3→3+4 · others dropped*) | ✓ |
 
   Every built-in node can now be listed in a wrap's ⚙ panel. (MQTT's connection state isn't shown in red yet: the UI doesn't get it.)
-- **Enter** — the → button on the folded box or the open frame, or `⌘↑` with a wrap (or a node in an open wrap) selected: the canvas shows **only this wrap's nodes**, its outside connections on two rails (left: from outside, right: to outside, labelled, flashing with the signal). Work as usual inside — a node dropped from the sidebar is created in the wrap. Back with **Main** in the breadcrumb at the top-left, `⌘↓` or `Esc`; the wrap stays folded or open as it was, and each view keeps its own zoom / position.
+- **Enter** — the → button on the folded box or the open frame, or `⌘↑` with a wrap (or a node in an open wrap) selected: the canvas shows **only this wrap's nodes**, its outside connections on two rails (left: from outside, right: to outside, flashing with the signal). Each rail entry is the **outside** port at the other end of a wire ("Synth · MIDI In"): drag it to any inner port of the same type to wire it there — a real wire, as if made in the main view. Remove a wire inside and its entry stays on the rail, dimmed, until you leave, so you can rewire it to another inner node. Work as usual inside — a node dropped from the sidebar is created in the wrap. Back with **Main** in the breadcrumb at the top-left, `⌘↓` or `Esc`; the wrap stays folded or open as it was, and each view keeps its own zoom / position.
 - **Unwrap** — `⌘⇧G`, **☰ → Edit → Unwrap**, or the box / frame's unwrap button: the wrap goes, the nodes stay.
 - **✕** on the box deletes the wrap **and** its nodes (undoable).
 - **Add / take out nodes** — hold **⌥ Option** while dragging: drop a node inside an open wrap's frame to add it (the frame lights up, "drop to add"), drop a member outside its frame to take it out (red, "drop to take out"). Its wires stay as they are. ⌥-drop a **folded wrap** into an open one to merge them: its nodes (and their pins) join, it goes. One undo step per drop — ⌘Z puts everything back where the drag began. Without ⌥, dragging works as usual (the frame just grows with its nodes).
@@ -914,4 +914,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.989 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.990 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

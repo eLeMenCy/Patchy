@@ -1297,12 +1297,14 @@ export function WrapRail ({ id, data }: NodeProps) {
         const top = 24 + k * RAIL_GAP + RAIL_GAP / 2 - 4;
         return (
           <div key={q.handleId}>
+            {/* v0.0.990 — an outside port: drag it to an inner port to wire it (a real wire); dimmed once unwired, until you leave */}
             <Handle type={isIn ? 'source' : 'target'} position={isIn ? Position.Right : Position.Left}
-              id={q.handleId} isConnectable={false}
-              style={{ background: q.colour, width: 10, height: 10, border: '2px solid var(--bg)', top }}
-              onMouseEnter={() => setHint ({ title: `${q.label} — ${q.nodeName}`, body: `Wrap ${isIn ? 'input' : 'output'}: ${isIn ? 'comes from outside into' : 'goes from'} ${q.nodeName}'s ${q.label}${isIn ? '' : ' to outside'}.` })}
+              id={q.handleId} isConnectable
+              style={{ background: q.colour, width: 10, height: 10, border: '2px solid var(--bg)', top, opacity: q.wired ? 1 : 0.45 }}
+              onMouseEnter={() => setHint ({ title: `${q.label} — ${q.nodeName}`,
+                body: `${isIn ? 'Outside, feeding this wrap' : 'Outside, fed by this wrap'}: ${q.nodeName}'s ${q.label}. Drag it to any ${isIn ? 'inner input' : 'inner output'} of the same type to wire it (a real wire)${q.wired ? '' : ' — not wired right now; it stays here until you leave this view'}.` })}
               onMouseLeave={() => setHint (null)} />
-            <div style={{ position: 'absolute', top: top - 7, [isIn ? 'right' : 'left']: 12, fontSize: 9, lineHeight: '14px',
+            <div style={{ position: 'absolute', top: top - 7, [isIn ? 'right' : 'left']: 12, fontSize: 9, lineHeight: '14px', opacity: q.wired ? 1 : 0.5,
                           whiteSpace: 'nowrap', color: 'var(--text-muted)', textAlign: isIn ? 'right' : 'left', pointerEvents: 'none' }}>
               <span style={{ color: 'var(--text-dim)' }}>{q.label}</span> · {q.nodeName}
             </div>

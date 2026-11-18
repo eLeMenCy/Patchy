@@ -2310,11 +2310,26 @@ function FlowCanvas() {
   // rather than refactored into a shared one, to keep this addition isolated.
   const [connectionLineColour, setConnectionLineColour] = useState('var(--accent)');
 
+  // v0.0.991 — while a wire is dragged, no text selection anywhere: WebKit
+  // treated the drag as a selection too and painted turquoise blocks over
+  // node labels and the sidebar (user, macOS; Linux had it in 0.0.979–980)
+  const endWireDrag = () => {
+    document.documentElement.classList.remove('patchy-wiring');
+    window.getSelection()?.removeAllRanges();
+  };
+  const startWireDrag = () => {
+    window.getSelection()?.removeAllRanges();
+    document.documentElement.classList.add('patchy-wiring');
+    window.addEventListener('pointerup', endWireDrag, { once: true });   // however the drag ends
+  };
+  const onReconnectStart = useCallback(() => startWireDrag(), []);
   const onConnectStart = useCallback((_event: MouseEvent | TouchEvent, params: { nodeId: string | null; handleId: string | null; handleType: string | null }) => {
+    startWireDrag();
     if (params.handleId) setConnectionLineColour(colourForHandleId(params.handleId));
   }, []);
 
   const onConnectEnd = useCallback(() => {
+    endWireDrag();
     setConnectionLineColour('var(--accent)');
   }, []);
 
@@ -2624,6 +2639,7 @@ function FlowCanvas() {
         onConnectEnd={onConnectEnd}
         onReconnect={onReconnect}
         onReconnectEnd={onReconnectEnd}
+        onReconnectStart={onReconnectStart}
         isValidConnection={isValidConnection}
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         minZoom={0.05}

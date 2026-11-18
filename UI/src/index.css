@@ -296,3 +296,7 @@ input[type="range"][style*="vertical"]::-webkit-slider-thumb {
 /* v0.0.989 — a wrap's unwired port: its × shows on hover only */
 .wrap-port-x { opacity: 0; transition: opacity 0.1s; }
 .wrap-port-row:hover .wrap-port-x { opacity: 1; }
+
+/* v0.0.991 — a wire being dragged (or reconnected): nothing selectable, so no
+   turquoise selection blocks over labels / the sidebar (all platforms) */
+.patchy-wiring, .patchy-wiring * { user-select: none !important; -webkit-user-select: none !important; }

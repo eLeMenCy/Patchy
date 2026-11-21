@@ -49,6 +49,10 @@ add_pax(AudioToDmxPax AudioToDmxPax/AudioToDmxPax.cpp)
 add_pax(MidiToDmxPax     MidiToDmxPax/MidiToDmxPax.cpp)
 add_pax(UdpValueToMidiCCPax UdpValueToMidiCCPax/UdpValueToMidiCCPax.cpp)
 add_pax(AudioPeakToOscPax AudioPeakToOscPax/AudioPeakToOscPax.cpp)
+add_pax(MidiToValuePax   MidiToValuePax/MidiToValuePax.cpp)    # v0.0.992 — the Value hub, MIDI side
+add_pax(ValueToMidiPax   ValueToMidiPax/ValueToMidiPax.cpp)
+add_pax(ValueConsolePax  ValueConsolePax/ValueConsolePax.cpp)  # v0.0.992 — test tools for the Value hub
+add_pax(ValueMonitorPax  ValueMonitorPax/ValueMonitorPax.cpp)
 
 # ── Install target (optional) ─────────────────────────────────────────────────
 # cmake --install build --prefix ~ will copy Pax to the right folder.
@@ -60,7 +64,7 @@ else()
     set(PAX_INSTALL_DIR "$ENV{HOME}/.patchy/pax")
 endif()
 
-set(PAX_TARGETS LevelPax TransposePax ChannelFilterPax AmpPax EnvelopePax StereoSplitterPax SpectrumyserPax MqttToValuePax OscToValuePax ValueToDMXPax AudioToDmxPax MidiToDmxPax UdpValueToMidiCCPax AudioPeakToOscPax)
+set(PAX_TARGETS LevelPax TransposePax ChannelFilterPax AmpPax EnvelopePax StereoSplitterPax SpectrumyserPax MqttToValuePax OscToValuePax ValueToDMXPax AudioToDmxPax MidiToDmxPax UdpValueToMidiCCPax AudioPeakToOscPax MidiToValuePax ValueToMidiPax ValueConsolePax ValueMonitorPax)
 
 install(TARGETS ${PAX_TARGETS}
         LIBRARY DESTINATION "${PAX_INSTALL_DIR}"

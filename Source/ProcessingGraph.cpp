@@ -400,8 +400,15 @@ void ProcessingGraph::process (juce::AudioBuffer<float>& hostAudio,
             }
             else
             {
-                for (auto meta : src->outputMidi)
-                    n->inputMidi.addEvent (meta.getMessage(), meta.samplePosition);
+                // v0.0.992 — MIDI only over a MIDI wire. Any non-audio wire used
+                // to carry the source's MIDI too: MIDI to Value's passed-through
+                // CC rode its *Value* wire into Value to MIDI and came out next
+                // to the new CC (user: "1, 7, 1" in the Monitor).
+                const auto srcPortLabel = e.srcPortId.fromLastOccurrenceOf (e.srcNodeId + "_", false, false)
+                                                 .upToLastOccurrenceOf ("_", false, false);
+                if (srcPortLabel.containsIgnoreCase ("MIDI"))
+                    for (auto meta : src->outputMidi)
+                        n->inputMidi.addEvent (meta.getMessage(), meta.samplePosition);
 
                 // ── Propagate value events, filtered by source port index ──
                 // Was a blind copy of every value to every downstream node

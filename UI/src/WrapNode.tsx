@@ -138,6 +138,7 @@ export interface WrapPax {
   choices: Record<number, string[]>;   // named buttons for a param (e.g. Amp / Band)
   pairs:   [number, number][];         // Low / High params drawn as one two-head slider
   zoom?:   [number, number];           // the node's own display range for those pairs
+  fit?:    boolean;                    // v0.0.992 — rail fitted like the Value hub's RangeDual
   accent: string;            // the Pax's own colour (its node header's)
   liveColour: string;        // its output wires' colour (live values)
   disabled?: boolean;        // v0.0.951 — its ⏻ is off
@@ -169,7 +170,10 @@ function pairRole (x: WrapPax, i: number): { role: 'lo' | 'hi'; lo: number; hi: 
   }
   return null;
 }
-const pairLabel = (p: PaxParamInfo) => p.name.replace (/\s*Low\b.*$/i, '') || 'Band';
+const pairLabel = (p: PaxParamInfo) => {   // v0.0.992 — "Band Low" → band, "Output Min" → output, "Low 3" → range 3
+  const rest = p.name.replace (/\s*\b(Low|Min)\b\s*/i, ' ').trim ();
+  return /^\d*$/.test (rest) ? `range${rest ? ' ' + rest : ''}` : rest;
+};
 const isHz      = (p: PaxParamInfo) => /hz/i.test (p.name);
 const fmtPairEnd = (p: PaxParamInfo, v: number) => isHz (p) ? freqLabel (v) : fmtValue (p, v);
 const fmtChoice  = (x: WrapPax, i: number, p: PaxParamInfo, v: number) =>
@@ -218,6 +222,7 @@ function WrapParamControl ({ x, p, i, live, actions, labelNode, big = false }: {
   const { setHint } = useContext (HintContext);
   // v0.0.943 — ⌘ / Ctrl held while dragging a pair's head: the pair moves together
   const cmd = useRef (false);
+  const railHeld = useRef<[number, number] | null> (null);   // v0.0.992 — fitted rail frozen while dragging
   useEffect (() => {
     const k = (e: KeyboardEvent) => { if (e.key === 'Meta' || e.key === 'Control') cmd.current = e.type === 'keydown'; };
     window.addEventListener ('keydown', k); window.addEventListener ('keyup', k);
@@ -242,17 +247,30 @@ function WrapParamControl ({ x, p, i, live, actions, labelNode, big = false }: {
   if (pr) {
     const hp = x.params[pr.hi];
     const lo = x.values[pr.lo] ?? p.defaultValue, hi = x.values[pr.hi] ?? hp.defaultValue;
-    const [zMin, zMax] = x.zoom ?? [p.min, hp.max];
-    const step = Math.max (p.step, 0) || (zMax - zMin) / 1000;
-    const setLo = (v: number) => {
-      const nl = Math.max (zMin, Math.min (v, zMax - step));
-      actions.setParam (x.nodeId, pr.lo, nl);
-      if (nl >= hi - step) actions.setParam (x.nodeId, pr.hi, Math.min (zMax, nl + step));
+    // v0.0.992 — Value hub: the ±1000 limits put both heads mid-rail (user);
+    // same rail as the node's RangeDual: 0–1, widened to whole numbers around the values
+    // (frozen during a drag: shrinking under the pointer made a head jump — user: 5 → 0 gave 1.0)
+    const [zMin, zMax] = x.zoom ?? (x.fit ? (railHeld.current ?? [Math.max (p.min, Math.floor (Math.min (0, lo, hi))), Math.min (hp.max, Math.ceil (Math.max (1, lo, hi)))])
+                                          : [p.min, hp.max]);
+    const holdRail = () => {
+      if (! x.fit || x.zoom) return;
+      railHeld.current = [zMin, zMax];
+      const up = () => { railHeld.current = null; window.removeEventListener ('pointerup', up); };
+      window.addEventListener ('pointerup', up);
     };
-    const setHi = (v: number) => {
-      const nh = Math.min (zMax, Math.max (v, zMin + step));
+    const [lMin, lMax] = x.fit && !x.zoom ? [p.min, hp.max] : [zMin, zMax];   // a typed value can go past the fitted rail (it widens)
+    const step = Math.max (p.step, 0) || (zMax - zMin) / 1000;
+    // dragging stays on the rail (a pushed head widening the fitted rail ran
+    // away to ±1000 — user); a typed value may go past it (lMin / lMax)
+    const setLo = (v: number, a = zMin, b = zMax) => {
+      const nl = Math.max (a, Math.min (v, b - step));
+      actions.setParam (x.nodeId, pr.lo, nl);
+      if (nl >= hi - step) actions.setParam (x.nodeId, pr.hi, Math.min (b, nl + step));
+    };
+    const setHi = (v: number, a = zMin, b = zMax) => {
+      const nh = Math.min (b, Math.max (v, a + step));
       actions.setParam (x.nodeId, pr.hi, nh);
-      if (nh <= lo + step) actions.setParam (x.nodeId, pr.lo, Math.max (zMin, nh - step));
+      if (nh <= lo + step) actions.setParam (x.nodeId, pr.lo, Math.max (a, nh - step));
     };
     const commit = () => actions.commitParam (x.nodeId);
     const boxStep = p.step >= 1 ? 1 : niceStep (zMax - zMin);
@@ -270,14 +288,14 @@ function WrapParamControl ({ x, p, i, live, actions, labelNode, big = false }: {
           {/* v0.0.943 — both ends are value boxes; ⌥ + drag moves the pair
               together (Hz: same ratio, otherwise same distance) */}
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, color: 'var(--text-dim)' }}>
-            <ValueBox value={lo} min={zMin} max={hi} step={boxStep} log={isHz (p)} format={q => fmtPairEnd (p, q)} accent={x.accent}
-              onLive={setLo} onCommit={q => { setLo (q); commit(); }} onRelease={commit}
-              onLinked={q => movePair (q - lo, q / lo)} linkKey="cmd" linkMin={zMin} linkMax={zMax}
+            <ValueBox value={lo} min={lMin} max={hi} step={boxStep} log={isHz (p)} format={q => fmtPairEnd (p, q)} accent={x.accent}
+              onLive={q => setLo (q, lMin, lMax)} onCommit={q => { setLo (q, lMin, lMax); commit(); }} onRelease={commit}
+              onLinked={q => movePair (q - lo, q / lo)} linkKey="cmd" linkMin={lMin} linkMax={lMax}
               width="auto" style={{ ...readoutBoxStyle ('var(--text-dim)'), fontSize: 9, minWidth: 30 }} />
             –
-            <ValueBox value={hi} min={lo} max={zMax} step={boxStep} log={isHz (p)} format={q => fmtPairEnd (hp, q)} accent={x.accent}
-              onLive={setHi} onCommit={q => { setHi (q); commit(); }} onRelease={commit}
-              onLinked={q => movePair (q - hi, q / hi)} linkKey="cmd" linkMin={zMin} linkMax={zMax}
+            <ValueBox value={hi} min={lo} max={lMax} step={boxStep} log={isHz (p)} format={q => fmtPairEnd (hp, q)} accent={x.accent}
+              onLive={q => setHi (q, lMin, lMax)} onCommit={q => { setHi (q, lMin, lMax); commit(); }} onRelease={commit}
+              onLinked={q => movePair (q - hi, q / hi)} linkKey="cmd" linkMin={lMin} linkMax={lMax}
               width="auto" style={{ ...readoutBoxStyle ('var(--text-dim)'), fontSize: 9, minWidth: 30 }} />
             {isHz (p) ? ' Hz' : ''}
           </span>
@@ -287,12 +305,12 @@ function WrapParamControl ({ x, p, i, live, actions, labelNode, big = false }: {
           onMouseLeave={() => setHint (null)}
           style={{ position: 'relative', height: 16, marginTop: 2 }}>
           <input type="range" min={zMin} max={zMax} step={step} value={Math.min (zMax, Math.max (zMin, lo))}
-            onMouseDown={e => { cmd.current = e.metaKey || e.ctrlKey; }}
+            onMouseDown={e => { cmd.current = e.metaKey || e.ctrlKey; holdRail(); }}
             onChange={e => { const q = Number (e.target.value); if (cmd.current) movePair (q - lo, q / lo); else setLo (q); }} onMouseUp={commit} onKeyUp={commit}
             onDoubleClick={() => { setLo (p.defaultValue); commit(); }}
             style={{ width: '100%', top: 5, left: 0, ['--thumb-color' as any]: x.accent }} />
           <input type="range" min={zMin} max={zMax} step={step} value={Math.min (zMax, Math.max (zMin, hi))}
-            onMouseDown={e => { cmd.current = e.metaKey || e.ctrlKey; }}
+            onMouseDown={e => { cmd.current = e.metaKey || e.ctrlKey; holdRail(); }}
             onChange={e => { const q = Number (e.target.value); if (cmd.current) movePair (q - hi, q / hi); else setHi (q); }} onMouseUp={commit} onKeyUp={commit}
             onDoubleClick={() => { setHi (hp.defaultValue); commit(); }}
             style={{ width: '100%', top: 5, left: 0, ['--thumb-color' as any]: x.accent }} />

@@ -21,6 +21,7 @@ export interface GraphPreferences {
   invertZoom: boolean;
   maxWrapFaders: number;   // v0.0.952 — console faders in a wrap's ⚙ panel (1-16)
   maxKbdFaders:  number;   // v0.0.956 — faders per MIDI Keyboard (1-16)
+  maxValueFaders: number;  // v0.0.992 — faders per Value Console (1-16)
   paxManualRescan: boolean;   // v0.0.958 — off: the Pax folders are watched (every 2 s); on: "Rescan Pax now" only
   audioNewNodeMono: boolean;  // v0.0.963 — a new Audio In / Out node starts on one channel instead of a stereo pair
   snapGrid: boolean;          // v0.0.965 — nodes snap to an invisible grid (G switches it)
@@ -32,7 +33,7 @@ export interface GraphPreferences {
 
 export const GRID_SIZES = [6, 12, 24, 48];   // the canvas dots are 24 apart: every size lines up with them
 
-export const DEFAULT_PREFS: GraphPreferences = { invertZoom: false, maxWrapFaders: 4, maxKbdFaders: 4, paxManualRescan: false, audioNewNodeMono: false, snapGrid: false, gridSize: 12, tidyAnimate: true, reduceEffects: false, portMenu: true };
+export const DEFAULT_PREFS: GraphPreferences = { invertZoom: false, maxWrapFaders: 4, maxKbdFaders: 4, maxValueFaders: 4, paxManualRescan: false, audioNewNodeMono: false, snapGrid: false, gridSize: 12, tidyAnimate: true, reduceEffects: false, portMenu: true };
 const STORAGE_KEY = 'nodegraph_prefs';
 
 export function loadPrefs(): GraphPreferences {
@@ -309,6 +310,16 @@ function GraphTab ({ prefs, onChange }: {
         </div>
         <ValueBox value={prefs.maxKbdFaders ?? 4} min={1} max={16} accent="var(--accent)" width={40}
           onCommit={v => patch({ maxKbdFaders: v })} />
+      </div>
+      {/* v0.0.992 — the Value Console's faders */}
+      <SectionHeader label="Value Console" />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--text)' }}>Faders per console (max)</div>
+          <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>How many faders "+ fader" can add on a Value Console (each has its own Value Out). It starts with 1. Default 4.</div>
+        </div>
+        <ValueBox value={prefs.maxValueFaders ?? 4} min={1} max={16} accent="var(--accent)" width={40}
+          onCommit={v => patch({ maxValueFaders: v })} />
       </div>
       {/* v0.0.963 — several Audio In / Out nodes per device */}
       <SectionHeader label="Audio devices" />

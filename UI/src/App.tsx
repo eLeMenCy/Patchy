@@ -52,6 +52,9 @@ import SpectrumyserNode from './SpectrumyserNode';
 import ChannelFilterPaxNode from './ChannelFilterPaxNode';
 import EnvelopeNode     from './EnvelopeNode';
 import AudioToDmxNode from './AudioToDmxNode';
+import ValueHubNode, { HUB_SPECS } from './ValueHubNode';   // v0.0.992
+import ValueConsoleNode, { setValueFaderPrefs } from './ValueConsoleNode';
+import ValueMonitorNode from './ValueMonitorNode';
 import AudioPeakToOscNode from './AudioPeakToOscNode';
 import GhostNode from './GhostNode';   // v0.0.941
 import PortMenu, { PortMenuState } from './PortMenu';   // v0.0.989
@@ -59,7 +62,7 @@ import { _paxInfoMap, detectPaxTheme } from './NodeUtils';
 
 // ── Node type registry ────────────────────────────────────────────────────────
 const edgeTypes = { wrapRoute: WrapRouteEdge };   // v0.0.934 — a wire drawn through open-wrap frame ports
-const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, audioPlayer: AudioPlayerNode, midiFilePlayer: MidiFilePlayerNode, midiChMatrix: MidiChMatrixNode, midiMorpher: MidiMorpherNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, channelFilterPax: ChannelFilterPaxNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode, wrap: WrapNode, wrapFrame: WrapFrame, wrapRail: WrapRail, ghost: GhostNode };
+const nodeTypes = { custom: GenericNode, midiMonitor: MidiMonitorNode, audioMonitor: AudioMonitorNode, audioPlayer: AudioPlayerNode, midiFilePlayer: MidiFilePlayerNode, midiChMatrix: MidiChMatrixNode, midiMorpher: MidiMorpherNode, midiKeyboard: MidiKeyboardNode, spectrumyser: SpectrumyserNode, channelFilterPax: ChannelFilterPaxNode, envelope: EnvelopeNode, audioToDmx: AudioToDmxNode, audioPeakToOsc: AudioPeakToOscNode, valueHub: ValueHubNode, valueConsole: ValueConsoleNode, valueMonitor: ValueMonitorNode, dmxMonitor: DmxMonitorNode, dmxConsole: DmxConsoleNode, artNetMonitor: ArtNetMonitorNode, artNetConsole: ArtNetConsoleNode, oscMonitor: OscMonitorNode, udpMonitor: UdpMonitorNode, mqttMonitor: MqttMonitorNode, mqttConsole: MqttConsoleNode, wrap: WrapNode, wrapFrame: WrapFrame, wrapRail: WrapRail, ghost: GhostNode };
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 // _paxInfoMap lives in NodeUtils.tsx (not declared here) — GenericNode.tsx
@@ -112,7 +115,10 @@ function rawToFlowNode(raw: RawNode, paxInfoMap?: Map<string, PaxInfo>): Node<No
             : raw.paxName === 'Channel Filter' ? 'channelFilterPax'
             : raw.paxName === 'Envelope'     ? 'envelope'
             : raw.paxName === 'Audio to DMX' ? 'audioToDmx'
-            : raw.paxName === 'Audio Peak to OSC' ? 'audioPeakToOsc' : 'custom',
+            : raw.paxName === 'Audio Peak to OSC' ? 'audioPeakToOsc'
+            : raw.paxName && HUB_SPECS[raw.paxName] ? 'valueHub'   // v0.0.992 — the Value hub converters
+            : raw.paxName === 'Value Console' ? 'valueConsole' : raw.paxName === 'Value Monitor' ? 'valueMonitor'
+            : 'custom',
     position: { x: raw.x, y: raw.y },
     data: isMidiMonitor
       ? { label: raw.label, nodeType: 5,  ports: raw.ports, disabled: raw.disabled, settingsJson: raw.settingsJson } as MidiMonitorNodeData
@@ -317,6 +323,7 @@ interface PaxLayout {
   choices?: Record<number, string[]>;
   pairs?:   (count: number) => [number, number][];
   zoom?:    [number, number];
+  fit?:     boolean;   // v0.0.992 — pairs shown on the node's own fitted rail (0–1, widened to the values), not the ±1000 limits
 }
 const PAX_LAYOUTS: Record<string, PaxLayout> = {
   // AudioToDmxNode: params 0-4 at 0-4, Damping (param 5) at 7; 5-6 = zoom
@@ -334,6 +341,16 @@ const PAX_LAYOUTS: Record<string, PaxLayout> = {
   'Envelope':          { slot: i => i, choices: { 0: ['Amp', 'Band'] }, pairs: () => [[6, 7]],
                          shown: (i, v) => (i !== 6 && i !== 7) || Math.round(v[0]) === 1 },
   'Channel Filter':    { slot: i => i, choices: { 1: ['Filter', 'Force'] } },
+  // v0.0.992 — Value Console: count at 0, 6 per fader (Value, Low, High, Ramp, Period, Out); only the faders shown
+  'Value Console':     { slot: i => i, fit: true, choices: Object.fromEntries(Array.from({ length: 16 }, (_, k) => [4 + k * 6, ['Off', 'On']])),
+                         pairs: (n: number) => Array.from({ length: n }, (_, k) => [2 + k * 6, 3 + k * 6] as [number, number]),
+                         shown: (i, v) => i === 0 ? false : Math.floor((i - 1) / 6) < Math.round(v[0] ?? 1) },
+  'Value Monitor':     { slot: i => i, shown: i => i <= 3 },
+  // v0.0.992 — the Value hub (ValueHubNode): one value per parameter
+  'MIDI to Value':     { slot: i => i, fit: true, choices: { 0: ['CC', 'Vel', 'Note', 'Bend', 'AT', 'Prog'], 6: ['Off', 'On'] }, pairs: () => [[3, 4]],
+                         shown: (i, v) => i !== 1 || Math.round(v[0]) <= 1 },
+  'Value to MIDI':     { slot: i => i, fit: true, choices: { 0: ['CC', 'Gate', 'Note', 'Bend', 'Prog'], 7: ['Off', 'On'], 10: ['Off', 'On'] }, pairs: () => [[3, 4]],
+                         shown: (i, v) => { const m = Math.round(v[0]); return (i !== 1 || m <= 1) && (i !== 5 || m === 1) && (i !== 6 || m === 1 || m === 2) && (i !== 7 || m !== 1); } },
 };
 const layoutOf = (n: Node<any>): PaxLayout => PAX_LAYOUTS[n.data?.paxName as string] ?? { slot: i => i };
 
@@ -434,6 +451,7 @@ function wrapPaxOf (p: RawWrap, nodes: Node<any>[]): WrapPax[] {
                         if (!z) return undefined;
                         const lo = raw?.[z[0]], hi = raw?.[z[1]];
                         return [typeof lo === 'number' ? lo : 20, typeof hi === 'number' ? hi : 20000] as [number, number]; })(),
+      fit:     !!layoutOf(n).fit,
       accent: paxNodeAccent(n),
       disabled: !!n.data.disabled,   // v0.0.951 — its ⏻
       // live values = what the Pax sends out: its output wires' colour
@@ -474,6 +492,11 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
   const dmxTimers     = useRef<Map<string, number>>(new Map());
   const mqttTimers    = useRef<Map<string, number>>(new Map());
   const paxValueTimers = useRef<Map<string, number>>(new Map());
+  // v0.0.992 — per-port flash for a Pax's generic Value outs: a port flashes
+  // when its own value changes (user: moving one Value Console fader flashed
+  // all 16 ports). Last values seen + expiry per generic port, in order.
+  const paxGenericLast   = useRef<Map<string, number[]>>(new Map());
+  const paxGenericTimers = useRef<Map<string, number[]>>(new Map());
   // MidiChMatrixNode's own channel-flash feature — needs per-CHANNEL
   // timestamps, unlike every other map above (one expiry per node only).
   // node id -> { in: {channel -> expiry}, out: {channel -> expiry} }.
@@ -509,6 +532,7 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
     return Bridge.onPortActivity((entries: PortActivityEntry[]) => {
       const now = Date.now();
       entries.forEach(entry => {
+        const gvPrev = paxGenericLast.current.get(entry.id);
         if (entry.midi > 0) {
           const nodeType = (nodesRef.current.find((n: any) => n.id === entry.id)?.data as any)?.nodeType;
           if (nodeType === 8 || nodeType === 9 || nodeType === 21) {
@@ -530,10 +554,19 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
             // fixed colour, since a Pax can have several differently
             // typed value ports on the same node.
             paxValueTimers.current.set(entry.id, now + 80);
+            const gv = entry.genericValuePortValues;
+            if (gv && gv.length > 0) {
+              const last = gvPrev;
+              const t = paxGenericTimers.current.get(entry.id) ?? [];
+              gv.forEach((v, k) => { if (!last || last[k] !== v) t[k] = now + 80; });
+              paxGenericTimers.current.set(entry.id, t);
+            }
           } else {
             midiTimers.current.set(entry.id, now + 80);
           }
         }
+        if (entry.genericValuePortValues && entry.genericValuePortValues.length > 0)
+          paxGenericLast.current.set(entry.id, entry.genericValuePortValues.slice());
         // MidiChMatrixNode's own per-channel flash — independent of
         // entry.midi above, since this node never touches the base
         // class's own recordMidiActivity() counter at all, only its own
@@ -664,7 +697,13 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
         if (isPaxValueFlash) {
           const valuePorts = ports.filter(p => p.direction === 'output' && p.type !== 'audio' &&
             !((p.id as string).toLowerCase().includes('dmx') && !(p.id as string).toLowerCase().includes('artdmx')));
+          const genTimers = paxGenericTimers.current.get(id);
+          let genIdx = -1;
           valuePorts.forEach(p => {
+            if (p.type === 'value') {   // generic Value out: only when its own value changed (v0.0.992)
+              genIdx++;
+              if (genTimers && (genTimers[genIdx] ?? 0) <= now) return;
+            }
             const pCol = colourForHandleId(p.id as string);
             css += `[data-handleid="${p.id}"]{background:${pCol}!important;box-shadow:0 0 10px ${pCol}!important;transition:none}`;
             edgeList.current.filter(e => e.sourceHandle === p.id).forEach(e => {
@@ -1057,6 +1096,7 @@ function FlowCanvas() {
   prefsRef.current = prefs;
   setMaxWrapFaders(prefs.maxWrapFaders ?? 4);   // v0.0.952 — read by the wrap's ⚙ panel
   setKbdFaderPrefs(prefs.maxKbdFaders ?? 4);   // v0.0.956 — read by the MIDI Keyboard
+  setValueFaderPrefs(prefs.maxValueFaders ?? 4);   // v0.0.992 — read by the Value Console
   const [showPrefs, setShowPrefs] = useState(false);
   const [allCollapsed, setAllCollapsed] = useState(false);
   // v0.0.948 — Panic state (latched + Preferences options), pushed by the engine

@@ -324,6 +324,7 @@ interface PaxLayout {
   pairs?:   (count: number) => [number, number][];
   zoom?:    [number, number];
   fit?:     boolean;   // v0.0.992 — pairs shown on the node's own fitted rail (0–1, widened to the values), not the ±1000 limits
+  channels?: Record<number, number>;   // v0.0.993 — channel-mask param → the older single-channel param it replaces (16 buttons + Any)
 }
 const PAX_LAYOUTS: Record<string, PaxLayout> = {
   // AudioToDmxNode: params 0-4 at 0-4, Damping (param 5) at 7; 5-6 = zoom
@@ -348,9 +349,9 @@ const PAX_LAYOUTS: Record<string, PaxLayout> = {
   'Value Monitor':     { slot: i => i, shown: i => i <= 3 },
   // v0.0.992 — the Value hub (ValueHubNode): one value per parameter
   'MIDI to Value':     { slot: i => i, fit: true, choices: { 0: ['CC', 'Vel', 'Note', 'Bend', 'AT', 'Prog'], 6: ['Off', 'On'] }, pairs: () => [[3, 4]],
-                         shown: (i, v) => i !== 1 || Math.round(v[0]) <= 1 },
+                         channels: { 7: 2 }, shown: (i, v) => i !== 2 && (i !== 1 || Math.round(v[0]) <= 1) },
   'Value to MIDI':     { slot: i => i, fit: true, choices: { 0: ['CC', 'Gate', 'Note', 'Bend', 'Prog'], 7: ['Off', 'On'], 10: ['Off', 'On'] }, pairs: () => [[3, 4]],
-                         shown: (i, v) => { const m = Math.round(v[0]); return (i !== 1 || m <= 1) && (i !== 5 || m === 1) && (i !== 6 || m === 1 || m === 2) && (i !== 7 || m !== 1); } },
+                         channels: { 11: 2 }, shown: (i, v) => { const m = Math.round(v[0]); return i !== 2 && (i !== 1 || m <= 1) && (i !== 5 || m === 1) && (i !== 6 || m === 1 || m === 2) && (i !== 7 || m !== 1); } },
 };
 const layoutOf = (n: Node<any>): PaxLayout => PAX_LAYOUTS[n.data?.paxName as string] ?? { slot: i => i };
 
@@ -452,6 +453,7 @@ function wrapPaxOf (p: RawWrap, nodes: Node<any>[]): WrapPax[] {
                         const lo = raw?.[z[0]], hi = raw?.[z[1]];
                         return [typeof lo === 'number' ? lo : 20, typeof hi === 'number' ? hi : 20000] as [number, number]; })(),
       fit:     !!layoutOf(n).fit,
+      channels: layoutOf(n).channels,
       accent: paxNodeAccent(n),
       disabled: !!n.data.disabled,   // v0.0.951 — its ⏻
       // live values = what the Pax sends out: its output wires' colour

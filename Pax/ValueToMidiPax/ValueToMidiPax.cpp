@@ -26,6 +26,12 @@
  * only ever sends on a state change, and a held note is released when the
  * message type, note or channel changes.
  *
+ * Channels (index 11, v0.0.993 — user): a 16-bit mask, bit 0 = channel 1;
+ * every message goes out on each channel set (65535 = all 16, "Any" / omni).
+ * 0 = not set: Channel (index 2) applies, as in graphs saved before. The rate
+ * limit counts a send to all its channels as one; held notes are tracked on
+ * the channels they were played on and released there.
+ *
  * MIDI is discrete: nothing is re-sent every block. MIDI passthrough as in
  * every nodeType 1 Pax (see MidiToDmxPax's header).
  */
@@ -48,6 +54,7 @@ struct ValueToMidiPax
     float maxRate   = 50.f;
     float lastSent  = 0.f;    // read-only display
     float invert    = 0.f;
+    float chMask    = 0.f;    // v0.0.993 — 0 = use channel
 
     // state
     double sampleRate  = 48000.0;
@@ -58,7 +65,8 @@ struct ValueToMidiPax
     int    lastKey     = -100000;
     int    lastKind    = -1;
     int    heldNote    = -1;    // a note we started (gate / pitch modes)
-    int    heldChannel = 0;
+    int    lastMask    = -1;
+    int    heldMask    = 0;     // the channels it sounds on (bit 0 = channel 1)
     bool   gateOn      = false;
 };
 
@@ -76,7 +84,8 @@ static void addMidi (const PAX_ProcessContext* ctx, int& written, int b0, int b1
 static void releaseHeld (ValueToMidiPax* a, const PAX_ProcessContext* ctx, int& written)
 {
     if (a->heldNote >= 0)
-        addMidi (ctx, written, 0x80 | a->heldChannel, a->heldNote, 0);
+        for (int c = 0; c < 16; ++c)
+            if ((a->heldMask >> c) & 1) addMidi (ctx, written, 0x80 | c, a->heldNote, 0);
     a->heldNote = -1;
     a->gateOn   = false;
 }
@@ -112,13 +121,17 @@ void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
     const int kind    = std::clamp ((int) std::lround (a->message), 0, 4);
     const int number  = std::clamp ((int) std::lround (a->number), 0, 127);
     const int channel = std::clamp ((int) std::lround (a->channel), 1, 16) - 1;
+    const int mask    = ((int) std::lround (a->chMask) & 0xFFFF) != 0 ? ((int) std::lround (a->chMask) & 0xFFFF) : 1 << channel;
+    auto toAll = [&] (int status, int d1, int d2, int count = 3)
+    { for (int c = 0; c < 16; ++c) if ((mask >> c) & 1) addMidi (ctx, written, status | c, d1, d2, count); };
     const int vel     = std::clamp ((int) std::lround (a->velocity), 1, 127);
 
     // A held note goes when what it belongs to changes (type, gate note, channel)
-    if (a->heldNote >= 0 && (kind != a->lastKind || a->heldChannel != channel
+    if (a->heldNote >= 0 && (kind != a->lastKind || a->heldMask != mask
                              || (kind == 1 && a->heldNote != number) || (kind != 1 && kind != 2)))
         releaseHeld (a, ctx, written);
     if (kind != a->lastKind) { a->lastKind = kind; a->haveSent = false; }
+    if (mask != a->lastMask) { a->lastMask = mask; a->haveSent = false; }   // v0.0.993 — new channels: the next value goes out there
 
     // The newest value of this block (earlier ones in the same block are superseded)
     if (ctx->valuesIn && ctx->valueInCount > 0)
@@ -153,19 +166,19 @@ void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
         {
             switch (kind)
             {
-                case 0: addMidi (ctx, written, 0xB0 | channel, number, key); a->lastSent = (float) key; break;
+                case 0: toAll (0xB0, number, key); a->lastSent = (float) key; break;
                 case 1:
-                    if (key == 1) { releaseHeld (a, ctx, written); addMidi (ctx, written, 0x90 | channel, number, vel);
-                                    a->heldNote = number; a->heldChannel = channel; a->gateOn = true; a->lastSent = (float) vel; }
+                    if (key == 1) { releaseHeld (a, ctx, written); toAll (0x90, number, vel);
+                                    a->heldNote = number; a->heldMask = mask; a->gateOn = true; a->lastSent = (float) vel; }
                     else          { releaseHeld (a, ctx, written); a->lastSent = 0.f; }
                     break;
                 case 2:
                     releaseHeld (a, ctx, written);
-                    addMidi (ctx, written, 0x90 | channel, key, vel);
-                    a->heldNote = key; a->heldChannel = channel; a->lastSent = (float) key;
+                    toAll (0x90, key, vel);
+                    a->heldNote = key; a->heldMask = mask; a->lastSent = (float) key;
                     break;
-                case 3: addMidi (ctx, written, 0xE0 | channel, key & 0x7F, (key >> 7) & 0x7F); a->lastSent = (float) (key - 8192); break;
-                case 4: addMidi (ctx, written, 0xC0 | channel, key, 0, 2); a->lastSent = (float) key; break;
+                case 3: toAll (0xE0, key & 0x7F, (key >> 7) & 0x7F); a->lastSent = (float) (key - 8192); break;
+                case 4: toAll (0xC0, key, 0, 2); a->lastSent = (float) key; break;
                 default: break;
             }
             a->lastKey   = key;
@@ -179,7 +192,7 @@ void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
     if (ctx->valueOutCount) *ctx->valueOutCount = 0;
 }
 
-int PAX_getParameterCount (PAX_Instance*) { return 11; }
+int PAX_getParameterCount (PAX_Instance*) { return 12; }
 
 void PAX_getParameterInfo (PAX_Instance*, int index, PAX_ParameterInfo* info)
 {
@@ -196,6 +209,7 @@ void PAX_getParameterInfo (PAX_Instance*, int index, PAX_ParameterInfo* info)
         case 8: info->name="Max rate";       info->minValue=0.f;     info->maxValue=100.f;  info->defaultValue=50.f;  info->step=1.f; break;
         case 9: info->name="Last sent";      info->minValue=-8192.f; info->maxValue=16383.f;info->defaultValue=0.f;   info->step=1.f; break;
         case 10: info->name="Invert";        info->minValue=0.f;     info->maxValue=1.f;    info->defaultValue=0.f;   info->step=1.f; break;
+        case 11: info->name="Channels";      info->minValue=0.f;     info->maxValue=65535.f;info->defaultValue=0.f;   info->step=1.f; break;
         default: break;
     }
 }
@@ -210,6 +224,7 @@ float PAX_getParameter (PAX_Instance* i, int index)
         case 6: return a->velocity;  case 7: return a->onChange;  case 8: return a->maxRate;
         case 9: return a->lastSent;
         case 10: return a->invert;
+        case 11: return a->chMask;
         default: return 0.f;
     }
 }
@@ -230,6 +245,7 @@ void PAX_setParameter (PAX_Instance* i, int index, float v)
         case 8: a->maxRate   = std::clamp (v, 0.f, 100.f);        break;
         case 9: a->lastSent  = std::clamp (v, -8192.f, 16383.f);  break;   // restored on rebuild
         case 10: a->invert   = v >= 0.5f ? 1.f : 0.f;             break;
+        case 11: a->chMask   = std::clamp (std::round (v), 0.f, 65535.f); break;
         default: break;
     }
 }

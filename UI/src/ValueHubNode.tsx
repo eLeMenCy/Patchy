@@ -29,7 +29,7 @@ export interface HubParam {
   max:    number;
   step:   number;               // 0 = continuous
   toggle?: boolean;             // drawn as an on / off button
-  channels?: 'any' | 'one';     // drawn as 16 channel buttons (+ "Any" — value 0)
+  channels?: number;            // v0.0.993 — a channel mask: 16 buttons + "Any"; the value = the older single-channel parameter's index
   numbox?: boolean;             // drawn as a number box (+ Learn when the spec has one)
   fmt?:   (v: number) => string;
   shown?: (msg: number) => boolean;
@@ -125,27 +125,46 @@ export function RangeDual ({ label, lo, hi, inverted = false, accent, onChange, 
   );
 }
 
-// v0.0.992 — MIDI channel as 16 buttons (user), with "Any" (where it applies)
-// spanning both rows; the label centred on them too
-function ChannelButtons ({ value, withAny, accent, onPick }: { value: number; withAny: boolean; accent: string; onPick: (v: number) => void }) {
-  const cell = (v: number, text: string, extra: React.CSSProperties = {}) => {
-    const on = Math.round (value) === v;
-    return (
-      <div key={v} onClick={() => onPick (v)}
-        style={{ fontSize: 8, textAlign: 'center', padding: '2px 0', borderRadius: 2, cursor: 'pointer', display: 'flex',
-                 alignItems: 'center', justifyContent: 'center',
-                 background: on ? accent : 'var(--bg)', color: on ? '#000' : 'var(--text-muted)', border: `1px solid ${on ? accent : 'var(--border)'}`, ...extra }}>
-        {text}
-      </div>
-    );
+// v0.0.993 — channels as a 16-bit mask (user: several channels, + "Any"):
+// bit 0 = channel 1, 65535 = Any (all 16). The mask parameter at 0 = not set:
+// the older single Channel parameter applies (graphs saved before 993).
+export const CH_ALL = 0xFFFF;
+export function channelMaskOf (v: number[], maskIdx: number, legacyIdx: number): number {
+  const m = Math.round (v[maskIdx] ?? 0) & CH_ALL;
+  if (m) return m;
+  const ch = Math.round (v[legacyIdx] ?? 0);
+  return ch >= 1 && ch <= 16 ? 1 << (ch - 1) : CH_ALL;
+}
+export function channelText (mask: number, anyWord = 'any'): string {
+  if ((mask & CH_ALL) === CH_ALL) return anyWord;
+  const on = Array.from ({ length: 16 }, (_, k) => k + 1).filter (c => (mask >> (c - 1)) & 1);
+  return on.join (', ');
+}
+// 16 buttons, two rows, "Any" spanning both. As in MIDI Out Device: each
+// click toggles a channel (from Any, a click keeps only that one; the last
+// one off = Any again); "Any" clears the rest.
+export function ChannelButtons ({ mask, accent, onPick, label = 'Channel' }: { mask: number; accent: string; onPick: (m: number) => void; label?: string }) {
+  const all = (mask & CH_ALL) === CH_ALL;
+  const cell = (key: number, text: string, on: boolean, click: () => void, extra: React.CSSProperties = {}) => (
+    <div key={key} onClick={click}
+      style={{ fontSize: 8, textAlign: 'center', padding: '2px 0', borderRadius: 2, cursor: 'pointer', display: 'flex',
+               alignItems: 'center', justifyContent: 'center',
+               background: on ? accent : 'var(--bg)', color: on ? '#000' : 'var(--text-muted)', border: `1px solid ${on ? accent : 'var(--border)'}`, ...extra }}>
+      {text}
+    </div>
+  );
+  const toggle = (c: number) => {
+    const bit = 1 << (c - 1);
+    const next = all ? bit : (mask ^ bit) & CH_ALL;
+    onPick (next === 0 ? CH_ALL : next);
   };
   return (
     <div className="nodrag" onMouseDown={e => e.stopPropagation ()} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-      <span style={{ color: 'var(--text-muted)', minWidth: 60, fontSize: 8 }}>Channel</span>
-      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: withAny ? '1.4fr repeat(8, 1fr)' : 'repeat(8, 1fr)', gap: 2 }}>
-        {withAny && cell (0, 'Any', { gridRow: '1 / span 2', gridColumn: 1 })}
-        {Array.from ({ length: 16 }, (_, k) => cell (k + 1, String (k + 1),
-          { gridRow: k < 8 ? 1 : 2, gridColumn: (k % 8) + (withAny ? 2 : 1) }))}
+      <span style={{ color: 'var(--text-muted)', minWidth: 60, fontSize: 8 }}>{label}</span>
+      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1.4fr repeat(8, 1fr)', gap: 2 }}>
+        {cell (0, 'Any', all, () => onPick (CH_ALL), { gridRow: '1 / span 2', gridColumn: 1 })}
+        {Array.from ({ length: 16 }, (_, k) => cell (k + 1, String (k + 1), ! all && !! ((mask >> k) & 1), () => toggle (k + 1),
+          { gridRow: k < 8 ? 1 : 2, gridColumn: (k % 8) + 2 }))}
       </div>
     </div>
   );
@@ -165,17 +184,17 @@ export const HUB_SPECS: Record<string, HubSpec> = {
                'Channel aftertouch', 'Program change number'],
     params: [
       { idx: 1, label: 'Number',  min: -1, max: 127, step: 1, numbox: true, fmt: v => v < 0 ? 'Any' : String (Math.round (v)), shown: m => m === 0 || m === 1 },
-      { idx: 2, label: 'Channel', min: 0,  max: 16,  step: 1, channels: 'any' },
+      { idx: 7, label: 'Channel', min: 0,  max: 65535, step: 1, channels: 2 },
     ],
     ranges: [{ lo: 3, hi: 4, inv: 6, label: 'Output' }],
-    defaults: [0, -1, 0, 0, 1, 0, 0], roIdx: 5, roLabel: 'Last',
+    defaults: [0, -1, 0, 0, 1, 0, 0, 0], roIdx: 5, roLabel: 'Last',
     learn: (ev, v) => {
       const m = Math.round (v[0]);
       const msg = ev.type === 4 ? 0 : ev.type === 2 ? (m === 2 ? 2 : 1) : ev.type === 7 ? 3 : ev.type === 6 ? 4 : ev.type === 5 ? 5 : m;
-      return [[0, msg], [2, ev.ch], ...((msg === 0 || msg === 1) ? [[1, ev.d1] as [number, number]] : [])];
+      return [[0, msg], [7, 1 << (ev.ch - 1)], ...((msg === 0 || msg === 1) ? [[1, ev.d1] as [number, number]] : [])];
     },
     summary: v => {
-      const m = Math.round (v[0]), ch = v[2] < 1 ? 'any ch' : `ch ${Math.round (v[2])}`;
+      const m = Math.round (v[0]), mk = channelMaskOf (v, 7, 2), ch = mk === CH_ALL ? 'any ch' : `ch ${channelText (mk)}`;
       const what = m === 0 ? `CC ${any (v[1])}` : m === 1 ? `vel ${v[1] < 0 ? 'any note' : noteName (v[1])}`
                  : m === 2 ? 'note number' : m === 3 ? 'pitch bend' : m === 4 ? 'aftertouch' : 'program';
       return `${what} · ${ch} → ${num (v[3])}…${num (v[4])}`;
@@ -188,21 +207,21 @@ export const HUB_SPECS: Record<string, HubSpec> = {
                'Note pitch: the value picks the note (a new one releases the last)', 'Pitch bend (0.5 = centre)', 'Program change'],
     params: [
       { idx: 1, label: 'Number',    min: 0, max: 127, step: 1, numbox: true, fmt: v => String (Math.round (v)), shown: m => m === 0 || m === 1 },
-      { idx: 2, label: 'Channel',   min: 1, max: 16,  step: 1, channels: 'one' },
+      { idx: 11, label: 'Channel',  min: 0, max: 65535, step: 1, channels: 2 },
       { idx: 5, label: 'Threshold', min: 0, max: 1,   step: 0, fmt: v => v.toFixed (2), shown: m => m === 1 },
       { idx: 6, label: 'Velocity',  min: 1, max: 127, step: 1, fmt: v => String (Math.round (v)), shown: m => m === 1 || m === 2 },
       { idx: 7, label: 'On change only', min: 0, max: 1, step: 1, toggle: true, shown: m => m !== 1 },
       { idx: 8, label: 'Max rate /s', min: 0, max: 100, step: 1, fmt: v => v < 1 ? 'no limit' : String (Math.round (v)) },
     ],
-    defaults: [0, 1, 1, 0, 1, 0.5, 100, 1, 50, 0, 0], roIdx: 9, roLabel: 'Last sent',
+    defaults: [0, 1, 1, 0, 1, 0.5, 100, 1, 50, 0, 0, 0], roIdx: 9, roLabel: 'Last sent',
     ranges: [{ lo: 3, hi: 4, inv: 10, label: 'Input' }],
     learn: (ev, v) => {   // wire a controller into its MIDI In: it learns what to send
       const m = Math.round (v[0]);
       const msg = ev.type === 4 ? 0 : ev.type === 2 ? (m === 2 ? 2 : 1) : ev.type === 7 ? 3 : ev.type === 5 ? 4 : m;
-      return [[0, msg], [2, ev.ch], ...((msg === 0 || msg === 1) ? [[1, ev.d1] as [number, number]] : [])];
+      return [[0, msg], [11, 1 << (ev.ch - 1)], ...((msg === 0 || msg === 1) ? [[1, ev.d1] as [number, number]] : [])];
     },
     summary: v => {
-      const m = Math.round (v[0]), ch = `ch ${Math.round (v[2])}`;
+      const m = Math.round (v[0]), mk = channelMaskOf (v, 11, 2), ch = mk === CH_ALL ? 'all ch' : `ch ${channelText (mk)}`;
       const what = m === 0 ? `CC ${Math.round (v[1])}` : m === 1 ? `gate ${noteName (v[1])} @ ${v[5].toFixed (2)}`
                  : m === 2 ? 'note pitch' : m === 3 ? 'pitch bend' : 'program';
       return `${num (v[3])}…${num (v[4])} → ${what} · ${ch}`;
@@ -343,9 +362,9 @@ export default function ValueHubNode ({ id, data, selected }: NodeProps) {
             onClose={() => { _settingsOpen.set (id, false); setShowSettings (false); }} />
           {/* v0.0.992 — one row per setting, separated by a line (user); the ranges last */}
           {[
-            ...spec.params.filter (p => ! p.shown || p.shown (msg)).map (p => p.channels ? (
-              <ChannelButtons key={p.idx} value={vals[p.idx] ?? spec.defaults[p.idx]} withAny={p.channels === 'any'} accent={accent}
-                onPick={v => setParam (p.idx, v, true)} />
+            ...spec.params.filter (p => ! p.shown || p.shown (msg)).map (p => p.channels !== undefined ? (
+              <ChannelButtons key={p.idx} mask={channelMaskOf (vals, p.idx, p.channels)} accent={accent}
+                onPick={m => setParam (p.idx, m, true)} />
             ) : p.numbox ? (
               <div key={p.idx} className="nodrag" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ color: 'var(--text-muted)', minWidth: 60, fontSize: 8 }}>{p.label}</span>

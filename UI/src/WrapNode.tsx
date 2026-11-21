@@ -28,6 +28,7 @@ import ValueBox from './ValueBox';   // v0.0.943
 import { DeviceName, MiniWave, MiniMidi, MqttSend, NetStatus, MiniLog, MiniLevels, matrixText } from './WrapLive';   // v0.0.986 / 987
 import { parseRule, ruleSummary } from './MorpherCore';
 import { fromAdvanced, basicSentence } from './MorpherBasic';
+import { ChannelButtons, channelMaskOf, channelText } from './ValueHubNode';   // v0.0.993
 
 export const WRAP_ACCENT = 'var(--generic)';
 
@@ -139,6 +140,7 @@ export interface WrapPax {
   pairs:   [number, number][];         // Low / High params drawn as one two-head slider
   zoom?:   [number, number];           // the node's own display range for those pairs
   fit?:    boolean;                    // v0.0.992 — rail fitted like the Value hub's RangeDual
+  channels?: Record<number, number>;   // v0.0.993 — channel-mask param → its older single-channel param
   accent: string;            // the Pax's own colour (its node header's)
   liveColour: string;        // its output wires' colour (live values)
   disabled?: boolean;        // v0.0.951 — its ⏻ is off
@@ -177,7 +179,8 @@ const pairLabel = (p: PaxParamInfo) => {   // v0.0.992 — "Band Low" → band, 
 const isHz      = (p: PaxParamInfo) => /hz/i.test (p.name);
 const fmtPairEnd = (p: PaxParamInfo, v: number) => isHz (p) ? freqLabel (v) : fmtValue (p, v);
 const fmtChoice  = (x: WrapPax, i: number, p: PaxParamInfo, v: number) =>
-  x.choices[i]?.[Math.round (v)] ?? fmtValue (p, v);
+  x.channels?.[i] !== undefined ? channelText (channelMaskOf (x.values, i, x.channels[i]))
+  : x.choices[i]?.[Math.round (v)] ?? fmtValue (p, v);
 
 // Summary for the face: live (read-only) values first, each in its Pax's
 // colour, then the settable ones in grey — "● Current Value 0.786 · Min 0.00
@@ -318,6 +321,15 @@ function WrapParamControl ({ x, p, i, live, actions, labelNode, big = false }: {
       </div>
     );
   }
+
+  // v0.0.993 — a channel mask: the node's 16 buttons + Any (user), not a slider
+  if (x.channels?.[i] !== undefined)
+    return (
+      <div style={{ ...row, display: 'block' }}>
+        <ChannelButtons mask={channelMaskOf (x.values, i, x.channels[i])} accent={x.accent} label={p.name.toLowerCase ()}
+          onPick={m => { actions.setParam (x.nodeId, i, m); actions.commitParam (x.nodeId); }} />
+      </div>
+    );
 
   // Named choices (e.g. Amp / Band) — as on the node
   const names = x.choices[i];

@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.992
+> Version 0.0.993
 
 [![Build](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml/badge.svg?branch=dev)](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml)
 
@@ -405,8 +405,8 @@ Pax are shared libraries implementing the `PAX_Descriptor` C API in `Pax/PaxAPI.
 | UDP Value to MIDI CC | Converter | 1 Value in / 1 MIDI out | MIDI CC (0-127), MIDI Channel (1-16), Input Min/Max (default 0.0/1.0), MIDI CC Value (read-only live display) |
 | Value Console | Value | 16 Value outs (one per fader shown) | 4 faders, + / − fader (up to Preferences → Value Console, default 8); per fader: value, Low / High range (⚙), STEP (jumps Low ↔ High), RAMP (sweeps Low → High → Low on its own; period in ⚙); sends on change, once on load, continuously while ramping |
 | Value Monitor | Value | 1 Value in | Current value (large), min / max / count (⟲ clears), scrolling graph of the last ~6 s, ⏸ |
-| MIDI to Value | Converter | 1 MIDI in (passed through) / 1 Value out | Message in the header (click to step, ⇧-click back): CC · Vel (note velocity, note off = 0) · Note (number) · Bend · AT (channel aftertouch) · Prog; Number (box, Any or a CC / note) + **Learn** (the next event sets message, number, channel), Channel (16 buttons + Any), Output range (two heads that don't cross, ⌘ drags both) + INV, Last (read-only) |
-| Value to MIDI | Converter | 1 Value in / 1 MIDI out | Message in the header: CC · Gate (crossing Threshold plays note #Number at Velocity, back under releases it) · Note (the value picks the note) · Bend · Prog; Number (box) + Learn (from a controller wired into its MIDI In), Channel (16 buttons), Input range (two heads) + INV, Threshold, Velocity, On change only, Max rate (per second, 0 = no limit — a value held back is sent as soon as allowed, so the last one always lands), Last sent (read-only) |
+| MIDI to Value | Converter | 1 MIDI in (passed through) / 1 Value out | Message in the header (click to step, ⇧-click back): CC · Vel (note velocity, note off = 0) · Note (number) · Bend · AT (channel aftertouch) · Prog; Number (box, Any or a CC / note) + **Learn** (the next event sets message, number, channel), Channel (16 buttons + Any, several at once — click toggles, Any clears the rest), Output range (two heads that don't cross, ⌘ drags both) + INV, Last (read-only) |
+| Value to MIDI | Converter | 1 Value in / 1 MIDI out | Message in the header: CC · Gate (crossing Threshold plays note #Number at Velocity, back under releases it) · Note (the value picks the note) · Bend · Prog; Number (box) + Learn (from a controller wired into its MIDI In), Channel (16 buttons + Any, several at once: each message goes out on every channel selected — Any = all 16, omni), Input range (two heads) + INV, Threshold, Velocity, On change only, Max rate (per second, 0 = no limit — a value held back is sent as soon as allowed, so the last one always lands), Last sent (read-only) |
 | Audio Peak to OSC | Converter | 1 Audio in / 1 OSC out | Mode (Whole/Freq Range), Measurement (RMS/Peak), Sensitivity (dB), Band Low/High (Hz), Damping (0-500ms), Send Mode (Change/Rate), Max Rate (1-100Hz); Measurement is fully orthogonal to Mode, giving all four combinations; Send Mode controls per-node whether messages only go out on genuine change or continuously at a throttled rate |
 
 ### Parameter persistence
@@ -925,4 +925,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.992 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.993 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

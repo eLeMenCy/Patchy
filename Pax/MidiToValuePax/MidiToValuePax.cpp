@@ -20,6 +20,9 @@
  *                      pitch bend −8192…8191)
  *   Invert  (index 6): 0/1 — MIDI high gives Output Min (v0.0.992: the
  *                      range's heads no longer cross; inverting is this)
+ *   Channels (index 7): v0.0.993 — several channels (user): a 16-bit mask,
+ *                      bit 0 = channel 1, 65535 = any. 0 = not set: Channel
+ *                      (index 2) applies, as in graphs saved before.
  *
  * Discrete, like MIDI itself: a Value goes out only when a matching message
  * arrives (several in one block → each one, up to the host's limit).
@@ -42,6 +45,7 @@ struct MidiToValuePax
     float outMax  = 1.f;
     float last    = 0.f;    // read-only display
     float invert  = 0.f;
+    float chMask  = 0.f;    // v0.0.993 — 0 = use channel
 };
 
 extern "C" {
@@ -68,6 +72,8 @@ void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
     const int msgKind = std::clamp ((int) std::lround (a->message), 0, 5);
     const int number  = (int) std::lround (a->number);
     const int chan    = (int) std::lround (a->channel);
+    const int mask    = (int) std::lround (a->chMask) & 0xFFFF;
+    const int accept  = mask != 0 ? mask : (chan >= 1 && chan <= 16 ? 1 << (chan - 1) : 0xFFFF);
 
     if (ctx->midiIn)
     {
@@ -80,7 +86,7 @@ void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
             const int d1     = m.byteCount > 1 ? (m.bytes[1] & 0x7F) : 0;
             const int d2     = m.byteCount > 2 ? (m.bytes[2] & 0x7F) : 0;
             if (status < 0x80 || status == 0xF0) continue;   // not a channel message
-            if (chan >= 1 && chan <= 16 && ch != chan) continue;
+            if (! ((accept >> (ch - 1)) & 1)) continue;
 
             bool  match = false;
             float raw = 0.f, norm = 0.f;
@@ -134,7 +140,7 @@ void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
     if (ctx->valueOutCount) *ctx->valueOutCount = valWritten;
 }
 
-int PAX_getParameterCount (PAX_Instance*) { return 7; }
+int PAX_getParameterCount (PAX_Instance*) { return 8; }
 
 void PAX_getParameterInfo (PAX_Instance*, int index, PAX_ParameterInfo* info)
 {
@@ -147,6 +153,7 @@ void PAX_getParameterInfo (PAX_Instance*, int index, PAX_ParameterInfo* info)
         case 4: info->name="Output Max"; info->minValue=-1000.f; info->maxValue=1000.f; info->defaultValue=1.f;  info->step=0.f; break;
         case 5: info->name="Last";       info->minValue=-8192.f; info->maxValue=8191.f; info->defaultValue=0.f;  info->step=1.f; break;
         case 6: info->name="Invert";     info->minValue=0.f;     info->maxValue=1.f;    info->defaultValue=0.f;  info->step=1.f; break;
+        case 7: info->name="Channels";   info->minValue=0.f;     info->maxValue=65535.f;info->defaultValue=0.f;  info->step=1.f; break;
         default: break;
     }
 }
@@ -163,6 +170,7 @@ float PAX_getParameter (PAX_Instance* i, int index)
         case 4: return a->outMax;
         case 5: return a->last;
         case 6: return a->invert;
+        case 7: return a->chMask;
         default: return 0.f;
     }
 }
@@ -179,6 +187,7 @@ void PAX_setParameter (PAX_Instance* i, int index, float v)
         case 4: a->outMax  = std::clamp (v, -1000.f, 1000.f);   break;
         case 5: a->last    = std::clamp (v, -8192.f, 8191.f);   break;   // restored on rebuild
         case 6: a->invert  = v >= 0.5f ? 1.f : 0.f;             break;
+        case 7: a->chMask  = std::clamp (std::round (v), 0.f, 65535.f); break;
         default: break;
     }
 }

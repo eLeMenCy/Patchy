@@ -8,6 +8,8 @@
  * We expose `window.__bridge.onGraphUpdate(json)` for C++→JS.
  */
 
+import { perfStart, perfEnd } from './Perf';   // v0.0.994
+
 // v0.0.930 — a wrap: several nodes shown as one box (UI / project only)
 export interface RawWrap {
   id:      string;
@@ -754,6 +756,19 @@ function _dispatchClaimed() {
   },
 
 };
+
+// v0.0.994 — performance overlay probes: every C++ → JS push counted and timed
+// (parse + all its subscribers), named after its handler ("onPortActivity" →
+// "PortActivity"). No cost while the overlay is off (Perf.ts).
+{
+  const b = (window as any).__bridge as Record<string, (json: string) => void>;
+  for (const k of Object.keys (b)) {
+    const f = b[k];
+    if (typeof f !== 'function') continue;
+    const name = k.replace (/^on/, '');
+    b[k] = (json: string) => { const t = perfStart (); f (json); perfEnd (name, t); };
+  }
+}
 
 function sendToJuce(msg: object) {
   // JUCE 8 injects window.__JUCE__.backend — NOT window.Juce

@@ -9,6 +9,7 @@ import { LearnButton } from './LearnButton';
 import { useMidiLearn } from './Learn';
 import { KbdFader, KbdFaderType, TYPE_NAMES, faderLabel, fadersOfSettings, maxValue, maxNum, hasNum, isWide,
          getMaxKbdFaders, sendKbdFader, resendKbdFaders } from './KbdFaders';   // v0.0.956
+import { perfCount } from './Perf';   // v0.0.994
 
 // MidiKeyboardNode.tsx — a fully interactive, mouse-playable piano keyboard
 // (click-drag across keys, velocity from click position, pitch + mod
@@ -510,6 +511,7 @@ function WheelSlider ({ label, value, min, max, onChange, onRelease, color = 'va
 
 // ── Main component ────────────────────────────────────────────────────────────
 function MidiKeyboardNode ({ id, data, selected }: NodeProps) {
+  perfCount ('render MidiKeyboardNode');   // v0.0.994 — overlay: how often it re-renders
   const d = data as MidiKeyboardNodeData;
   const [settings, setSettings]     = useState<MidiKeyboardSettings>(() => ({
     ...DEFAULT_SETTINGS,

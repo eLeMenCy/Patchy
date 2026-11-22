@@ -11,7 +11,7 @@
 // period. Settings: flat array, one value per Pax parameter (index 0 = count,
 // then 6 per fader: Value, Low, High, Ramp, Period, Out (read-only)).
 
-import { useState, useEffect, useCallback, useContext } from 'react';
+import { useState, useEffect, useCallback, useContext, useRef } from 'react';
 import { NodeProps, useEdges } from '@xyflow/react';
 import { Bridge } from './Bridge';
 import ValueBox from './ValueBox';
@@ -20,6 +20,7 @@ import { NodeHandle, useNodeCollapsed, useNodeDisabled, NodeHeaderButton, NodeCo
 import { HintContext } from './HintPanel';
 import { RangeDual } from './ValueHubNode';
 import { Settings, X, Power } from 'lucide-react';
+import { perfCount } from './Perf';   // v0.0.994
 
 const FADERS = 16, PER = 6;
 const B = (k: number) => 1 + k * PER;                     // a fader's first parameter
@@ -30,6 +31,7 @@ const _settingsOpen = new Map<string, boolean>();
 const num = (v: number) => (Math.round (v * 1000) / 1000).toString ();
 
 export default function ValueConsoleNode ({ id, data, selected }: NodeProps) {
+  perfCount ('render ValueConsoleNode');   // v0.0.994 — overlay: how often it re-renders
   const d = data as any;
   const { setHint } = useContext (HintContext);
   const { collapsed, toggleCollapsed } = useNodeCollapsed (id, d._forceCollapsed);
@@ -37,6 +39,7 @@ export default function ValueConsoleNode ({ id, data, selected }: NodeProps) {
   const [showSettings, setShowSettings] = useState (() => _settingsOpen.get (id) ?? false);
   const [vals, setVals] = useState<number[]> (DEFAULTS);
   const [outs, setOuts] = useState<number[]> ([]);
+  const lastOuts = useRef (0);   // v0.0.994
   const edges = useEdges ();
   const accent = detectPaxTheme (d.ports ?? [], d.paxName ? _paxInfoMap.get (d.paxName)?.colourCategory : undefined).accent;
 
@@ -54,6 +57,11 @@ export default function ValueConsoleNode ({ id, data, selected }: NodeProps) {
     if (! e?.paxReadOnly) return;
     const next: number[] = [];
     for (const r of e.paxReadOnly) if (r.index >= 1 && (r.index - 1) % PER === 5) next[(r.index - 1 - 5) / PER] = r.value;
+    // v0.0.994 — at most 15 redraws a second (it redrew the node on every
+    // push while ramping); the sent values themselves are unaffected
+    const now = performance.now ();
+    if (now - lastOuts.current < 66) return;
+    lastOuts.current = now;
     setOuts (prev => prev.length === next.length && prev.every ((x, k) => x === next[k]) ? prev : next);
   }), [id]);
 

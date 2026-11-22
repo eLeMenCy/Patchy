@@ -9,6 +9,7 @@ const TIME_WINDOWS = [10, 25, 50, 100, 200];
 import { Pause, Play } from 'lucide-react';
 import { HintContext } from './HintPanel';
 import { NodeSelect } from './NodeSelect';
+import { perfCount } from './Perf';   // v0.0.994
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 export interface AudioMonitorSettings {
@@ -325,6 +326,7 @@ function SettingsPanel ({ s, onChange, onDiscreteChange, onClose, onReset, onCom
 
 // ── Main component ────────────────────────────────────────────────────────────
 function AudioMonitorNode ({ id, data, selected }: NodeProps) {
+  perfCount ('render AudioMonitorNode');   // v0.0.994 — overlay: how often it re-renders
   const d = data as AudioMonitorNodeData;
 
   const [settings, setSettings] = useState<AudioMonitorSettings>({

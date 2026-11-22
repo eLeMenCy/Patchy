@@ -14,15 +14,28 @@ import { NodeHandle, useNodeCollapsed, NodeHeaderButton, NodeCollapseArrow,
          EditableTitle, commitModelName, _paxInfoMap, detectPaxTheme } from './NodeUtils';
 import { HintContext } from './HintPanel';
 import { X, Pause, Play, RotateCcw } from 'lucide-react';
+import { perfCount } from './Perf';   // v0.0.994
 
 const HISTORY = 180;   // samples (~6 s at the ~30 Hz activity feed)
 const num = (v: number) => (Math.abs (v) >= 1000 ? v.toFixed (0) : (Math.round (v * 1000) / 1000).toString ());
 
 export default function ValueMonitorNode ({ id, data, selected }: NodeProps) {
+  perfCount ('render ValueMonitorNode');   // v0.0.994 — overlay: how often it re-renders
   const d = data as any;
   const { setHint } = useContext (HintContext);
   const { collapsed, toggleCollapsed } = useNodeCollapsed (id, d._forceCollapsed);
-  const [ro, setRo] = useState<{ last: number; mn: number; mx: number; count: number }> ({ last: 0, mn: 0, mx: 0, count: 0 });
+  // v0.0.994 — the live readouts are written straight into the DOM (no
+  // re-render per push: 3 monitors re-rendered ~160×/s in the user's test)
+  const ro = useRef<{ last: number; mn: number; mx: number; count: number }> ({ last: 0, mn: 0, mx: 0, count: 0 });
+  const txt = useRef<Record<'last' | 'mn' | 'mx' | 'count', HTMLSpanElement | null>> ({ last: null, mn: null, mx: null, count: null });
+  const paint = () => {
+    const v = ro.current, has = v.count > 0, t = txt.current;
+    if (t.last)  t.last.textContent  = has ? num (v.last) : '—';
+    if (t.mn)    t.mn.textContent    = has ? num (v.mn) : '—';
+    if (t.mx)    t.mx.textContent    = has ? num (v.mx) : '—';
+    if (t.count) t.count.textContent = String (Math.round (v.count));
+  };
+  const bind = (k: 'last' | 'mn' | 'mx' | 'count') => (el: HTMLSpanElement | null) => { txt.current[k] = el; if (el) paint (); };
   const [paused, setPaused] = useState (false);
   const pausedRef = useRef (false);
   pausedRef.current = paused;
@@ -61,7 +74,8 @@ export default function ValueMonitorNode ({ id, data, selected }: NodeProps) {
     if (! e?.paxReadOnly) return;
     const get = (i: number) => e.paxReadOnly.find ((r: any) => r.index === i)?.value ?? 0;
     const next = { last: get (0), mn: get (1), mx: get (2), count: get (3) };
-    setRo (prev => prev.last === next.last && prev.count === next.count && prev.mn === next.mn && prev.mx === next.mx ? prev : next);
+    const p = ro.current;
+    if (p.last !== next.last || p.count !== next.count || p.mn !== next.mn || p.mx !== next.mx) { ro.current = next; paint (); }
     if (next.count > 0) {
       hist.current.push (next.last);
       if (hist.current.length > HISTORY) hist.current.shift ();
@@ -119,12 +133,12 @@ export default function ValueMonitorNode ({ id, data, selected }: NodeProps) {
       {! collapsed && (
         <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div data-port-anchor="value" style={{ fontSize: 22, fontWeight: 700, color: accent, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
-            {ro.count > 0 ? num (ro.last) : '—'}
+            <span ref={bind ('last')} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 8, color: 'var(--text-muted)' }}>
-            <span>min <span style={{ color: 'var(--text-dim)' }}>{ro.count > 0 ? num (ro.mn) : '—'}</span></span>
-            <span>max <span style={{ color: 'var(--text-dim)' }}>{ro.count > 0 ? num (ro.mx) : '—'}</span></span>
-            <span>count <span style={{ color: 'var(--text-dim)' }}>{Math.round (ro.count)}</span></span>
+            <span>min <span ref={bind ('mn')} style={{ color: 'var(--text-dim)' }} /></span>
+            <span>max <span ref={bind ('mx')} style={{ color: 'var(--text-dim)' }} /></span>
+            <span>count <span ref={bind ('count')} style={{ color: 'var(--text-dim)' }} /></span>
           </div>
           <canvas ref={canvas} style={{ width: '100%', height: 60, display: 'block', borderRadius: 3, background: 'var(--bg)' }} />
         </div>

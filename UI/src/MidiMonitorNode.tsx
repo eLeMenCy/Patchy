@@ -7,6 +7,7 @@ import { NodeSelect } from './NodeSelect';
 import { useNodeSettings, useNodeDelete, NodeHeader, NodeHeaderButton, NodeHandle, Checkbox, useNodeCollapsed, SettingsPanelHeader } from './NodeUtils';
 import { Pause, Play, Trash2 } from 'lucide-react';
 import { HintContext } from './HintPanel';
+import { perfCount } from './Perf';   // v0.0.994
 
 // ── Settings interface ────────────────────────────────────────────────────────
 export interface MonitorSettings {
@@ -338,12 +339,15 @@ function SettingsPanel({ nodeId, s, onChange, onDiscreteChange, onClose, onReset
 
 // ── Main component ────────────────────────────────────────────────────────────
 function MidiMonitorNode({ id, data, selected }: NodeProps) {
+  perfCount ('render MidiMonitorNode');   // v0.0.994 — overlay: how often it re-renders
   const d = data as MidiMonitorNodeData;
   const [settings, setSettings] = useState<MonitorSettings>({
     ...DEFAULT_SETTINGS, ...(d.settings ?? {}),
     ...(d.settingsJson ? JSON.parse(d.settingsJson) : {})
   });
   const [rows,        setRows]        = useState<DisplayRow[]>([]);
+  const pending    = useRef<DisplayRow[]>([]);          // v0.0.994
+  const flushTimer = useRef<number | null>(null);      // v0.0.994
   const { showSettings, openSettings, closeSettings, toggleSettings } = useNodeSettings(id);
   const { handleDelete } = useNodeDelete(id);
   const { collapsed, toggleCollapsed } = useNodeCollapsed(id, (data as any)._forceCollapsed);
@@ -372,10 +376,20 @@ function MidiMonitorNode({ id, data, selected }: NodeProps) {
 
       if (newRows.length > 0) {
         lastEventTs.current = Date.now();
-        setRows(prev => [...prev, ...newRows].slice(-s.maxRows));
+        // v0.0.994 — rows gathered and shown at most 10×/s (it re-rendered the
+        // whole table on every push, ~27–54×/s, with a MIDI file playing)
+        pending.current.push(...newRows);
+        if (flushTimer.current === null)
+          flushTimer.current = window.setTimeout(() => {
+            flushTimer.current = null;
+            const add = pending.current; pending.current = [];
+            if (add.length === 0) return;
+            const max = settingsRef.current.maxRows;
+            setRows(prev => [...prev, ...add].slice(-max));
+          }, 100);
       }
     });
-    return unsub;
+    return () => { unsub(); if (flushTimer.current !== null) { clearTimeout(flushTimer.current); flushTimer.current = null; } pending.current = []; };
   }, [id]);  // only re-subscribe if node id changes
 
   // Auto-clear after silence
@@ -479,7 +493,7 @@ function MidiMonitorNode({ id, data, selected }: NodeProps) {
           onHint={{ onMouseEnter: () => setHint({ title: settings.paused ? 'Resume' : 'Pause', body: settings.paused ? 'Resume recording incoming MIDI events.' : 'Pause recording. Existing events remain visible.' }), onMouseLeave: () => setHint(null) }}>
           {settings.paused ? <Play size={14} /> : <Pause size={14} />}
         </NodeHeaderButton>
-        <NodeHeaderButton onClick={() => { setRows([]); lastEventTs.current = 0; }}
+        <NodeHeaderButton onClick={() => { setRows([]); pending.current = []; lastEventTs.current = 0; }}
           onHint={{ onMouseEnter: () => setHint({ title: 'Clear', body: 'Clears all MIDI events from the monitor.' }), onMouseLeave: () => setHint(null) }}>
           <Trash2 size={14} />
         </NodeHeaderButton>

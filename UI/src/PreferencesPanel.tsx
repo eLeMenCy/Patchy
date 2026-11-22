@@ -29,6 +29,7 @@ export interface GraphPreferences {
   tidyAnimate: boolean;       // v0.0.966 — ⌥⌘L Tidy layout: nodes glide to their places (off: they jump)
   reduceEffects: boolean;     // v0.0.982 — no shadows / glows / blur / transitions / animations (old GPUs, Linux)
   portMenu: boolean;          // v0.0.989 — right-click a port: its wires, each with a ✕
+  perfOverlay?: boolean;      // v0.0.994 — frame-time overlay (⇧⌘P / Ctrl+Shift+P)
 }
 
 export const GRID_SIZES = [6, 12, 24, 48];   // the canvas dots are 24 apart: every size lines up with them
@@ -389,6 +390,13 @@ function GraphTab ({ prefs, onChange }: {
         desc="No shadows, glows, blur, transitions or glowing wires — a lighter UI on older machines (Linux especially). Wires still flash, meters still move."
         value={prefs.reduceEffects ?? false}
         onChange={v => patch({ reduceEffects: v })}
+      />
+      {/* v0.0.994 — user: measure the UI's load on macOS and Garuda alike */}
+      <ToggleRow
+        label="Performance overlay"
+        desc="Frames per second, frame times and what reaches the UI each second (and the time spent on it) — bottom right. ⇧⌘P / Ctrl+Shift+P switches it."
+        value={prefs.perfOverlay ?? false}
+        onChange={v => patch({ perfOverlay: v })}
       />
       {/* v0.0.989 */}
       <SectionHeader label="Wires" />

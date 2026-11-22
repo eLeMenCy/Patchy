@@ -18,6 +18,7 @@ import { useNodeSettings, useNodeDelete, useNodeDisabled, NodeHeader, NodeHandle
 import ValueBox from './ValueBox';
 import { Play, Pause, SkipBack, FolderOpen, Repeat } from 'lucide-react';
 import { HintContext } from './HintPanel';
+import { perfCount } from './Perf';   // v0.0.994
 
 export type MidiTempoMode = 'file' | 'host' | 'manual';
 
@@ -69,6 +70,7 @@ export function dispatchMidiPlayerLive (id: string, p: Partial<MidiFilePlayerSet
 }
 
 function MidiFilePlayerNode ({ id, data, selected }: NodeProps) {
+  perfCount ('render MidiFilePlayerNode');   // v0.0.994 — overlay: how often it re-renders
   const d = data as MidiFilePlayerNodeData;
   const [settings, setSettings] = useState<MidiFilePlayerSettings> (() => parseSettings (d.settingsJson));
   const settingsRef = useRef (settings);
@@ -82,13 +84,24 @@ function MidiFilePlayerNode ({ id, data, selected }: NodeProps) {
   const portBodyRef = useRef<HTMLDivElement> (null);
 
   // Live status (30 Hz) and the loaded file's info
-  const [fraction, setFraction] = useState (0);
+  // v0.0.994 — the position (bar, head, time) is written straight into the
+  // DOM: it re-rendered the node ~50×/s while playing (user's overlay)
+  const fraction = useRef (0);
+  const posEls   = useRef<{ fill: HTMLDivElement | null; head: HTMLDivElement | null; time: HTMLSpanElement | null }> ({ fill: null, head: null, time: null });
+  const secondsRef = useRef (0);
+  const paintPos = () => {
+    const f = fraction.current, e = posEls.current;
+    if (e.fill) e.fill.style.width = `${f * 100}%`;
+    if (e.head) e.head.style.left  = `${f * 100}%`;
+    if (e.time) e.time.textContent = `${fmtTime (f * secondsRef.current)} / ${fmtTime (secondsRef.current)}`;
+  };
   const [playing,  setPlaying]  = useState (false);
   const [bpm,      setBpm]      = useState (120);
   const [host,     setHost]     = useState (false);
   const [tracks,   setTracks]   = useState<MidiFilePlayerTrack[]> ([]);
   const [fileBpm,  setFileBpm]  = useState (120);
   const [seconds,  setSeconds]  = useState (0);
+  secondsRef.current = seconds;
 
   const commitPatch = useCallback ((p: Partial<MidiFilePlayerSettings>) => {
     const next = { ...settingsRef.current, ...p };
@@ -114,7 +127,8 @@ function MidiFilePlayerNode ({ id, data, selected }: NodeProps) {
   useEffect (() => Bridge.onMidiFilePlayerStatus ((st: MidiFilePlayerStatus[]) => {
     const s = st.find (x => x.nodeId === id);
     if (! s) return;
-    setFraction (s.fraction); setPlaying (s.playing); setBpm (s.bpm); setHost (s.host);
+    if (fraction.current !== s.fraction) { fraction.current = s.fraction; paintPos (); }
+    setPlaying (s.playing); setBpm (s.bpm); setHost (s.host);
     if (s.file) {
       setTracks (s.file.tracks ?? []);
       setFileBpm (s.file.fileBpm ?? 120);
@@ -193,12 +207,11 @@ function MidiFilePlayerNode ({ id, data, selected }: NodeProps) {
             {...tip ('Position', hostDriven ? 'Follows the DAW\'s position (HOST).' : 'Click to jump there.')}
             style={{ position: 'relative', height: 14, borderRadius: 3, background: 'rgba(13,15,20,0.52)',
                      border: '1px solid var(--border)', cursor: hasFile && ! hostDriven ? 'pointer' : 'default', overflow: 'hidden' }}>
-            <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${fraction * 100}%`,
+            <div ref={el => { posEls.current.fill = el; paintPos (); }} style={{ position: 'absolute', left: 0, top: 0, bottom: 0,
                           background: 'color-mix(in srgb, var(--midi) 35%, transparent)' }} />
-            <div style={{ position: 'absolute', left: `${fraction * 100}%`, top: 0, bottom: 0, width: playing ? 2 : 1, background: '#FFC800' }} />
-            <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            <div ref={el => { posEls.current.head = el; paintPos (); }} style={{ position: 'absolute', top: 0, bottom: 0, width: playing ? 2 : 1, background: '#FFC800' }} />
+            <span ref={el => { posEls.current.time = el; paintPos (); }} style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
                            fontSize: 8, color: 'var(--text-dim)', fontFamily: "'JetBrains Mono', monospace", pointerEvents: 'none' }}>
-              {hasFile ? `${fmtTime (fraction * seconds)} / ${fmtTime (seconds)}` : '—'}
             </span>
           </div>
 

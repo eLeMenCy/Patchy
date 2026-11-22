@@ -16,6 +16,7 @@ import { OscDeviceSettingsPanel, OscPortSummary } from './OscDeviceUI';
 import { MqttSubscribeSettingsPanel, MqttSubscribeSummary, MqttPublishSettingsPanel, MqttPublishSummary } from './MqttDeviceUI';
 import { ArtNetDeviceSettingsPanel, ArtNetPortSummary } from './ArtNetDeviceUI';
 import { DmxDeviceSelector, DmxSettingsPanel, DmxByteRateLabel, DmxStatusLine } from './DmxDeviceUI';
+import { perfCount } from './Perf';   // v0.0.994
 
 export interface NodeData {
   label: string;
@@ -81,6 +82,7 @@ const PAX_PORT_OFFSET_OVERRIDES: Record<string, { in?: number; out?: number; anc
   'Splitter':    { anchor: 'rail' },
 };
 function GenericNode({ id, data, selected }: NodeProps) {
+  perfCount ('render GenericNode');   // v0.0.994 — overlay: how often it re-renders
   const nodeData = data as NodeData;
   // nodeType>=100 means Pax
   const paxType  = nodeData.nodeType >= 100 ? nodeData.nodeType - 100 : null;

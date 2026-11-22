@@ -58,6 +58,8 @@ import ValueMonitorNode from './ValueMonitorNode';
 import AudioPeakToOscNode from './AudioPeakToOscNode';
 import GhostNode from './GhostNode';   // v0.0.941
 import PortMenu, { PortMenuState } from './PortMenu';   // v0.0.989
+import PerfOverlay from './PerfOverlay';   // v0.0.994
+import { perfStart, perfEnd, perfCount } from './Perf';   // v0.0.994
 import { _paxInfoMap, detectPaxTheme } from './NodeUtils';
 
 // ── Node type registry ────────────────────────────────────────────────────────
@@ -515,6 +517,8 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
   // pass) — see the comparison right before style.textContent is assigned,
   // further down in the render loop below, for the full reasoning.
   const lastAppliedCss = useRef<string>('');
+  const flashApplied = useRef<Map<HTMLElement | SVGElement, Map<string, string>>>(new Map());   // v0.0.994
+  const lastFlashRefresh = useRef(0);   // v0.0.994 — re-applied 4×/s too (an element React re-created)
   const edgeList      = useRef(edges);
   const nodesRef      = useRef(nodes);
   useEffect(() => { edgeList.current = edges; }, [edges]);
@@ -608,6 +612,7 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
     const render = () => {
       const style = styleRef.current;
       if (!style) { rafId = requestAnimationFrame(render); return; }
+      const perfT = perfStart();   // v0.0.994 — overlay probe
       const now = Date.now();
 
       // Decay levels each frame
@@ -940,11 +945,20 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
       // signal. Ids are UUIDs / end in _in|_out, so a prefix can't hit
       // another element.
       css = css.split('[data-id="').join('[data-id^="').split('[data-handleid="').join('[data-handleid^="');
-      if (css !== lastAppliedCss.current)
+      // v0.0.994 — applied as inline styles on the few elements concerned, not
+      // as a stylesheet: every rewrite of the <style> made the browser restyle
+      // the whole page (~50 ms frames on the M2 — the overlay showed long
+      // frames matching "flash css write" one for one). Same rules, same look.
+      const nowMs = performance.now();
+      if (css !== lastAppliedCss.current || nowMs - lastFlashRefresh.current > 250)
       {
-        style.textContent = css;
+        if (css !== lastAppliedCss.current) perfCount('flash css write');
+        const refresh = nowMs - lastFlashRefresh.current > 250;
+        applyFlashInline(css, flashApplied.current, refresh);
         lastAppliedCss.current = css;
+        if (refresh) lastFlashRefresh.current = nowMs;
       }
+      perfEnd('flash css build', perfT);
       rafId = requestAnimationFrame(render);
     };
     rafId = requestAnimationFrame(render);
@@ -954,6 +968,71 @@ function usePortActivityStyles (edges: any[], nodes: any[]) {
 
 // ── Inner component (needs useReactFlow hook) ─────────────────────────────────
 // ── Burger menu row helpers ─────────────────────────────────────────────────
+// v0.0.994 — the wire / port flash rules ("selector{prop:value!important;…}",
+// built each frame) applied as inline styles: each selector is looked up and
+// its declarations set on the matching elements; properties no rule wants any
+// more are removed. Only those elements get restyled (a <style> rewrite
+// restyled the whole page). `applied` remembers what was set, per element.
+const flashOriginal = new WeakMap<HTMLElement | SVGElement, Map<string, [string, string]>>();
+// Selector → its elements, kept between frames (audio levels change the rules
+// every frame: looking every selector up again cost ~100 ms/s on the user's
+// high-load graph); emptied on the 4×/s refresh so new elements are found.
+const flashSelCache = new Map<string, Element[]>();
+function applyFlashInline(css: string, applied: Map<HTMLElement | SVGElement, Map<string, string>>, refresh = false) {
+  if (refresh) flashSelCache.clear();
+  const want = new Map<HTMLElement | SVGElement, Map<string, string>>();
+  for (const chunk of css.split('}')) {
+    const b = chunk.indexOf('{');
+    if (b < 0) continue;
+    const sel = chunk.slice(0, b).trim(), body = chunk.slice(b + 1);
+    if (!sel) continue;
+    let els = flashSelCache.get(sel);
+    if (!els || els.some(e => !e.isConnected)) {
+      try { els = Array.from(document.querySelectorAll(sel)); } catch { continue; }
+      flashSelCache.set(sel, els);
+    }
+    if (els.length === 0) continue;
+    const decls: [string, string][] = [];
+    for (const d of body.split(';')) {
+      const c = d.indexOf(':');
+      if (c < 0) continue;
+      decls.push([d.slice(0, c).trim(), d.slice(c + 1).trim()]);
+    }
+    els.forEach(el => {
+      const m = want.get(el as HTMLElement) ?? new Map<string, string>();
+      for (const [k, v] of decls) m.set(k, v);
+      want.set(el as HTMLElement, m);
+    });
+  }
+  // properties set before and no longer wanted: back to the element's own
+  // inline value (e.g. a port dot's colour), or removed if it had none
+  applied.forEach((props, el) => {
+    const w = want.get(el);
+    props.forEach((_v, k) => {
+      if (w && w.has(k)) return;
+      const o = flashOriginal.get(el)?.get(k);
+      if (o && o[0]) el.style.setProperty(k, o[0], o[1]); else el.style.removeProperty(k);
+      flashOriginal.get(el)?.delete(k);
+    });
+  });
+  // new or changed ones (an element React re-created gets them again)
+  want.forEach((props, el) => {
+    const before = applied.get(el);
+    props.forEach((v, k) => {
+      if (before?.get(k) === v && el.style.getPropertyValue(k) !== '') return;   // already there
+      if (!before?.has(k)) {   // first time: keep the element's own value to restore later
+        const o = flashOriginal.get(el) ?? new Map<string, [string, string]>();
+        o.set(k, [el.style.getPropertyValue(k), el.style.getPropertyPriority(k)]);
+        flashOriginal.set(el, o);
+      }
+      const imp = v.endsWith('!important');
+      el.style.setProperty(k, imp ? v.slice(0, -10).trim() : v, imp ? 'important' : '');
+    });
+  });
+  applied.clear();
+  want.forEach((p, el) => applied.set(el, p));
+}
+
 function MenuRow ({ label, shortcut, enabled = true, onClick, onMouseEnter, trailing }: {
   label: string;
   shortcut?: string;
@@ -999,6 +1078,7 @@ function MenuDivider() {
 
 // ── Main canvas ────────────────────────────────────────────────────────────
 function FlowCanvas() {
+  perfCount ('render FlowCanvas');   // v0.0.994 — overlay: how often it re-renders
   const { isStandalone } = useContext(DawContext);
   const [nodes, setNodes] = useState<Node<any>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
@@ -2532,6 +2612,18 @@ function FlowCanvas() {
     dropPayload(e.dataTransfer.getData('text/plain'), e.clientX, e.clientY);
   }, [dropPayload]);
 
+  // v0.0.994 — performance overlay: Preferences → Display, or ⇧⌘P / Ctrl+Shift+P
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.shiftKey && (e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        setPrefs(p => { const next = { ...p, perfOverlay: !p.perfOverlay }; savePrefs(next); return next; });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   // v0.0.982 — Preferences → Display → Reduce visual effects (index.css .patchy-lite)
   useEffect(() => {
     document.documentElement.classList.toggle('patchy-lite', !!prefs.reduceEffects);
@@ -3101,6 +3193,7 @@ function FlowCanvas() {
         </div>
         </div>
       {portMenu && <PortMenu menu={portMenu} onRemove={portMenuRemove} onHover={portMenuHover} onClose={portMenuClose} />}
+      {prefs.perfOverlay && <PerfOverlay onClose={() => setPrefs(p => { const next = { ...p, perfOverlay: false }; savePrefs(next); return next; })} />}
       {/* ── Fragment ghost overlay ── */}
       {pendingFragment && (
         <div
@@ -3142,6 +3235,7 @@ function FlowCanvas() {
 
 // ── Root export ───────────────────────────────────────────────────────────────
 export default function App() {
+  perfCount ('render App');   // v0.0.994 — overlay: how often it re-renders
   const [isStandalone, setIsStandalone] = useState(false);
   const [dawLoopbackEnabled, setDawLoopback] = useState(false);
   const [dawHostEnabled, setDawHost]         = useState(false);

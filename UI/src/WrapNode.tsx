@@ -29,6 +29,7 @@ import { DeviceName, MiniWave, MiniMidi, MqttSend, NetStatus, MiniLog, MiniLevel
 import { parseRule, ruleSummary } from './MorpherCore';
 import { fromAdvanced, basicSentence } from './MorpherBasic';
 import { ChannelButtons, channelMaskOf, channelText } from './ValueHubNode';   // v0.0.993
+import { perfCount } from './Perf';   // v0.0.994
 
 export const WRAP_ACCENT = 'var(--generic)';
 
@@ -621,6 +622,7 @@ function BuiltinControl ({ b, i, actions, playing, labelNode }: {
 
 // ── Folded wrap ──────────────────────────────────────────────────────────────
 export function WrapNode ({ id, data, selected }: NodeProps) {
+  perfCount ('render WrapNode');   // v0.0.994 — overlay: how often it re-renders
   const { wrap, ports, pax, actions, power } = data as WrapNodeData;
   const builtins = (data as WrapNodeData).builtins ?? [];   // v0.0.949
   const { setHint } = useContext (HintContext);
@@ -770,10 +772,15 @@ export function WrapNode ({ id, data, selected }: NodeProps) {
     return Bridge.onPortActivity (entries => {
       const got = entries.filter (e => ids.has (e.id) && e.paxReadOnly?.length);
       if (got.length === 0) return;
-      setLive (prev => {
-        const next = new Map (prev);
-        for (const e of got) for (const r of e.paxReadOnly) next.set (`${e.id}:${r.index}`, r.value);
-        return next;
+      setLive (prev => {   // v0.0.994 — a new Map only when a value changed (it re-rendered the wrap 28×/s)
+        let next: Map<string, number> | null = null;
+        for (const e of got) for (const r of e.paxReadOnly) {
+          const k = `${e.id}:${r.index}`;
+          if (prev.get (k) === r.value) continue;
+          if (! next) next = new Map (prev);
+          next.set (k, r.value);
+        }
+        return next ?? prev;
       });
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1202,6 +1209,7 @@ function FramePort ({ q, top, wrapId, actions }: { q: WrapPort; top: number; wra
 }
 
 export function WrapFrame ({ id, data, height }: NodeProps) {
+  perfCount ('render WrapFrame');   // v0.0.994 — overlay: how often it re-renders
   const { wrap, actions, ports = [], drop, power, hasControls } = data as WrapFrameData;
   // ⌥-drag highlight: join = solid, brighter; leave = red dashed
   const dropCol = drop === 'join' ? 'var(--accent)' : drop === 'leave' ? '#f87171' : null;

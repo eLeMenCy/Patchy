@@ -19,6 +19,7 @@ import { HintContext } from './HintPanel';
 import { LearnButton } from './LearnButton';
 import { useMidiLearn, LearnedEvent } from './Learn';
 import { Settings, X, Power } from 'lucide-react';
+import { perfCount } from './Perf';   // v0.0.994
 
 const _settingsOpen = new Map<string, boolean>();
 
@@ -231,6 +232,7 @@ export const HUB_SPECS: Record<string, HubSpec> = {
 };
 
 export default function ValueHubNode ({ id, data, selected }: NodeProps) {
+  perfCount ('render ValueHubNode');   // v0.0.994 — overlay: how often it re-renders
   const d = data as any;
   const spec = HUB_SPECS[d.paxName as string];
   const { setHint } = useContext (HintContext);
@@ -238,7 +240,13 @@ export default function ValueHubNode ({ id, data, selected }: NodeProps) {
   const { disabled, toggleDisabled }   = useNodeDisabled (id, d.disabled);
   const [showSettings, setShowSettings] = useState (() => _settingsOpen.get (id) ?? false);
   const [vals, setVals] = useState<number[]> (spec?.defaults ?? []);
-  const [ro, setRo]     = useState<number | null> (null);
+  // v0.0.994 — the live "last" value is written straight into the DOM (it
+  // re-rendered the whole node on every push)
+  const ro    = useRef<number | null> (null);
+  const roEl  = useRef<HTMLSpanElement | null> (null);
+  const msgRef = useRef (0);
+  const roText = () => ro.current === null ? '—' : (spec?.roFmt ? spec.roFmt (ro.current, msgRef.current) : String (Math.round (ro.current)));
+  const paintRo = () => { if (roEl.current) roEl.current.textContent = roText (); };
   const valsRef = useRef<number[]> (vals);
   valsRef.current = vals;
   // v0.0.992 — Learn (as in Channel Filter): the next event at the MIDI input
@@ -265,7 +273,7 @@ export default function ValueHubNode ({ id, data, selected }: NodeProps) {
   useEffect (() => Bridge.onPortActivity ((entries: any[]) => {
     const e = entries.find (x => x.id === id);
     const r = e?.paxReadOnly?.find ((p: any) => p.index === spec?.roIdx);
-    if (r) setRo (prev => prev === r.value ? prev : r.value);
+    if (r && ro.current !== r.value) { ro.current = r.value; paintRo (); }
   }), [id, spec?.roIdx]);
 
   const setParam = useCallback ((idx: number, v: number, commit: boolean) => {
@@ -280,6 +288,7 @@ export default function ValueHubNode ({ id, data, selected }: NodeProps) {
 
   if (! spec) return null;
   const msg    = Math.round (vals[spec.msgIdx] ?? 0);
+  msgRef.current = msg;
   const n      = spec.msgNames.length;
   // v0.0.992 — the converter colour, as in the sidebar (user), not the protocol's
   const accent = detectPaxTheme (d.ports ?? [], d.paxName ? _paxInfoMap.get (d.paxName)?.colourCategory : undefined).accent;
@@ -351,7 +360,7 @@ export default function ValueHubNode ({ id, data, selected }: NodeProps) {
         <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
           <div data-port-anchor="label" style={{ fontSize: 9, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>{spec.summary (vals)}</div>
           <div style={{ fontSize: 8, color: 'var(--text-muted)' }}>
-            {spec.roLabel}: <span style={{ color: accent }}>{ro === null ? '—' : (spec.roFmt ? spec.roFmt (ro, msg) : String (Math.round (ro)))}</span>
+            {spec.roLabel}: <span ref={el => { roEl.current = el; paintRo (); }} style={{ color: accent }} />
           </div>
         </div>
       )}

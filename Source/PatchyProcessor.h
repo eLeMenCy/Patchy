@@ -1018,6 +1018,17 @@ public:
         return arr;
     }
 
+    // v0.0.995 — a Pax text parameter, live (also on a graph being built)
+    void setPaxText (const juce::String& nodeId, int index, const juce::String& text)
+    {
+        for (auto* g : { &processingGraph, pendingGraph.get() })
+            if (g != nullptr)
+                for (auto& node : g->getNodes())
+                    if (node->id == nodeId)
+                        if (auto* dyn = dynamic_cast<DynamicPaxProcessor*> (node.get()))
+                            { dyn->setTextParameter (index, text); break; }
+    }
+
     void setPaxParameter (const juce::String& nodeId, int index, float value)
     {
         for (auto& node : processingGraph.getNodes())

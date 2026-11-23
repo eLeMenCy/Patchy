@@ -229,6 +229,11 @@ namespace OscCodec
             if (! writeString (",f", pos))  return 0;
             if (! writeFloat  (v.value, pos)) return 0;
         }
+        else if (v.dataType == PAX_DATA_INT)   // v0.0.995 — Value to OSC's Int mode
+        {
+            if (! writeString (",i", pos))  return 0;
+            if (! writeInt32  ((int32_t) std::lround (v.value), pos)) return 0;
+        }
         else
         {
             // Send blob data

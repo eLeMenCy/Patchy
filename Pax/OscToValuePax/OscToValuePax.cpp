@@ -1,71 +1,55 @@
 /**
- * OscToValuePax — OSC → Value adapter Pax (Phase 4)
+ * OscToValuePax — OSC → Value converter (Phase 4; the Value hub's OSC side,
+ * v0.0.995)
  *
- * Bridges OSC data into the generic, protocol-agnostic "Value" graph — so
- * an OSC message's numeric argument can flow into any Value-consuming
- * node (Value → DMX, a future Value Math Pax, etc.) without that
- * downstream node needing to know anything about OSC addresses.
+ * Takes the numeric first argument of incoming OSC messages (int or float)
+ * and outputs it as a generic Value. v0.0.995 brought it into the Value hub
+ * (user, 2026-11-23), next to MIDI to Value:
  *
- * Value only (nodeType 4), single input/output, same shape as
- * MqttToValuePax — this file follows that one's proven template closely,
- * adapted for OSC's actual PAX_Value shape rather than assumed by
- * symmetry with MQTT's. The two protocols don't populate PAX_Value quite
- * the same way:
- *   - MQTT always sets dataType = PAX_DATA_STRING (the topic lives in
- *     data[]) and separately, always populates `value` numerically
- *     alongside it, regardless of dataType.
- *   - OSC starts dataType = PAX_DATA_BLOB (the address lives in data[])
- *     and only switches it to PAX_DATA_FLOAT if the message's first
- *     argument was numeric (OSC type tag 'f' or 'i' — see
- *     OscDeviceNodes.h's parse()). A message with no numeric argument
- *     (no arguments at all, or a string argument, which currently
- *     overwrites data[] entirely rather than appending) leaves `value` at
- *     its zero-initialised default.
- * The practical effect on this adapter is identical either way: pass
- * `value` through unconditionally, exactly as MqttToValuePax does — 0.0f
- * is the correct, safe result for a message that had no numeric payload,
- * not a case this adapter needs to special-case or filter out.
+ *   Address (text parameter 0, new in the Pax API v0.0.995): only messages
+ *     whose address matches pass; empty = every message. OSC-style wildcards:
+ *     `*` any run of characters, `?` any one character (e.g. /fader*,
+ *     /ch/??/mix).
+ *   Parameters:
+ *     0 Last        read-only: the last incoming number (kept at index 0 —
+ *                   it was "Current Value" before, so older graphs load the same)
+ *     1 / 2 Input Min / Max    what counts as 0 and 1 of the incoming number
+ *     3 / 4 Output Min / Max   what 0 and 1 become on the way out
+ *     5 Invert      0/1
+ *   The defaults (0–1 → 0–1) pass the number through unchanged, exactly as
+ *   before — the mapping is linear and not clamped, so a graph made before
+ *   v0.0.995 behaves the same.
  *
- * Design (matching MqttToValuePax's own confirmed-in-conversation scope):
- *   - Passes every incoming value through unconditionally — no address
- *     filter. Same reasoning as MQTT's topic: not expressible as a
- *     float-only Pax parameter, and out of scope for a v1 plain bridge.
- *   - Strips the OSC address on the way out — output is a clean
- *     PAX_TYPE_GENERIC value carrying just the number, so a downstream
- *     Value consumer never needs to know what an OSC address even is.
- *   - "Current Value" parameter (index 0, added 2026-08-17) — a read-only
- *     live display (see PaxAPI.h's PAX_isParameterReadOnly) mirroring the
- *     most recently converted value, added alongside ValueToDMXPax's own
- *     equivalent so the whole OSC → Value → DMX chain is visible end to
- *     end, not just at the final DMX step. Purely a visibility addition
- *     here, not a bug fix the way ValueToDMXPax's was — this Pax is a
- *     stateless passthrough with nothing held across blocks in the
- *     absence of new events, so there's no "survive a rebuild" concern:
- *     the display just naturally reflects whatever last came through,
- *     the same before or after a rebuild, exactly as expected for a
- *     discrete-event bridge.
- *
- * Build:
- *   macOS:  clang++ -std=c++20 -shared -fPIC OscToValuePax.cpp -o OscToValuePax.dylib
- *   Linux:  g++     -std=c++20 -shared -fPIC OscToValuePax.cpp -o OscToValuePax.so
- *   Win:    cl /std=c++20 /LD OscToValuePax.cpp /Fe:OscToValuePax.dll
+ * A message without a numeric first argument gives 0 (as before). The OSC
+ * address is stripped: the output is a plain generic Value.
  */
 
 #include "../PaxAPI.h"
 #include <algorithm>
+#include <cstring>
 
-// ── Pax state ─────────────────────────────────────────────────────────────────
-// lastValue is purely a display mirror for the read-only "Current Value"
-// parameter (see file header) — the actual passthrough logic in
-// PAX_process below is still fully stateless.
-struct OscToValuePax { float lastValue = 0.f; };
+struct OscToValuePax
+{
+    float last = 0.f, inMin = 0.f, inMax = 1.f, outMin = 0.f, outMax = 1.f, invert = 0.f;
+    char  pattern[64] = { 0 };
+};
 
-// ── Pax exports ───────────────────────────────────────────────────────────────
+// OSC-style match (kept simple): * = any run of characters,
+// ? = one character, anything else literal. Empty pattern matches everything.
+static bool oscMatch (const char* p, const char* s)
+{
+    if (*p == 0) return *s == 0;
+    if (*p == '*') { for (;;) { if (oscMatch (p + 1, s)) return true; if (*s == 0) return false; ++s; } }
+    if (*s == 0) return false;
+    if (*p == '?' || *p == *s) return oscMatch (p + 1, s + 1);
+    return false;
+}
+
 extern "C" {
 
 const PAX_Descriptor* PAX_getDescriptor()
 {
-    static PAX_Descriptor d { "OSC to Value", "Patchy Examples", "1.0.0", 4, PAX_API_VERSION };
+    static PAX_Descriptor d { "OSC to Value", "Patchy Examples", "1.1.0", 4, PAX_API_VERSION };
     return &d;
 }
 
@@ -76,81 +60,90 @@ void PAX_prepare (PAX_Instance*, double, int) {}
 void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
 {
     auto* a = static_cast<OscToValuePax*> (i);
-
-    // Value only — nothing to do for audio/MIDI, but stay defensive per
-    // the API's own guidance and always guard/zero what we don't use.
     if (ctx->midiOutCount) *ctx->midiOutCount = 0;
-
-    if (! ctx->valuesOut || ctx->valueMaxCount <= 0 || ! ctx->valuesIn)
-    {
-        if (ctx->valueOutCount) *ctx->valueOutCount = 0;
-        return;
-    }
-
     int written = 0;
-    for (int i2 = 0; i2 < ctx->valueInCount && written < ctx->valueMaxCount; ++i2)
-    {
-        const PAX_Value& in = ctx->valuesIn[i2];
 
-        PAX_Value out {};
-        out.type     = PAX_TYPE_GENERIC;   // strip the OSC domain tag — see file header
-        out.key      = in.key;
-        out.dataType = PAX_DATA_FLOAT;     // strip address/blob payload — value only
-        out.value    = in.value;           // 0.0f default is correct for a non-numeric message
+    if (ctx->valuesIn && ctx->valuesOut)
+        for (int k = 0; k < ctx->valueInCount && written < ctx->valueMaxCount; ++k)
+        {
+            const PAX_Value& in = ctx->valuesIn[k];
+            if (a->pattern[0] != 0)
+            {
+                char addr[57] = { 0 };
+                if (in.dataSize > 0) std::memcpy (addr, in.data, std::min<size_t> (in.dataSize, sizeof (in.data)));
+                if (! oscMatch (a->pattern, addr)) continue;
+            }
+            const float range = a->inMax - a->inMin;
+            float n = range != 0.f ? (in.value - a->inMin) / range : 0.f;
+            if (a->invert >= 0.5f) n = 1.f - n;
 
-        ctx->valuesOut[written++] = out;
-        a->lastValue = in.value;   // display mirror — most recent wins if several arrive this block
-    }
+            PAX_Value out {};
+            out.type     = PAX_TYPE_GENERIC;
+            out.dataType = PAX_DATA_FLOAT;
+            out.value    = a->outMin + n * (a->outMax - a->outMin);
+            ctx->valuesOut[written++] = out;
+            a->last = in.value;
+        }
 
-    *ctx->valueOutCount = written;
+    if (ctx->valueOutCount) *ctx->valueOutCount = written;
 }
 
-int PAX_getParameterCount (PAX_Instance*) { return 1; }
+int PAX_getParameterCount (PAX_Instance*) { return 6; }
 
 void PAX_getParameterInfo (PAX_Instance*, int index, PAX_ParameterInfo* info)
 {
-    if (index == 0)
+    switch (index)
     {
-        info->name = "Current Value"; info->minValue = -1000.f; info->maxValue = 1000.f;
-        info->defaultValue = 0.f; info->step = 0.f;
+        case 0: info->name = "Last";       info->minValue = -1e6f; info->maxValue = 1e6f; info->defaultValue = 0.f; info->step = 0.f; break;
+        case 1: info->name = "Input Min";  info->minValue = -1e6f; info->maxValue = 1e6f; info->defaultValue = 0.f; info->step = 0.f; break;
+        case 2: info->name = "Input Max";  info->minValue = -1e6f; info->maxValue = 1e6f; info->defaultValue = 1.f; info->step = 0.f; break;
+        case 3: info->name = "Output Min"; info->minValue = -1e6f; info->maxValue = 1e6f; info->defaultValue = 0.f; info->step = 0.f; break;
+        case 4: info->name = "Output Max"; info->minValue = -1e6f; info->maxValue = 1e6f; info->defaultValue = 1.f; info->step = 0.f; break;
+        case 5: info->name = "Invert";     info->minValue = 0.f;   info->maxValue = 1.f;  info->defaultValue = 0.f; info->step = 1.f; break;
+        default: break;
     }
 }
 
 float PAX_getParameter (PAX_Instance* i, int index)
 {
     auto* a = static_cast<OscToValuePax*> (i);
-    return index == 0 ? a->lastValue : 0.f;
+    switch (index) { case 0: return a->last; case 1: return a->inMin; case 2: return a->inMax;
+                     case 3: return a->outMin; case 4: return a->outMax; case 5: return a->invert; default: return 0.f; }
 }
 
-void PAX_setParameter (PAX_Instance* i, int index, float value)
+void PAX_setParameter (PAX_Instance* i, int index, float v)
 {
-    // Genuinely settable, not ignored — same reasoning as
-    // ValueToDMXPax's own read-only parameter, even though this one
-    // isn't fixing a rebuild bug (see file header): a graph rebuild still
-    // calls this to restore every saved parameter, and there's no reason
-    // to special-case skipping it here just because this Pax's own
-    // display naturally recovers on the next event either way.
     auto* a = static_cast<OscToValuePax*> (i);
-    if (index == 0) a->lastValue = value;
+    switch (index)
+    {
+        case 0: a->last   = v; break;   // restored on rebuild
+        case 1: a->inMin  = v; break;
+        case 2: a->inMax  = v; break;
+        case 3: a->outMin = v; break;
+        case 4: a->outMax = v; break;
+        case 5: a->invert = v >= 0.5f ? 1.f : 0.f; break;
+        default: break;
+    }
 }
 
-// See PaxAPI.h's PAX_isParameterReadOnly doc — "Current Value" (index 0,
-// the only parameter this Pax has) is read-only.
 int PAX_isParameterReadOnly (PAX_Instance*, int index) { return index == 0 ? 1 : 0; }
 
-// Value port counts — see PaxAPI.h's PAX_getValueInputCount/OutputCount doc.
+// ── text parameter (v0.0.995): the address filter ────────────────────────────
+int  PAX_getTextParameterCount (PAX_Instance*) { return 1; }
+void PAX_getTextParameterInfo (PAX_Instance*, int index, PAX_TextParameterInfo* info)
+{
+    if (index == 0) { info->name = "Address"; info->defaultValue = ""; info->maxLength = 63; }
+}
+void PAX_setTextParameter (PAX_Instance* i, int index, const char* utf8)
+{
+    auto* a = static_cast<OscToValuePax*> (i);
+    if (index != 0) return;
+    std::strncpy (a->pattern, utf8 ? utf8 : "", sizeof (a->pattern) - 1);
+    a->pattern[sizeof (a->pattern) - 1] = 0;
+}
+
 int PAX_getValueInputCount()  { return 1; }
 int PAX_getValueOutputCount() { return 1; }
-
-// Per-port typing: the single input port is specifically OSC-typed, not
-// generic Value — this is what actually lets it connect to an OSC In
-// device node at all. The output stays generic (PAX_VALUETYPE_GENERIC is
-// the default for any index not explicitly declared, so
-// PAX_getValueOutputType isn't even needed here) — the whole point of
-// this adapter is bridging INTO the generic Value graph.
-int PAX_getValueInputType (int portIndex)
-{
-    return portIndex == 0 ? PAX_VALUETYPE_OSC : PAX_VALUETYPE_GENERIC;
-}
+int PAX_getValueInputType (int portIndex) { return portIndex == 0 ? PAX_VALUETYPE_OSC : PAX_VALUETYPE_GENERIC; }
 
 } // extern "C"

@@ -130,7 +130,13 @@ void ProcessingGraph::rebuild (const GraphModel& model, PaxRegistry* reg,
                     {
                         // v0.0.959 — no more than the Pax has (a hot-reloaded build may have fewer)
                         for (int i = 0; i < juce::jmin (arr->size(), dyn->getParameterCount()); ++i)
-                            dyn->setParameter (i, (float) (double) (*arr)[i]);
+                            if (! (*arr)[i].isObject())
+                                dyn->setParameter (i, (float) (double) (*arr)[i]);
+                        // v0.0.995 — text parameters: a trailing {"text": [...]} entry
+                        if (! arr->isEmpty() && arr->getLast().isObject())
+                            if (auto* texts = arr->getLast().getProperty ("text", juce::var()).getArray())
+                                for (int t = 0; t < texts->size(); ++t)
+                                    dyn->setTextParameter (t, (*texts)[t].toString());
                     }
                 }
             }

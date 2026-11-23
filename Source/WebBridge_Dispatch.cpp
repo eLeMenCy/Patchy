@@ -33,6 +33,8 @@ void WebBridge::handleMessage (const juce::String& json)
         handleSetPaxParameter (obj);
     else if (type == "setNodeSettings")
         handleSetNodeSettings (obj);
+    else if (type == "setPaxText")
+        handleSetPaxText (obj);
     else if (type == "commitNodeSettings")
         handleCommitNodeSettings();
     else if (type == "commitSettingsChange")
@@ -265,6 +267,15 @@ void WebBridge::handleAddNode (const juce::DynamicObject* obj)
             newNode.settingsJson = "{\"visibleCount\":8,\"startChannel\":0,\"valueFormat\":\"dec\",\"customName\":\"\",\"blackout\":false,\"universe\":0,\"filterUniverse\":false,\"filterUniverseValue\":0}";
         }
     }
+}
+
+// v0.0.995 — a Pax text parameter (OSC address, filter, MQTT topic…), live;
+// the text is saved with the node's settings by the UI, like numbers
+void WebBridge::handleSetPaxText (const juce::DynamicObject* obj)
+{
+    if (onSetPaxText)
+        onSetPaxText (obj->getProperty ("nodeId").toString(), (int) obj->getProperty ("index"),
+                      obj->getProperty ("text").toString());
 }
 
 void WebBridge::handleSetPaxParameter (const juce::DynamicObject* obj)

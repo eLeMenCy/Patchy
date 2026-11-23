@@ -145,6 +145,8 @@ PatchyEditor::PatchyEditor (PatchyProcessor& p)
     bridge.onMidiFilePlayerLoadFile = [&p](const juce::String& nid, const juce::String& path)
                                       { p.loadMidiFile (nid, juce::File (path)); };
     bridge.getMidiFilePlayerStatus  = [&p]() { return p.getMidiFilePlayerStatus(); };
+    bridge.onSetPaxText             = [&p](const juce::String& nid, int idx, const juce::String& text)
+                                      { p.setPaxText (nid, idx, text); };   // v0.0.995
     bridge.onAudioPlayerLoadFile      = [&p, this](const juce::String& nid, const juce::String& filePath)
                                        {
                                            auto* state = p.getOrCreateAudioPlayerState (nid);

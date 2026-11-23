@@ -59,6 +59,7 @@ import AudioPeakToOscNode from './AudioPeakToOscNode';
 import GhostNode from './GhostNode';   // v0.0.941
 import PortMenu, { PortMenuState } from './PortMenu';   // v0.0.989
 import PerfOverlay from './PerfOverlay';   // v0.0.994
+import { paxTexts, textsIn, withTexts } from './PaxSettings';   // v0.0.995
 import { perfStart, perfEnd, perfCount } from './Perf';   // v0.0.994
 import { _paxInfoMap, detectPaxTheme } from './NodeUtils';
 
@@ -352,6 +353,9 @@ const PAX_LAYOUTS: Record<string, PaxLayout> = {
   // v0.0.992 — the Value hub (ValueHubNode): one value per parameter
   'MIDI to Value':     { slot: i => i, fit: true, choices: { 0: ['CC', 'Vel', 'Note', 'Bend', 'AT', 'Prog'], 6: ['Off', 'On'] }, pairs: () => [[3, 4]],
                          channels: { 7: 2 }, shown: (i, v) => i !== 2 && (i !== 1 || Math.round(v[0]) <= 1) },
+  // v0.0.995 — the OSC side (text parameters: the Address row, PaxSettings.ts)
+  'Value to OSC':      { slot: i => i, fit: true, choices: { 0: ['Float', 'Int'], 5: ['Off', 'On'], 6: ['Off', 'On'] }, pairs: () => [[1, 2], [3, 4]] },
+  'OSC to Value':      { slot: i => i, fit: true, choices: { 5: ['Off', 'On'] }, pairs: () => [[1, 2], [3, 4]] },
   'Value to MIDI':     { slot: i => i, fit: true, choices: { 0: ['CC', 'Gate', 'Note', 'Bend', 'Prog'], 7: ['Off', 'On'], 10: ['Off', 'On'] }, pairs: () => [[3, 4]],
                          channels: { 11: 2 }, shown: (i, v) => { const m = Math.round(v[0]); return i !== 2 && (i !== 1 || m <= 1) && (i !== 5 || m === 1) && (i !== 6 || m === 1 || m === 2) && (i !== 7 || m !== 1); } },
 };
@@ -444,10 +448,15 @@ function wrapPaxOf (p: RawWrap, nodes: Node<any>[]): WrapPax[] {
     .map(n => ({
       nodeId: n.id,
       name:   (n.data.customName as string) || (n.data.paxName as string) || (n.data.label as string) || 'Pax',
-      params: n.data.paxParams as PaxParamInfo[],
+      // v0.0.995 — the text parameters follow the numbers, as rows of their own
+      params: [...(n.data.paxParams as PaxParamInfo[]),
+               ...(_paxInfoMap.get(n.data.paxName)?.textParams ?? []).map((t, k): PaxParamInfo =>
+                 ({ index: (n.data.paxParams as PaxParamInfo[]).length + k, name: t.name, min: 0, max: 0, defaultValue: 0, step: 0, text: k }))],
       values: paxValues(n),
+      texts:  paxTexts(n.data.paxName as string, n.data.settingsJson as string),
       shown:  (() => { const v = paxValues(n), f = layoutOf(n).shown;
-                       return (n.data.paxParams as PaxParamInfo[]).map((_, i) => f ? f(i, v) : true); })(),
+                       return [...(n.data.paxParams as PaxParamInfo[]).map((_, i) => f ? f(i, v) : true),
+                               ...(_paxInfoMap.get(n.data.paxName)?.textParams ?? []).map(() => true)]; })(),
       choices: layoutOf(n).choices ?? {},
       pairs:   layoutOf(n).pairs?.((n.data.paxParams as PaxParamInfo[]).length) ?? [],
       zoom:    (() => { const z = layoutOf(n).zoom, raw = rawSettings(n);
@@ -1713,7 +1722,7 @@ function FlowCanvas() {
     setParam: (nodeId, index, value) => {
       const n = nodesRef.current.find(m => m.id === nodeId);
       if (!n) return;
-      const vals = paxSettingsWith(n, index, value);
+      const vals = withTexts(paxSettingsWith(n, index, value), textsIn(rawSettings(n)));   // v0.0.995 — texts kept
       const json = JSON.stringify(vals);
       nodesRef.current = nodesRef.current.map(m => m.id === nodeId ? { ...m, data: { ...m.data, settingsJson: json } } : m);
       setNodes(ns => ns.map(m => m.id === nodeId ? { ...m, data: { ...m.data, settingsJson: json } } : m));
@@ -1721,6 +1730,20 @@ function FlowCanvas() {
       Bridge.setPaxParameter(nodeId, index, value);
     },
     commitParam: (nodeId) => Bridge.commitNodeSettings(nodeId),
+    // v0.0.995 — a Pax text parameter from the wrap's panel (one undo step)
+    setText: (nodeId, k, text) => {
+      const n = nodesRef.current.find(m => m.id === nodeId);
+      if (!n) return;
+      const texts = paxTexts(n.data?.paxName as string, n.data?.settingsJson as string);
+      texts[k] = text;
+      const settings = withTexts(paxSettingsWith(n, 0, paxValues(n)[0] ?? 0), texts);   // the numbers as they are + the texts
+      const json = JSON.stringify(settings);
+      nodesRef.current = nodesRef.current.map(m => m.id === nodeId ? { ...m, data: { ...m.data, settingsJson: json } } : m);
+      setNodes(ns => ns.map(m => m.id === nodeId ? { ...m, data: { ...m.data, settingsJson: json } } : m));
+      Bridge.setNodeSettings(nodeId, settings);
+      Bridge.setPaxText(nodeId, k, text);
+      Bridge.commitNodeSettings(nodeId);
+    },
     // v0.0.932 — pin / unpin / rename a control on the box (one undo step)
     setPins: (wrapId, pins) => {
       setWraps(ps => ps.map(p => p.id === wrapId ? { ...p, pins } : p));

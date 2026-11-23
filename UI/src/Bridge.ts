@@ -231,6 +231,15 @@ export interface PaxParamInfo {
   defaultValue: number;
   step:         number;   // 0=continuous, 1=integer, etc.
   readOnly?:    boolean;  // true = live display, no editable control (see PaxAPI.h's PAX_isParameterReadOnly)
+  text?:        number;   // v0.0.995 — wrap panels only: this row is text parameter #text (not a number)
+}
+
+// v0.0.995 — a Pax text parameter (OSC address, filter, MQTT topic…), PaxAPI.h
+export interface PaxTextParamInfo {
+  index:        number;
+  name:         string;
+  defaultValue: string;
+  maxLength:    number;
 }
 
 // ── DAW context (shared via React context, not Bridge) ───────────────────────
@@ -301,6 +310,7 @@ export interface PaxInfo {
   valueOutputTypes: string[];
   colourCategory: number;  // PAX_COLOURCAT_AUTO (-1) = auto-detect
   params:       PaxParamInfo[];
+  textParams?:  PaxTextParamInfo[];   // v0.0.995
 }
 
 // ── Singleton bridge ─────────────────────────────────────────────────────────
@@ -1097,6 +1107,10 @@ export const Bridge = {
   },
   setPaxParameter(nodeId: string, index: number, value: number) {
     sendToJuce({ type: 'setPaxParameter', nodeId, index, value });
+  },
+  // v0.0.995 — a Pax text parameter, live (saved by the caller with setNodeSettings)
+  setPaxText(nodeId: string, index: number, text: string) {
+    sendToJuce({ type: 'setPaxText', nodeId, index, text });
   },
   setNodeSettings(nodeId: string, settings: object) {
     sendToJuce({ type: 'setNodeSettings', nodeId, settings: JSON.stringify(settings) });

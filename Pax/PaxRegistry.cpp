@@ -193,6 +193,9 @@ bool PaxRegistry::makeEntry (const PaxScanner::ScanResult& r, Entry& e)
         e.isParamLiveSynced = (Entry::IsParamLiveSyncedFn) lib->getFunction ("PAX_isParameterLiveSynced");
         e.audioPassthroughInput = (Entry::AudioPassthroughInputFn) lib->getFunction ("PAX_getAudioPassthroughInput");
         e.midiPassthrough = (Entry::MidiPassthroughFn) lib->getFunction ("PAX_getMidiPassthrough");
+        e.getTextCount = (Entry::GetTextCountFn) lib->getFunction ("PAX_getTextParameterCount");   // v0.0.995
+        e.getTextInfo  = (Entry::GetTextInfoFn)  lib->getFunction ("PAX_getTextParameterInfo");
+        e.setText      = (Entry::SetTextFn)      lib->getFunction ("PAX_setTextParameter");
 
         if (! e.create || ! e.destroy || ! e.prepare || ! e.process)
         {
@@ -248,6 +251,7 @@ DynamicPaxProcessor::DynamicPaxProcessor (const juce::String&             nodeId
       fnIsParamLiveSynced (e.isParamLiveSynced),
       fnAudioPassthroughInput (e.audioPassthroughInput),
       fnMidiPassthrough (e.midiPassthrough),
+      fnGetTextCount (e.getTextCount), fnGetTextInfo (e.getTextInfo), fnSetText (e.setText),
       paxName       (e.name),
       valueOutputTypes (e.valueOutputTypes),
       lastGenericValueValues (e.valueOutputTypes.size(), 0.0f)
@@ -416,7 +420,13 @@ void DynamicPaxProcessor::process (int numSamples)
     ctx.dmxFrameOut       = outputDmxFrame.data();
     ctx.dmxFrameOutValid  = &outputDmxFrameValid;
 
-    fnProcess (instance, &ctx);
+    if (fnSetText != nullptr)   // v0.0.995 — a text change waits for the block to end
+    {
+        const juce::SpinLock::ScopedLockType tl (textLock);
+        fnProcess (instance, &ctx);
+    }
+    else
+        fnProcess (instance, &ctx);
     outputValueCount = valueOutCount;
 
     // Capture any freshly-written generic value into the persistent
@@ -498,6 +508,23 @@ void DynamicPaxProcessor::getParameterInfo (int index, PAX_ParameterInfo& info) 
 float DynamicPaxProcessor::getParameter (int index) const
 {
     return (fnGetParam && instance) ? fnGetParam (instance, index) : 0.f;
+}
+
+int DynamicPaxProcessor::getTextParameterCount() const
+{
+    return (fnGetTextCount && fnSetText && instance) ? fnGetTextCount (instance) : 0;
+}
+
+void DynamicPaxProcessor::setTextParameter (int index, const juce::String& text)
+{
+    if (! fnSetText || ! instance || index < 0 || index >= getTextParameterCount()) return;
+    PAX_TextParameterInfo info {};
+    if (fnGetTextInfo) fnGetTextInfo (instance, index, &info);
+    juce::String t = text;
+    if (info.maxLength > 0)
+        while (t.getNumBytesAsUTF8() > (size_t) info.maxLength) t = t.dropLastCharacters (1);
+    const juce::SpinLock::ScopedLockType tl (textLock);
+    fnSetText (instance, index, t.toRawUTF8());
 }
 
 void DynamicPaxProcessor::setParameter (int index, float value)

@@ -90,6 +90,9 @@ public:
         using IsParamLiveSyncedFn = int   (*)(PAX_Instance*, int);
         using AudioPassthroughInputFn = int (*)(PAX_Instance*, int);
         using MidiPassthroughFn = int (*)(PAX_Instance*);
+        using GetTextCountFn  = int  (*)(PAX_Instance*);                               // v0.0.995
+        using GetTextInfoFn   = void (*)(PAX_Instance*, int, PAX_TextParameterInfo*);
+        using SetTextFn       = void (*)(PAX_Instance*, int, const char*);
 
         CreateFn           create           = nullptr;
         DestroyFn          destroy          = nullptr;
@@ -104,6 +107,9 @@ public:
         IsParamLiveSyncedFn isParamLiveSynced = nullptr;
         AudioPassthroughInputFn audioPassthroughInput = nullptr;
         MidiPassthroughFn  midiPassthrough  = nullptr;
+        GetTextCountFn     getTextCount     = nullptr;   // v0.0.995 — text parameters (optional)
+        GetTextInfoFn      getTextInfo      = nullptr;
+        SetTextFn          setText          = nullptr;
     };
 
     const std::vector<Entry>& getEntries() const { return entries; }
@@ -151,6 +157,9 @@ public:
     void  getParameterInfo  (int index, PAX_ParameterInfo& info) const;
     float getParameter      (int index) const;
     void  setParameter      (int index, float value);
+    // v0.0.995 — text parameters (0 if the Pax has none)
+    int   getTextParameterCount() const;
+    void  setTextParameter (int index, const juce::String& text);
     /** True if this parameter should render as a live display rather than
      *  an editable control — see PaxAPI.h's PAX_isParameterReadOnly doc.
      *  false (normal, editable) if the Pax doesn't export this at all. */
@@ -221,6 +230,10 @@ private:
     PaxRegistry::Entry::IsParamLiveSyncedFn fnIsParamLiveSynced = nullptr;
     PaxRegistry::Entry::AudioPassthroughInputFn fnAudioPassthroughInput = nullptr;
     PaxRegistry::Entry::MidiPassthroughFn fnMidiPassthrough = nullptr;
+    PaxRegistry::Entry::GetTextCountFn fnGetTextCount = nullptr;   // v0.0.995
+    PaxRegistry::Entry::GetTextInfoFn  fnGetTextInfo  = nullptr;
+    PaxRegistry::Entry::SetTextFn      fnSetText      = nullptr;
+    juce::SpinLock textLock;   // PAX_setTextParameter never runs during PAX_process (see PaxAPI.h)
 
     PAX_Instance* instance   = nullptr;
     juce::String  paxName;

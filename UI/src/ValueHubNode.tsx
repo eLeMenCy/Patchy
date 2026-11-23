@@ -20,6 +20,7 @@ import { LearnButton } from './LearnButton';
 import { useMidiLearn, LearnedEvent } from './Learn';
 import { Settings, X, Power } from 'lucide-react';
 import { perfCount } from './Perf';   // v0.0.994
+import { paxTexts, withTexts } from './PaxSettings';   // v0.0.995
 
 const _settingsOpen = new Map<string, boolean>();
 
@@ -39,16 +40,18 @@ export interface HubParam {
 export interface HubSpec {
   title:     string;
   accent:    string;            // the protocol side's colour (header, controls)
-  msgIdx:    number;            // parameter holding the message type
+  msgIdx:    number;            // parameter holding the message type (-1: none — the header shows msgNames[0])
   msgNames:  string[];          // header selector labels
   msgHints:  string[];          // one line each, for the hint panel
   params:    HubParam[];
   defaults:  number[];          // one per Pax parameter (read-only included)
   roIdx:     number;            // the read-only "last" parameter
   roLabel:   string;
-  summary:   (v: number[]) => string;
+  summary:   (v: number[], texts: string[]) => string;
   roFmt?:    (v: number, msg: number) => string;
-  ranges?:   { lo: number; hi: number; inv: number; label: string }[];   // min / max pairs: one rail, two heads, + invert
+  ranges?:   { lo: number; hi: number; inv?: number; label: string }[];   // min / max pairs: one rail, two heads, + invert (if inv)
+  // v0.0.995 — the Pax's text parameters (OSC address, filter…), one row each, at the top
+  texts?:    { idx: number; label: string; placeholder: string; hint: string; def: string }[];   // def: the Pax's default
   // MIDI learn (like Channel Filter): the next event at the MIDI input sets these parameters
   learn?:    (ev: LearnedEvent, v: number[]) => [number, number][];
 }
@@ -176,6 +179,32 @@ const NOTE = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const noteName = (n: number) => `${NOTE[((Math.round (n) % 12) + 12) % 12]}${Math.floor (Math.round (n) / 12) - 1}`;
 const num = (v: number) => (Math.round (v * 1000) / 1000).toString ();
 
+// v0.0.995 — one text parameter: typed freely, sent on Enter or when leaving
+// the field (the project's rule for text fields), Esc puts the old text back
+export function TextParamRow ({ label, value, placeholder, accent, onCommit, onHint, labelNode }: {
+  label: string; value: string; placeholder: string; accent: string; onCommit: (t: string) => void;
+  onHint?: { onMouseEnter: () => void; onMouseLeave: () => void }; labelNode?: React.ReactNode;
+}) {
+  const [draft, setDraft] = useState (value);
+  const editing = useRef (false);
+  useEffect (() => { if (! editing.current) setDraft (value); }, [value]);
+  const done = () => { editing.current = false; if (draft !== value) onCommit (draft.trim ()); };
+  return (
+    <div className="nodrag" onMouseDown={e => e.stopPropagation ()} style={{ display: 'flex', alignItems: 'center', gap: 6 }} {...onHint}>
+      {labelNode ?? <span style={{ color: 'var(--text-muted)', minWidth: 60, fontSize: 8 }}>{label}</span>}
+      <input value={draft} placeholder={placeholder} spellCheck={false} autoCapitalize="off" autoCorrect="off"
+        onFocus={() => { editing.current = true; }}
+        onChange={e => setDraft (e.target.value)}
+        onBlur={done}
+        onKeyDown={e => { e.stopPropagation ();
+                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur ();
+                          if (e.key === 'Escape') { setDraft (value); editing.current = false; (e.target as HTMLInputElement).blur (); } }}
+        style={{ flex: 1, minWidth: 0, fontSize: 9, fontFamily: "'JetBrains Mono', monospace", padding: '2px 5px',
+                 background: 'var(--bg)', color: 'var(--text)', border: `1px solid color-mix(in srgb, ${accent} 45%, var(--border))`, borderRadius: 3, outline: 'none' }} />
+    </div>
+  );
+}
+
 export const HUB_SPECS: Record<string, HubSpec> = {
   'MIDI to Value': {
     title: 'MIDI to Value', accent: 'var(--midi)', msgIdx: 0,
@@ -229,6 +258,34 @@ export const HUB_SPECS: Record<string, HubSpec> = {
     },
     roFmt: (v, m) => m === 2 ? `${noteName (v)} (${Math.round (v)})` : String (Math.round (v)),
   },
+  // v0.0.995 — the OSC side (user: address as a text parameter, float / int in the header)
+  'Value to OSC': {
+    title: 'Value to OSC', accent: 'var(--osc)', msgIdx: 0,
+    msgNames: ['FLOAT', 'INT'],
+    msgHints: ['Sent as a float (type tag f) — faders, levels, positions',
+               'Sent as an int (type tag i), the mapped value rounded — for receivers that expect one (e.g. X32 / M32 switches, cue or clip numbers)'],
+    texts: [{ idx: 0, label: 'Address', placeholder: "empty = the OSC Out Device's", def: '/patchy/value',
+              hint: 'Where the message goes, e.g. /mixer/fader1. Empty: the OSC Out Device\'s own address. Sent on Enter or when leaving the field.' }],
+    params: [
+      { idx: 6, label: 'On change only', min: 0, max: 1, step: 1, toggle: true },
+      { idx: 7, label: 'Max rate /s', min: 0, max: 100, step: 1, fmt: v => v < 1 ? 'no limit' : String (Math.round (v)) },
+    ],
+    defaults: [0, 0, 1, 0, 1, 0, 1, 50, 0], roIdx: 8, roLabel: 'Last sent',
+    ranges: [{ lo: 1, hi: 2, inv: 5, label: 'Input' }, { lo: 3, hi: 4, label: 'Output' }],
+    summary: (v, t) => `${num (v[1])}…${num (v[2])} → ${(t[0] ?? '/patchy/value') || '(OSC Out address)'} ${num (v[3])}…${num (v[4])} ${Math.round (v[0]) === 1 ? 'int' : 'float'}`,
+    roFmt: (v, m) => m === 1 ? String (Math.round (v)) : num (v),
+  },
+  'OSC to Value': {
+    title: 'OSC to Value', accent: 'var(--osc)', msgIdx: -1,
+    msgNames: ['OSC'], msgHints: ['The first number of each message (int or float)'],
+    texts: [{ idx: 0, label: 'Address', placeholder: 'empty = every address', def: '',
+              hint: 'Only messages to this address pass. Empty: all of them. * = any characters, ? = one character (e.g. /fader*, /ch/??/mix). Sent on Enter or when leaving the field.' }],
+    params: [],
+    defaults: [0, 0, 1, 0, 1, 0], roIdx: 0, roLabel: 'Last',
+    ranges: [{ lo: 1, hi: 2, inv: 5, label: 'Input' }, { lo: 3, hi: 4, label: 'Output' }],
+    summary: (v, t) => `${t[0] ? t[0] : 'every address'} ${num (v[1])}…${num (v[2])} → ${num (v[3])}…${num (v[4])}`,
+    roFmt: v => num (v),
+  },
 };
 
 export default function ValueHubNode ({ id, data, selected }: NodeProps) {
@@ -249,13 +306,18 @@ export default function ValueHubNode ({ id, data, selected }: NodeProps) {
   const paintRo = () => { if (roEl.current) roEl.current.textContent = roText (); };
   const valsRef = useRef<number[]> (vals);
   valsRef.current = vals;
+  // v0.0.995 — text parameters (saved after the numbers, PaxSettings.ts)
+  const [texts, setTexts] = useState<string[]> (() => paxTexts (d.paxName, d.settingsJson));
+  const textsRef = useRef<string[]> (texts);
+  textsRef.current = texts;
+  const save = (v: number[], t: string[] = textsRef.current) => Bridge.setNodeSettings (id, withTexts (v, t));
   // v0.0.992 — Learn (as in Channel Filter): the next event at the MIDI input
   const learn = useMidiLearn<'num'> (id, (_t, ev) => {
     if (! spec?.learn) return;
     const next = [...valsRef.current];
     for (const [i, v] of spec.learn (ev, valsRef.current)) { next[i] = v; Bridge.setPaxParameter (id, i, v); }
     setVals (next);
-    Bridge.setNodeSettings (id, next);
+    save (next);
     Bridge.commitNodeSettings (id);
   });
 
@@ -267,6 +329,9 @@ export default function ValueHubNode ({ id, data, selected }: NodeProps) {
     const v = spec.defaults.map ((def, i) => (raw && typeof raw[i] === 'number') ? raw[i] : def);
     setVals (v);
     v.forEach ((x, i) => { if (i !== spec.roIdx) Bridge.setPaxParameter (id, i, x); });
+    const t = paxTexts (d.paxName, d.settingsJson);
+    setTexts (t);
+    t.forEach ((x, k) => Bridge.setPaxText (id, k, x));
   }, [d.settingsJson]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // the read-only "last" value, live
@@ -279,15 +344,24 @@ export default function ValueHubNode ({ id, data, selected }: NodeProps) {
   const setParam = useCallback ((idx: number, v: number, commit: boolean) => {
     setVals (prev => {
       const next = [...prev]; next[idx] = v;
-      Bridge.setNodeSettings (id, next);
+      save (next);
       return next;
     });
     Bridge.setPaxParameter (id, idx, v);
     if (commit) Bridge.commitNodeSettings (id);
   }, [id]);
 
+  const setText = (k: number, t: string) => {
+    const next = (spec?.texts ?? []).map (x => textsRef.current[x.idx] ?? x.def); next[k] = t;
+    textsRef.current = next;
+    setTexts (next);
+    Bridge.setPaxText (id, k, t);
+    save (valsRef.current, next);
+    Bridge.commitNodeSettings (id);
+  };
+
   if (! spec) return null;
-  const msg    = Math.round (vals[spec.msgIdx] ?? 0);
+  const msg    = spec.msgIdx < 0 ? 0 : Math.round (vals[spec.msgIdx] ?? 0);
   msgRef.current = msg;
   const n      = spec.msgNames.length;
   // v0.0.992 — the converter colour, as in the sidebar (user), not the protocol's
@@ -301,7 +375,10 @@ export default function ValueHubNode ({ id, data, selected }: NodeProps) {
 
   const resetAll = () => {
     setVals (spec.defaults);
-    Bridge.setNodeSettings (id, spec.defaults);
+    const t0 = (_paxInfoMap.get (d.paxName)?.textParams ?? []).map (t => t.defaultValue);
+    setTexts (t0);
+    t0.forEach ((x, k) => Bridge.setPaxText (id, k, x));
+    save (spec.defaults, t0);
     spec.defaults.forEach ((x, i) => { if (i !== spec.roIdx) Bridge.setPaxParameter (id, i, x); });
     Bridge.commitNodeSettings (id);
   };
@@ -328,11 +405,12 @@ export default function ValueHubNode ({ id, data, selected }: NodeProps) {
         </div>
         {/* message selector — click: next, ⇧-click: previous */}
         <div className="nodrag" onDoubleClick={e => e.stopPropagation ()}
-          onClick={e => { e.stopPropagation (); setParam (spec.msgIdx, (msg + (e.shiftKey ? n - 1 : 1)) % n, true); }}
-          onMouseEnter={() => setHint ({ title: `Message: ${spec.msgNames[msg]}`, body: `${spec.msgHints[msg]}. Click: next type, ⇧-click: previous (${spec.msgNames.join (' · ')}).` })}
+          onClick={e => { e.stopPropagation (); if (spec.msgIdx >= 0) setParam (spec.msgIdx, (msg + (e.shiftKey ? n - 1 : 1)) % n, true); }}
+          onMouseEnter={() => setHint ({ title: `${spec.msgIdx >= 0 ? 'Message' : 'Input'}: ${spec.msgNames[msg]}`,
+                                         body: spec.msgIdx >= 0 ? `${spec.msgHints[msg]}. Click: next type, ⇧-click: previous (${spec.msgNames.join (' · ')}).` : `${spec.msgHints[msg]}.` })}
           onMouseLeave={() => setHint (null)}
-          style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 3, cursor: 'pointer', minWidth: 30, textAlign: 'center',
-                   background: accent, color: '#000', userSelect: 'none' }}>
+          style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 3, minWidth: 30, textAlign: 'center',
+                   background: accent, color: '#000', userSelect: 'none', cursor: spec.msgIdx >= 0 ? 'pointer' : 'default' }}>
           {spec.msgNames[msg]}
         </div>
         <div onDoubleClick={e => e.stopPropagation ()}>
@@ -344,7 +422,7 @@ export default function ValueHubNode ({ id, data, selected }: NodeProps) {
         <div onDoubleClick={e => e.stopPropagation ()}>
           <NodeHeaderButton onClick={() => setShowSettings (v => { const next = ! v; _settingsOpen.set (id, next); return next; })}
             active={showSettings} activeAccent={accent}
-            onHint={{ onMouseEnter: () => setHint ({ title: 'Settings', body: `${spec.title}: number, channel, ranges${spec.title.startsWith ('Value') ? ', rate' : ''}.` }), onMouseLeave: () => setHint (null) }}>
+            onHint={{ onMouseEnter: () => setHint ({ title: 'Settings', body: `${spec.title}: ${spec.title.includes ('OSC') ? 'address, ' : 'number, channel, '}ranges${spec.title.startsWith ('Value') ? ', rate' : ''}.` }), onMouseLeave: () => setHint (null) }}>
             <Settings size={11} />
           </NodeHeaderButton>
         </div>
@@ -358,7 +436,7 @@ export default function ValueHubNode ({ id, data, selected }: NodeProps) {
 
       {! collapsed && (
         <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-          <div data-port-anchor="label" style={{ fontSize: 9, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>{spec.summary (vals)}</div>
+          <div data-port-anchor="label" style={{ fontSize: 9, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>{spec.summary (vals, texts)}</div>
           <div style={{ fontSize: 8, color: 'var(--text-muted)' }}>
             {spec.roLabel}: <span ref={el => { roEl.current = el; paintRo (); }} style={{ color: accent }} />
           </div>
@@ -371,6 +449,11 @@ export default function ValueHubNode ({ id, data, selected }: NodeProps) {
             onClose={() => { _settingsOpen.set (id, false); setShowSettings (false); }} />
           {/* v0.0.992 — one row per setting, separated by a line (user); the ranges last */}
           {[
+            ...(spec.texts ?? []).map (t => (
+              <TextParamRow key={`t${t.idx}`} label={t.label} value={texts[t.idx] ?? t.def} placeholder={t.placeholder} accent={accent}
+                onCommit={v => setText (t.idx, v)}
+                onHint={{ onMouseEnter: () => setHint ({ title: t.label, body: t.hint }), onMouseLeave: () => setHint (null) }} />
+            )),
             ...spec.params.filter (p => ! p.shown || p.shown (msg)).map (p => p.channels !== undefined ? (
               <ChannelButtons key={p.idx} mask={channelMaskOf (vals, p.idx, p.channels)} accent={accent}
                 onPick={m => setParam (p.idx, m, true)} />
@@ -403,10 +486,10 @@ export default function ValueHubNode ({ id, data, selected }: NodeProps) {
             )),
             ...(spec.ranges ?? []).map (r => (
               <RangeDual key={`r${r.lo}`} label={r.label} lo={vals[r.lo] ?? spec.defaults[r.lo]} hi={vals[r.hi] ?? spec.defaults[r.hi]}
-                inverted={(vals[r.inv] ?? 0) >= 0.5} accent={accent}
+                inverted={r.inv !== undefined && (vals[r.inv] ?? 0) >= 0.5} accent={accent}
                 onChange={(w, v) => setParam (w === 'lo' ? r.lo : r.hi, v, false)}
                 onSet={(lo, hi) => { setParam (r.lo, lo, false); setParam (r.hi, hi, false); }}
-                onInvert={() => setParam (r.inv, (vals[r.inv] ?? 0) >= 0.5 ? 0 : 1, true)}
+                onInvert={r.inv === undefined ? undefined : () => { const iv = r.inv as number; setParam (iv, (vals[iv] ?? 0) >= 0.5 ? 0 : 1, true); }}
                 onCommit={() => Bridge.commitNodeSettings (id)} />
             )),
           ].map ((row, k, all) => (

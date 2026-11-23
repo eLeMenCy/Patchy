@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.994
+> Version 0.0.995
 
 [![Build](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml/badge.svg?branch=dev)](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml)
 
@@ -189,7 +189,8 @@ Patchy/
 │   ├── EnvelopePax/               Audio envelope → MIDI CC converter
 │   ├── StereoSplitterPax/         Stereo → Left + Right split (1 in / 2 out)
 │   ├── MqttToValuePax/            MQTT → generic Value adapter (first Phase 4 converter)
-│   ├── OscToValuePax/             OSC → generic Value adapter
+│   ├── OscToValuePax/             OSC → Value (the Value hub's OSC way in, address filter)
+│   ├── ValueToOscPax/             Value → OSC (address, float / int)
 │   ├── ValueToDMXPax/             Generic Value → DMX channel adapter
 │   ├── SpectrumyserPax/           FFT spectrum analyser with band outputs
 │   ├── AudioToDmxPax/             Audio (RMS or isolated frequency band) → DMX channel, first Pax hosted inside a DAW
@@ -399,7 +400,8 @@ Pax are shared libraries implementing the `PAX_Descriptor` C API in `Pax/PaxAPI.
 | Splitter | Audio | 1in/2out | — (L→out1, R→out2) |
 | Spectrumyser | Audio | 1in/1-5out | Band count (1-5), per-band frequency range |
 | MQTT to Value | Converter | 1 MQTT in / 1 Value out | — (stateless passthrough; first Phase 4 adapter, bridges MQTT payloads into the generic Value graph) |
-| OSC to Value | Converter | 1 OSC in / 1 Value out | Current Value (read-only live display) |
+| OSC to Value | Converter | 1 OSC in / 1 Value out | (v0.0.995, the Value hub's OSC side) Address filter (text: empty = all, `*` / `?` wildcards, e.g. `/fader*`), Input range → Output range (two heads each, linear, not clamped — the defaults pass the number through unchanged) + INV, Last (read-only) |
+| Value to OSC | Converter | 1 Value in / 1 OSC out | (v0.0.995) Address (text: empty = the OSC Out Device's), FLOAT / INT in the header (int = rounded, type tag `i` — for receivers that expect one, e.g. X32 / M32 switches), Input range → Output range (two heads each) + INV, On change only, Max rate, Last sent (read-only) |
 | Value to DMX | Converter | 1 Value in / 1 DMX out | DMX Channel (1-512), Input Min/Max (default 0.0/1.0), Current Value (read-only live display) |
 | Audio to DMX | Converter | 1 Audio in / 1 DMX out | Mode (RMS/Freq Range), Sensitivity (dB), Damping (0-500ms), DMX Channel (1-512); first Pax hosted inside a DAW, not just standalone |
 | MIDI to DMX | Converter | 1 MIDI in / 1 DMX out | MIDI CC (0-127), DMX Channel (1-512), Current Value (read-only live display) |
@@ -826,6 +828,24 @@ typedef struct {
 } PAX_ParameterInfo;
 ```
 
+### Text parameters  *(optional, v0.0.995 — no API version change)*
+
+Next to its numeric parameters, a Pax may have text ones (an OSC address, an address filter, an MQTT topic). Not exporting them means none; nothing else changes.
+
+```c
+typedef struct {
+    const char* name;          // e.g. "Address"
+    const char* defaultValue;  // "" for none
+    int         maxLength;     // bytes the Pax keeps (the host truncates longer text)
+} PAX_TextParameterInfo;
+
+int  PAX_getTextParameterCount (PAX_Instance*);
+void PAX_getTextParameterInfo  (PAX_Instance*, int index, PAX_TextParameterInfo*);
+void PAX_setTextParameter      (PAX_Instance*, int index, const char* utf8);
+```
+
+The host never calls `PAX_setTextParameter` while `PAX_process` runs on that instance, so the Pax can simply copy the text into its own buffer. The texts are saved with the node (projects, undo / redo) and set again after a rebuild. `PAX_DATA_INT` (also v0.0.995) marks a `PAX_Value` whose number should be sent as an integer where the protocol tells them apart (OSC: type tag `i`).
+
 ### PAX_Value  *(new in API v2, gained `portIndex` in API v3)*
 
 ```c
@@ -926,4 +946,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.994 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.995 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

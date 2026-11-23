@@ -114,9 +114,12 @@ public:
         }
         else
         {
-            ev.address    = "(value)";
-            ev.typeTags   = "f";
-            ev.argsDisplay = juce::String (v.value, 4);
+            // v0.0.995 — Value to OSC puts its address in data[] next to the
+            // number, and may send it as an int
+            const bool hasAddr = v.dataSize > 1 && v.data[0] == '/';
+            ev.address    = hasAddr ? juce::String (juce::CharPointer_UTF8 ((const char*) v.data)) : juce::String ("(value)");
+            ev.typeTags   = v.dataType == PAX_DATA_INT ? "i" : "f";
+            ev.argsDisplay = v.dataType == PAX_DATA_INT ? juce::String ((int) std::lround (v.value)) : juce::String (v.value, 4);
         }
         buffer->push (ev);
     }

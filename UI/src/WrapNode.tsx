@@ -28,7 +28,7 @@ import ValueBox from './ValueBox';   // v0.0.943
 import { DeviceName, MiniWave, MiniMidi, MqttSend, NetStatus, MiniLog, MiniLevels, matrixText } from './WrapLive';   // v0.0.986 / 987
 import { parseRule, ruleSummary } from './MorpherCore';
 import { fromAdvanced, basicSentence } from './MorpherBasic';
-import { ChannelButtons, channelMaskOf, channelText } from './ValueHubNode';   // v0.0.993
+import { ChannelButtons, channelMaskOf, channelText, TextParamRow } from './ValueHubNode';   // v0.0.993 / 995
 import { perfCount } from './Perf';   // v0.0.994
 
 export const WRAP_ACCENT = 'var(--generic)';
@@ -53,6 +53,7 @@ export interface WrapActions {
   // dragging, commitNodeSettings at the end = one undo step)
   setParam:    (nodeId: string, index: number, value: number) => void;
   commitParam: (nodeId: string) => void;
+  setText:     (nodeId: string, index: number, text: string) => void;   // v0.0.995 — a text parameter (one undo step)
   // v0.0.932 — the whole pin list (pin / unpin / rename = one undo step)
   setPins:     (wrapId: string, pins: RawWrapPin[]) => void;
   enter:       (wrapId: string) => void;   // v0.0.937 — the wrap on its own (⌘↑)
@@ -136,6 +137,7 @@ export interface WrapPax {
   name:   string;            // custom name or label
   params: PaxParamInfo[];
   values: number[];          // one per param (settingsJson, else default)
+  texts?: string[];          // v0.0.995 — its text parameters (rows whose param has `text` set)
   shown:  boolean[];         // param applies right now (e.g. Spectrumyser's active bands)
   choices: Record<number, string[]>;   // named buttons for a param (e.g. Amp / Band)
   pairs:   [number, number][];         // Low / High params drawn as one two-head slider
@@ -198,6 +200,7 @@ function paxSummary (pax: WrapPax[], live: Map<string, number>, pinned: Set<stri
     x.params.forEach ((p, i) => {
       if (pinned.has (`${x.nodeId}:${i}`)) return;   // already on the box (v0.0.932)
       if (x.shown[i] === false) return;               // not in use (v0.0.933)
+      if (p.text !== undefined) { setParts.push ({ text: `${p.name.toLowerCase ()} ${x.texts?.[p.text] || '—'}` }); return; }   // v0.0.995
       const pr = pairRole (x, i);
       if (pr?.role === 'hi') return;                  // shown with its Low
       if (pr) {
@@ -235,6 +238,14 @@ function WrapParamControl ({ x, p, i, live, actions, labelNode, big = false }: {
   const v = x.values[i] ?? p.defaultValue;
   const row: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 };
   const label = labelNode ?? <span style={{ fontSize: 9, color: p.readOnly ? x.liveColour : x.accent, textTransform: 'lowercase' }}>{p.name}</span>;   // v0.0.989 — its node's colour (was grey)
+
+  // v0.0.995 — a text parameter (OSC address, filter…): typed, sent on Enter / leaving the field
+  if (p.text !== undefined)
+    return (
+      <TextParamRow label={p.name} value={x.texts?.[p.text] ?? ''} placeholder="" accent={x.accent}
+        labelNode={<span style={{ minWidth: 50 }}>{label}</span>}
+        onCommit={t => actions.setText (x.nodeId, p.text as number, t)} />
+    );
 
   if (p.readOnly)
     return (

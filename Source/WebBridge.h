@@ -313,6 +313,7 @@ public:
     // the file comes from a native chooser; status (position, bpm, file info) is pulled by the timer
     std::function<void(const juce::String&, const juce::String&, const juce::String&)>             onMidiFilePlayerParam;     // (nodeId, key, value)
     std::function<void(const juce::String&, const juce::String&)>                                onMidiFilePlayerLoadFile;  // (nodeId, file path)
+    std::function<void(const juce::String&, int, const juce::String&)>                           onSetPaxText;   // v0.0.995 — (nodeId, text index, text)
     std::function<juce::var()>                                                                     getMidiFilePlayerStatus;
     std::function<void(const juce::String&, bool)>                                               onSetDmxBlackout;
     std::function<void(const juce::String&, bool)>                                               onRestoreDmxBlackout;
@@ -365,6 +366,7 @@ private:
     void handleReady ();
     void handleAddNode (const juce::DynamicObject* obj);
     void handleSetPaxParameter (const juce::DynamicObject* obj);
+    void handleSetPaxText      (const juce::DynamicObject* obj);   // v0.0.995
     void handleSetNodeSettings (const juce::DynamicObject* obj);
     void handleCommitNodeSettings ();
     void handleCommitSettingsChange (const juce::DynamicObject* obj);

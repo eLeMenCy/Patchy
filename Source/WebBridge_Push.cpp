@@ -83,6 +83,21 @@ void WebBridge::pushPaxList()
                 po->setProperty ("readOnly",     e.isParamReadOnly ? (e.isParamReadOnly (tmp, p) != 0) : false);
                 params.add (po);
             }
+            // v0.0.995 — text parameters (optional, PaxAPI.h)
+            juce::Array<juce::var> texts;
+            if (e.getTextCount && e.setText)
+                for (int t = 0, n = e.getTextCount (tmp); t < n; ++t)
+                {
+                    PAX_TextParameterInfo ti {};
+                    if (e.getTextInfo) e.getTextInfo (tmp, t, &ti);
+                    auto* to = new juce::DynamicObject();
+                    to->setProperty ("index",        t);
+                    to->setProperty ("name",         juce::String (ti.name ? ti.name : ""));
+                    to->setProperty ("defaultValue", juce::String (ti.defaultValue ? ti.defaultValue : ""));
+                    to->setProperty ("maxLength",    ti.maxLength);
+                    texts.add (to);
+                }
+            obj->setProperty ("textParams", texts);
             e.destroy (tmp);
         }
         obj->setProperty ("params", params);

@@ -121,6 +121,9 @@ typedef struct {
 #define PAX_DATA_FLOAT    0   ///< Use `value` field (default)
 #define PAX_DATA_STRING   1   ///< Use data[] as a null-terminated string
 #define PAX_DATA_BLOB     2   ///< Use data[] as raw bytes, length = dataSize
+#define PAX_DATA_INT      3   ///< v0.0.995 — `value`, rounded, sent as an integer where the protocol
+                              ///< distinguishes (OSC: type tag 'i' instead of 'f'); data[] may still
+                              ///< carry an OSC address, as with PAX_DATA_FLOAT
 /// @}
 
 typedef struct {
@@ -398,6 +401,34 @@ int PAX_isParameterReadOnly (PAX_Instance* instance, int index);
  *         pushed to the frontend live.
  */
 int PAX_isParameterLiveSynced (PAX_Instance* instance, int index);
+
+/**
+ * @name Text parameters (optional, v0.0.995)
+ *
+ * A Pax may also have text parameters — an OSC address, an address filter, an
+ * MQTT topic — next to its numeric ones. All optional: a Pax not exporting
+ * PAX_getTextParameterCount simply has none, and nothing else changes (no
+ * PAX_API_VERSION bump). They are indexed on their own, from 0.
+ *
+ * Threading: the host calls PAX_setTextParameter from the message thread but
+ * never while PAX_process is running on that instance (it holds a lock
+ * around both), so the Pax may simply copy the text into its own buffer and
+ * read it in PAX_process. The text pointer is only valid during the call.
+ *
+ * Saving: the host keeps the texts with the node (undo / redo, projects) and
+ * sets them again after a rebuild, like numeric parameters.
+ * @{
+ */
+typedef struct {
+    const char* name;          ///< Display name, e.g. "Address"
+    const char* defaultValue;  ///< Initial text ("" for none)
+    int         maxLength;     ///< Longest text the Pax keeps, in bytes (host truncates longer ones)
+} PAX_TextParameterInfo;
+
+int  PAX_getTextParameterCount (PAX_Instance* instance);
+void PAX_getTextParameterInfo  (PAX_Instance* instance, int index, PAX_TextParameterInfo* info);
+void PAX_setTextParameter      (PAX_Instance* instance, int index, const char* utf8);
+/// @}
 
 /**
  * @brief Declare a same-type audio pass-through mapping, for this Pax's

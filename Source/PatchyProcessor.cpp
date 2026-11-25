@@ -1054,6 +1054,22 @@ void PatchyProcessor::setStateInformation (const void* data, int sizeInBytes)
         restoredNode.selectedDeviceId = nd->getProperty ("selectedDeviceId").toString();
         restoredNode.selectedDeviceName = nd->getProperty ("selectedDeviceName").toString();   // v0.0.986
         restoredNode.settingsJson     = nd->getProperty ("settingsJson").toString();
+        // v0.0.996 — a Value Console opens with its ramps off (user: nothing
+        // should start moving on its own when a file or a session opens —
+        // it could drive lights or devices), unless its "Ramps on open"
+        // (parameter 97) is on. Only here (file / plugin state), never on
+        // undo / redo or a rebuild, where a running ramp keeps running.
+        if (paxName == "Value Console")
+        {
+            auto arr = juce::JSON::parse (restoredNode.settingsJson);
+            if (auto* a = arr.getArray())
+                if (! (a->size() > 97 && ! (*a)[97].isObject() && (double) (*a)[97] >= 0.5))
+                {
+                    for (int k = 0; k < 16; ++k)
+                        if (4 + 6 * k < a->size() && ! (*a)[4 + 6 * k].isObject()) a->set (4 + 6 * k, 0.0);
+                    restoredNode.settingsJson = juce::JSON::toString (arr, true);
+                }
+        }
         restoredNode.disabled         = (bool) nd->getProperty ("disabled");
         // Phase 6 rename fix, 2026-09-25 — this is the file-open / plugin-
         // state restore path (onLoadGraph, setStateInformation), separate

@@ -1018,6 +1018,22 @@ public:
         return arr;
     }
 
+    // v0.0.996 — the read-only / live-synced persistence below rewrites a Pax
+    // node's settings from its numbers; this keeps the trailing text entry
+    // ({"text": [...]}, PaxAPI.h text parameters). Without it every "Last
+    // sent" update dropped the texts from the model — undo / redo and saving
+    // then brought back the defaults (user: redo didn't restore a topic).
+    void keepTextEntry (const juce::String& nodeId, juce::Array<juce::var>& arr)
+    {
+        if (auto* n = graphModel.findNode (nodeId))
+        {
+            auto old = juce::JSON::parse (n->settingsJson);
+            if (auto* oa = old.getArray())
+                if (! oa->isEmpty() && oa->getLast().isObject())
+                    arr.add (oa->getLast());
+        }
+    }
+
     // v0.0.995 — a Pax text parameter, live (also on a graph being built)
     void setPaxText (const juce::String& nodeId, int index, const juce::String& text)
     {
@@ -1325,6 +1341,7 @@ public:
                     juce::Array<juce::var> settingsArr;
                     for (int i = 0; i < paramCount; ++i)
                         settingsArr.add (dynRO->getParameter (i));
+                    keepTextEntry (node->id, settingsArr);   // v0.0.996
                     graphModel.setNodeSettings (node->id, juce::JSON::toString (juce::var (settingsArr), true));
                 }
 
@@ -1364,6 +1381,7 @@ public:
                     juce::Array<juce::var> liveArr;
                     for (int i = 0; i < paramCount; ++i)
                         liveArr.add (dynRO->getParameter (i));
+                    keepTextEntry (node->id, liveArr);   // v0.0.996
                     juce::String liveJson = juce::JSON::toString (juce::var (liveArr), true);
                     graphModel.setNodeSettings (node->id, liveJson);
                     a.liveSyncedSettingsJson = liveJson;

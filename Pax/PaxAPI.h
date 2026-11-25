@@ -124,6 +124,9 @@ typedef struct {
 #define PAX_DATA_INT      3   ///< v0.0.995 — `value`, rounded, sent as an integer where the protocol
                               ///< distinguishes (OSC: type tag 'i' instead of 'f'); data[] may still
                               ///< carry an OSC address, as with PAX_DATA_FLOAT
+#define PAX_DATA_BOOL     4   ///< v0.0.996 — on / off: `value` ≥ 0.5 = on. MQTT Publish sends "ON" /
+                              ///< "OFF" (Home Assistant style); OSC sends an int 1 / 0. data[] may
+                              ///< carry a topic / address, as with PAX_DATA_FLOAT
 /// @}
 
 typedef struct {

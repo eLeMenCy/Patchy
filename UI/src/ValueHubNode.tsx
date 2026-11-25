@@ -275,6 +275,39 @@ export const HUB_SPECS: Record<string, HubSpec> = {
     summary: (v, t) => `${num (v[1])}…${num (v[2])} → ${(t[0] ?? '/patchy/value') || '(OSC Out address)'} ${num (v[3])}…${num (v[4])} ${Math.round (v[0]) === 1 ? 'int' : 'float'}`,
     roFmt: (v, m) => m === 1 ? String (Math.round (v)) : num (v),
   },
+  // v0.0.996 — the MQTT side (user: Home Assistant, Zigbee2MQTT, Tasmota, Shelly a must)
+  'Value to MQTT': {
+    title: 'Value to MQTT', accent: 'var(--mqtt)', msgIdx: 0,
+    msgNames: ['FLOAT', 'INT', 'ON/OFF'],
+    msgHints: ['Payload: the number, e.g. 23.5', 'Payload: the mapped value rounded, e.g. 24',
+               'Payload: ON when the input (mapped to 0–1) is at or above Threshold, else OFF — switches and relays, Home Assistant style'],
+    texts: [{ idx: 0, label: 'Topic', placeholder: "empty = the MQTT Publish node's", def: 'patchy/value',
+              hint: 'Where the message goes, e.g. home/livingroom/lamp/set. Empty: the MQTT Publish node\'s own topic. QoS and retain stay on the Publish node. Sent on Enter or when leaving the field.' }],
+    params: [
+      { idx: 9, label: 'Threshold', min: 0, max: 1, step: 0, fmt: v => v.toFixed (2), shown: m => m === 2 },
+      { idx: 6, label: 'On change only', min: 0, max: 1, step: 1, toggle: true },
+      { idx: 7, label: 'Max rate /s', min: 0, max: 100, step: 1, fmt: v => v < 1 ? 'no limit' : String (Math.round (v)) },
+    ],
+    defaults: [0, 0, 1, 0, 1, 0, 1, 50, 0, 0.5], roIdx: 8, roLabel: 'Last sent',
+    ranges: [{ lo: 1, hi: 2, inv: 5, label: 'Input' }, { lo: 3, hi: 4, label: 'Output' }],
+    summary: (v, t) => {
+      const m = Math.round (v[0]), topic = (t[0] ?? 'patchy/value') || '(Publish topic)';
+      return m === 2 ? `${num (v[1])}…${num (v[2])} ≥ ${v[9]?.toFixed (2) ?? '0.50'} → ${topic} ON/OFF`
+                     : `${num (v[1])}…${num (v[2])} → ${topic} ${num (v[3])}…${num (v[4])} ${m === 1 ? 'int' : 'float'}`;
+    },
+    roFmt: (v, m) => m === 2 ? (v >= 0.5 ? 'ON' : 'OFF') : m === 1 ? String (Math.round (v)) : num (v),
+  },
+  'MQTT to Value': {
+    title: 'MQTT to Value', accent: 'var(--mqtt)', msgIdx: -1,
+    msgNames: ['MQTT'], msgHints: ['The payload as a number (ON / true = 1, OFF / false = 0)'],
+    texts: [{ idx: 0, label: 'Topic', placeholder: 'empty = every topic', def: '',
+              hint: 'Only messages on this topic pass. Empty: all of them. + = one level (home/+/temp), # = everything below, last (home/#). Sent on Enter or when leaving the field.' }],
+    params: [],
+    defaults: [0, 0, 1, 0, 1, 0], roIdx: 0, roLabel: 'Last',
+    ranges: [{ lo: 1, hi: 2, inv: 5, label: 'Input' }, { lo: 3, hi: 4, label: 'Output' }],
+    summary: (v, t) => `${t[0] ? t[0] : 'every topic'} ${num (v[1])}…${num (v[2])} → ${num (v[3])}…${num (v[4])}`,
+    roFmt: v => num (v),
+  },
   'OSC to Value': {
     title: 'OSC to Value', accent: 'var(--osc)', msgIdx: -1,
     msgNames: ['OSC'], msgHints: ['The first number of each message (int or float)'],
@@ -422,7 +455,7 @@ export default function ValueHubNode ({ id, data, selected }: NodeProps) {
         <div onDoubleClick={e => e.stopPropagation ()}>
           <NodeHeaderButton onClick={() => setShowSettings (v => { const next = ! v; _settingsOpen.set (id, next); return next; })}
             active={showSettings} activeAccent={accent}
-            onHint={{ onMouseEnter: () => setHint ({ title: 'Settings', body: `${spec.title}: ${spec.title.includes ('OSC') ? 'address, ' : 'number, channel, '}ranges${spec.title.startsWith ('Value') ? ', rate' : ''}.` }), onMouseLeave: () => setHint (null) }}>
+            onHint={{ onMouseEnter: () => setHint ({ title: 'Settings', body: `${spec.title}: ${spec.title.includes ('OSC') ? 'address, ' : spec.title.includes ('MQTT') ? 'topic, ' : 'number, channel, '}ranges${spec.title.startsWith ('Value') ? ', rate' : ''}.` }), onMouseLeave: () => setHint (null) }}>
             <Settings size={11} />
           </NodeHeaderButton>
         </div>

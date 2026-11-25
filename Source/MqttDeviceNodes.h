@@ -52,6 +52,18 @@ private:
  * Fine for v1: the planned "MQTT → Value" Phase 4 adapter is scoped to
  * numeric payloads specifically.
  */
+// v0.0.996 — what an MQTT payload looks like for a PAX_Value: "ON" / "OFF"
+// (PAX_DATA_BOOL, Home Assistant style), a whole number (PAX_DATA_INT), or
+// the number without trailing zeros ("23.5", was "23.500000").
+inline juce::String mqttPayloadText (const PAX_Value& v)
+{
+    if (v.dataType == PAX_DATA_BOOL) return v.value >= 0.5f ? "ON" : "OFF";
+    if (v.dataType == PAX_DATA_INT)  return juce::String ((juce::int64) std::llround (v.value));
+    auto t = juce::String (v.value, 6);
+    if (t.containsChar ('.')) t = t.trimCharactersAtEnd ("0").trimCharactersAtEnd (".");
+    return t == "-0" ? juce::String ("0") : t;
+}
+
 class MqttSubscribeNode : public NodeProcessor
 {
 public:
@@ -328,10 +340,15 @@ private:
                 m.payloadFloat  = payloadStr.getFloatValue();
                 m.payloadIsNumeric = payloadStr.trim().containsOnly ("0123456789.-+eE")
                                      && payloadStr.trim().isNotEmpty();
+                // v0.0.996 — the usual IoT words (Home Assistant, Tasmota, Shelly…)
+                const auto w = payloadStr.trim().toLowerCase();
+                if (w == "on"  || w == "true")  { m.payloadFloat = 1.0f; m.payloadIsNumeric = true; }
+                if (w == "off" || w == "false") { m.payloadFloat = 0.0f; m.payloadIsNumeric = true; }
             }
 
-            juce::Logger::writeToLog ("MqttSubscribeNode: received \"" + m.topic + "\" ("
-                                       + juce::String (msg->payloadlen) + " bytes)");
+            // (v0.0.996 — no log line per message any more: a ramp at 50 msg/s
+            // flooded the log, and in every build — Logger isn't debug-only.
+            // Connection events are still logged; the MQTT Monitor shows messages.)
             fifo.push (m);
         }
 
@@ -661,15 +678,16 @@ private:
 
                 // Topic: data[] overrides the configured topic when non-empty —
                 // mirrors OSC Out's address-override convention.
+                // (any data type since v0.0.996: Value to MQTT's Int / ON-OFF carry a topic too)
                 juce::String pubTopic = topic;
-                if (v.dataType == PAX_DATA_STRING && v.dataSize > 0)
+                if (v.dataSize > 0 && v.data[0] != 0 && v.dataType != PAX_DATA_BLOB)
                     pubTopic = juce::String (juce::CharPointer_UTF8 ((const char*) v.data));
 
                 if (pubTopic.isEmpty()) continue;
 
                 // Payload: numeric value as plain decimal text — same v1
                 // scoping as MqttSubscribeNode (numeric payloads only).
-                juce::String payload (v.value, 6);
+                const juce::String payload = mqttPayloadText (v);   // v0.0.996
                 auto payloadUtf8 = payload.toRawUTF8();
 
                 mosquitto_publish (mosq, nullptr, pubTopic.toRawUTF8(),
@@ -857,12 +875,12 @@ public:
         for (int i = 0; i < inputValueCount; ++i)
         {
             const auto& v = inputValues[static_cast<size_t> (i)];
-            if (v.dataType != PAX_DATA_STRING || v.dataSize == 0) continue;   // no topic, skip
+            if (v.dataType == PAX_DATA_BLOB || v.dataSize == 0 || v.data[0] == 0) continue;   // no topic, skip
 
             MqttMonitorEvent ev;
             ev.timestampMs = now;
             ev.topic       = juce::String (juce::CharPointer_UTF8 ((const char*) v.data));
-            ev.payload     = juce::String (v.value, 6);
+            ev.payload     = mqttPayloadText (v);   // v0.0.996
             buffer->push (ev);
         }
     }

@@ -32,6 +32,7 @@ struct Fader { float value = 0.f, low = 0.f, high = 1.f, ramp = 0.f, period = 4.
 struct ValueConsolePax
 {
     float  count = 1.f;
+    float  rampsOnOpen = 0.f;   // v0.0.996 — read by the host on open, nothing to do here
     Fader  f[kFaders];
     double sampleRate = 48000.0;
 };
@@ -81,7 +82,10 @@ void PAX_process (PAX_Instance* i, const PAX_ProcessContext* ctx)
     if (ctx->midiOutCount)  *ctx->midiOutCount  = 0;
 }
 
-int PAX_getParameterCount (PAX_Instance*) { return 1 + kFaders * kPer; }
+// + 1: "Ramps on open" (index 97, v0.0.996) — 0 (default) = a file or session
+// opens with every ramp off (the host clears them, PatchyProcessor.cpp's
+// setStateInformation); 1 = running ramps start again on open
+int PAX_getParameterCount (PAX_Instance*) { return 1 + kFaders * kPer + 1; }
 
 void PAX_getParameterInfo (PAX_Instance*, int index, PAX_ParameterInfo* info)
 {
@@ -96,6 +100,7 @@ void PAX_getParameterInfo (PAX_Instance*, int index, PAX_ParameterInfo* info)
         init = true;
     }
     if (index == 0) { info->name = "Count"; info->minValue = 1.f; info->maxValue = (float) kFaders; info->defaultValue = 1.f; info->step = 1.f; return; }
+    if (index == 1 + kFaders * kPer) { info->name = "Ramps on open"; info->minValue = 0.f; info->maxValue = 1.f; info->defaultValue = 0.f; info->step = 1.f; return; }
     const int k = (index - 1) / kPer, j = (index - 1) % kPer;
     if (k >= kFaders) return;
     info->name = names[k * kPer + j];
@@ -115,6 +120,7 @@ float PAX_getParameter (PAX_Instance* i, int index)
 {
     auto* a = static_cast<ValueConsolePax*> (i);
     if (index == 0) return a->count;
+    if (index == 1 + kFaders * kPer) return a->rampsOnOpen;
     const int k = (index - 1) / kPer, j = (index - 1) % kPer;
     if (k < 0 || k >= kFaders) return 0.f;
     const Fader& f = a->f[k];
@@ -125,6 +131,7 @@ void PAX_setParameter (PAX_Instance* i, int index, float v)
 {
     auto* a = static_cast<ValueConsolePax*> (i);
     if (index == 0) { a->count = std::clamp (v, 1.f, (float) kFaders); return; }
+    if (index == 1 + kFaders * kPer) { a->rampsOnOpen = v >= 0.5f ? 1.f : 0.f; return; }
     const int k = (index - 1) / kPer, j = (index - 1) % kPer;
     if (k < 0 || k >= kFaders) return;
     Fader& f = a->f[k];
@@ -142,7 +149,7 @@ void PAX_setParameter (PAX_Instance* i, int index, float v)
     }
 }
 
-int PAX_isParameterReadOnly (PAX_Instance*, int index) { return (index >= 1 && (index - 1) % kPer == 5) ? 1 : 0; }
+int PAX_isParameterReadOnly (PAX_Instance*, int index) { return (index >= 1 && index < 1 + kFaders * kPer && (index - 1) % kPer == 5) ? 1 : 0; }
 
 int PAX_getValueOutputCount() { return kFaders; }   // one generic Value Out per fader
 

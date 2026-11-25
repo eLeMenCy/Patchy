@@ -24,7 +24,8 @@ import { perfCount } from './Perf';   // v0.0.994
 
 const FADERS = 16, PER = 6;
 const B = (k: number) => 1 + k * PER;                     // a fader's first parameter
-const DEFAULTS: number[] = [1, ...Array.from ({ length: FADERS }, () => [0, 0, 1, 0, 4, 0]).flat ()];
+const RAMPS_ON_OPEN = 1 + FADERS * PER;   // v0.0.996 — 0: a file / session opens with the ramps off (host)
+const DEFAULTS: number[] = [1, ...Array.from ({ length: FADERS }, () => [0, 0, 1, 0, 4, 0]).flat (), 0];
 let maxValueFaders = 4;
 export const setValueFaderPrefs = (max: number) => { maxValueFaders = Math.max (1, Math.min (FADERS, Math.round (max || 4))); };
 const _settingsOpen = new Map<string, boolean>();
@@ -180,6 +181,14 @@ export default function ValueConsoleNode ({ id, data, selected }: NodeProps) {
         <div style={settingsPanelStyle}>
           <SettingsPanelHeader title="VALUE CONSOLE" onReset={resetAll}
             onClose={() => { _settingsOpen.set (id, false); setShowSettings (false); }} />
+          {/* v0.0.996 — user: ramps off when a file opens, unless asked for */}
+          <div className="nodrag" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 0 5px', borderBottom: '1px solid var(--border)' }}
+            onMouseEnter={() => setHint ({ title: 'Ramps on open', body: 'Off: when a file or a session opens, every ramp of this console starts off — nothing moves until you start it. On: ramps that were running start again. Undo / redo never stops a ramp.' })}
+            onMouseLeave={() => setHint (null)}>
+            <span style={{ fontSize: 8, color: 'var(--text-muted)' }}>Ramps on open</span>
+            <span onClick={() => setParam (RAMPS_ON_OPEN, (vals[RAMPS_ON_OPEN] ?? 0) >= 0.5 ? 0 : 1, true)}
+              style={smallBtn ((vals[RAMPS_ON_OPEN] ?? 0) >= 0.5)}>{(vals[RAMPS_ON_OPEN] ?? 0) >= 0.5 ? 'ON' : 'OFF'}</span>
+          </div>
           {Array.from ({ length: count }, (_, k) => {
             const b = B (k);
             return (

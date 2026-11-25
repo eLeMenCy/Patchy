@@ -54,6 +54,7 @@ add_pax(ValueToMidiPax   ValueToMidiPax/ValueToMidiPax.cpp)
 add_pax(ValueConsolePax  ValueConsolePax/ValueConsolePax.cpp)  # v0.0.992 — test tools for the Value hub
 add_pax(ValueMonitorPax  ValueMonitorPax/ValueMonitorPax.cpp)
 add_pax(ValueToOscPax    ValueToOscPax/ValueToOscPax.cpp)       # v0.0.995 — the Value hub, OSC side
+add_pax(ValueToMqttPax   ValueToMqttPax/ValueToMqttPax.cpp)     # v0.0.996 — the Value hub, MQTT side
 
 # ── Install target (optional) ─────────────────────────────────────────────────
 # cmake --install build --prefix ~ will copy Pax to the right folder.
@@ -65,7 +66,7 @@ else()
     set(PAX_INSTALL_DIR "$ENV{HOME}/.patchy/pax")
 endif()
 
-set(PAX_TARGETS LevelPax TransposePax ChannelFilterPax AmpPax EnvelopePax StereoSplitterPax SpectrumyserPax MqttToValuePax OscToValuePax ValueToDMXPax AudioToDmxPax MidiToDmxPax UdpValueToMidiCCPax AudioPeakToOscPax MidiToValuePax ValueToMidiPax ValueConsolePax ValueMonitorPax ValueToOscPax)
+set(PAX_TARGETS LevelPax TransposePax ChannelFilterPax AmpPax EnvelopePax StereoSplitterPax SpectrumyserPax MqttToValuePax OscToValuePax ValueToDMXPax AudioToDmxPax MidiToDmxPax UdpValueToMidiCCPax AudioPeakToOscPax MidiToValuePax ValueToMidiPax ValueConsolePax ValueMonitorPax ValueToOscPax ValueToMqttPax)
 
 install(TARGETS ${PAX_TARGETS}
         LIBRARY DESTINATION "${PAX_INSTALL_DIR}"

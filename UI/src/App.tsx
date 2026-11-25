@@ -346,9 +346,9 @@ const PAX_LAYOUTS: Record<string, PaxLayout> = {
                          shown: (i, v) => (i !== 6 && i !== 7) || Math.round(v[0]) === 1 },
   'Channel Filter':    { slot: i => i, choices: { 1: ['Filter', 'Force'] } },
   // v0.0.992 — Value Console: count at 0, 6 per fader (Value, Low, High, Ramp, Period, Out); only the faders shown
-  'Value Console':     { slot: i => i, fit: true, choices: Object.fromEntries(Array.from({ length: 16 }, (_, k) => [4 + k * 6, ['Off', 'On']])),
+  'Value Console':     { slot: i => i, fit: true, choices: { ...Object.fromEntries(Array.from({ length: 16 }, (_, k) => [4 + k * 6, ['Off', 'On']])), 97: ['Off', 'On'] },
                          pairs: (n: number) => Array.from({ length: n }, (_, k) => [2 + k * 6, 3 + k * 6] as [number, number]),
-                         shown: (i, v) => i === 0 ? false : Math.floor((i - 1) / 6) < Math.round(v[0] ?? 1) },
+                         shown: (i, v) => i === 0 ? false : i === 97 ? true : Math.floor((i - 1) / 6) < Math.round(v[0] ?? 1) },   // 97: Ramps on open (v0.0.996)
   'Value Monitor':     { slot: i => i, shown: i => i <= 3 },
   // v0.0.992 — the Value hub (ValueHubNode): one value per parameter
   'MIDI to Value':     { slot: i => i, fit: true, choices: { 0: ['CC', 'Vel', 'Note', 'Bend', 'AT', 'Prog'], 6: ['Off', 'On'] }, pairs: () => [[3, 4]],
@@ -356,6 +356,10 @@ const PAX_LAYOUTS: Record<string, PaxLayout> = {
   // v0.0.995 — the OSC side (text parameters: the Address row, PaxSettings.ts)
   'Value to OSC':      { slot: i => i, fit: true, choices: { 0: ['Float', 'Int'], 5: ['Off', 'On'], 6: ['Off', 'On'] }, pairs: () => [[1, 2], [3, 4]] },
   'OSC to Value':      { slot: i => i, fit: true, choices: { 5: ['Off', 'On'] }, pairs: () => [[1, 2], [3, 4]] },
+  // v0.0.996 — the MQTT side (Topic text rows)
+  'Value to MQTT':     { slot: i => i, fit: true, choices: { 0: ['Float', 'Int', 'ON/OFF'], 5: ['Off', 'On'], 6: ['Off', 'On'] }, pairs: () => [[1, 2], [3, 4]],
+                         shown: (i, v) => i !== 9 || Math.round(v[0]) === 2 },
+  'MQTT to Value':     { slot: i => i, fit: true, choices: { 5: ['Off', 'On'] }, pairs: () => [[1, 2], [3, 4]] },
   'Value to MIDI':     { slot: i => i, fit: true, choices: { 0: ['CC', 'Gate', 'Note', 'Bend', 'Prog'], 7: ['Off', 'On'], 10: ['Off', 'On'] }, pairs: () => [[3, 4]],
                          channels: { 11: 2 }, shown: (i, v) => { const m = Math.round(v[0]); return i !== 2 && (i !== 1 || m <= 1) && (i !== 5 || m === 1) && (i !== 6 || m === 1 || m === 2) && (i !== 7 || m !== 1); } },
 };

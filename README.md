@@ -4,7 +4,7 @@
 
 **Patchy** is a JUCE 8 VST3 / AU / Standalone node-graph audio/MIDI plugin with a React/ReactFlow UI served via `WebBrowserComponent`. It lets you build and connect audio and MIDI processing chains visually — in real time, inside your DAW or as a standalone application — and extend it with custom node types compiled as dynamic libraries (`.dylib` / `.so` / `.dll`) without recompiling the host.
 
-> Version 0.0.995
+> Version 0.0.996
 
 [![Build](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml/badge.svg?branch=dev)](https://github.com/eLeMenCy/Patchy/actions/workflows/build.yml)
 
@@ -188,7 +188,8 @@ Patchy/
 │   ├── ChannelFilterPax/          MIDI channel filter/force (study example, pairs with TransposePax)
 │   ├── EnvelopePax/               Audio envelope → MIDI CC converter
 │   ├── StereoSplitterPax/         Stereo → Left + Right split (1 in / 2 out)
-│   ├── MqttToValuePax/            MQTT → generic Value adapter (first Phase 4 converter)
+│   ├── MqttToValuePax/            MQTT → Value (the Value hub's MQTT way in, topic filter)
+│   ├── ValueToMqttPax/            Value → MQTT (topic, float / int / ON-OFF)
 │   ├── OscToValuePax/             OSC → Value (the Value hub's OSC way in, address filter)
 │   ├── ValueToOscPax/             Value → OSC (address, float / int)
 │   ├── ValueToDMXPax/             Generic Value → DMX channel adapter
@@ -301,8 +302,8 @@ Patchy/
 | 19 | ArtNet Console | ArtDMX Out | 512-channel vertical fader bank; universe selector (0–32767); blackout; configurable visible count; output-only |
 | 20 | OSC Monitor | OSC In + OSC Out | Scrolling log of complete OSC messages (address + every typed arg); pass-through; address substring filter; pause/clear |
 | 21 | UDP Monitor | UDP In + UDP Out | Scrolling log of raw UDP packets (sender IP:port, byte count, hex/ASCII toggle); pass-through; pause/clear |
-| 22 | MQTT Subscribe | MQTT Out | Connects to a broker and subscribes to a topic (`libmosquitto`); host/port/topic/QoS/username/password; source node, output only |
-| 23 | MQTT Publish | MQTT In | Publishes to a broker topic (`libmosquitto`); topic overridable per-message from incoming value; numeric payload as plain decimal text; retain flag; sink node, input only |
+| 22 | MQTT Subscribe | MQTT Out | Connects to a broker and subscribes to a topic (`libmosquitto`); host/port/topic/QoS/username/password; payloads: numbers, and ON / true = 1, OFF / false = 0 (v0.0.996); source node, output only |
+| 23 | MQTT Publish | MQTT In | Publishes to a broker topic (`libmosquitto`); topic overridable per-message from incoming value; payload as plain decimal text ("23.5"), a whole number or ON / OFF when Value to MQTT asks for it (v0.0.996); retain flag; sink node, input only |
 | 24 | MQTT Monitor | MQTT In + MQTT Out | Pass-through display of MQTT topic+payload traffic; TIME/TOPIC/PAYLOAD scrolling log |
 | 25 | MQTT Console | MQTT Out | Manual topic+payload composer; topic history dropdown, explicit Send; source node, output only, no broker connection of its own |
 | 26 | Audio Player | Audio Out | File playback (WAV/AIFF/FLAC/OGG/MP3), sine generator, or white/pink noise; static waveform with click-to-seek, log-scale frequency slider, dB level slider; source node, output only |
@@ -399,14 +400,15 @@ Pax are shared libraries implementing the `PAX_Descriptor` C API in `Pax/PaxAPI.
 | Envelope | AV Hybrid | 1m+1a in / 1m+1a out | Mode, CC, Attack, Release, Band filters |
 | Splitter | Audio | 1in/2out | — (L→out1, R→out2) |
 | Spectrumyser | Audio | 1in/1-5out | Band count (1-5), per-band frequency range |
-| MQTT to Value | Converter | 1 MQTT in / 1 Value out | — (stateless passthrough; first Phase 4 adapter, bridges MQTT payloads into the generic Value graph) |
+| MQTT to Value | Converter | 1 MQTT in / 1 Value out | (v0.0.996, the Value hub's MQTT side) Topic filter (text: empty = all, MQTT wildcards `+` one level, `#` everything below), Input range → Output range (two heads each, linear, not clamped — defaults pass the number through) + INV, Last (read-only). Payloads: numbers; ON / true = 1, OFF / false = 0 |
+| Value to MQTT | Converter | 1 Value in / 1 MQTT out | (v0.0.996) Topic (text: empty = the MQTT Publish node's), FLOAT / INT / ON/OFF in the header (ON/OFF: input mapped to 0–1 against Threshold — Home Assistant style switches), Input range → Output range + INV, On change only, Max rate, Last sent (read-only). QoS / retain stay on the Publish node |
 | OSC to Value | Converter | 1 OSC in / 1 Value out | (v0.0.995, the Value hub's OSC side) Address filter (text: empty = all, `*` / `?` wildcards, e.g. `/fader*`), Input range → Output range (two heads each, linear, not clamped — the defaults pass the number through unchanged) + INV, Last (read-only) |
 | Value to OSC | Converter | 1 Value in / 1 OSC out | (v0.0.995) Address (text: empty = the OSC Out Device's), FLOAT / INT in the header (int = rounded, type tag `i` — for receivers that expect one, e.g. X32 / M32 switches), Input range → Output range (two heads each) + INV, On change only, Max rate, Last sent (read-only) |
 | Value to DMX | Converter | 1 Value in / 1 DMX out | DMX Channel (1-512), Input Min/Max (default 0.0/1.0), Current Value (read-only live display) |
 | Audio to DMX | Converter | 1 Audio in / 1 DMX out | Mode (RMS/Freq Range), Sensitivity (dB), Damping (0-500ms), DMX Channel (1-512); first Pax hosted inside a DAW, not just standalone |
 | MIDI to DMX | Converter | 1 MIDI in / 1 DMX out | MIDI CC (0-127), DMX Channel (1-512), Current Value (read-only live display) |
 | UDP Value to MIDI CC | Converter | 1 Value in / 1 MIDI out | MIDI CC (0-127), MIDI Channel (1-16), Input Min/Max (default 0.0/1.0), MIDI CC Value (read-only live display) |
-| Value Console | Value | 16 Value outs (one per fader shown) | 4 faders, + / − fader (up to Preferences → Value Console, default 8); per fader: value, Low / High range (⚙), STEP (jumps Low ↔ High), RAMP (sweeps Low → High → Low on its own; period in ⚙); sends on change, once on load, continuously while ramping |
+| Value Console | Value | 16 Value outs (one per fader shown) | 1 fader to start, + / − fader (up to Preferences → Value Console, default 4); per fader: value, Low / High range (⚙), STEP (jumps Low ↔ High), RAMP (sweeps Low → High → Low on its own; period in ⚙); sends on change, once on load, continuously while ramping; **Ramps on open** (⚙, default Off: a file or session opens with every ramp stopped — v0.0.996) |
 | Value Monitor | Value | 1 Value in | Current value (large), min / max / count (⟲ clears), scrolling graph of the last ~6 s, ⏸ |
 | MIDI to Value | Converter | 1 MIDI in (passed through) / 1 Value out | Message in the header (click to step, ⇧-click back): CC · Vel (note velocity, note off = 0) · Note (number) · Bend · AT (channel aftertouch) · Prog; Number (box, Any or a CC / note) + **Learn** (the next event sets message, number, channel), Channel (16 buttons + Any, several at once — click toggles, Any clears the rest), Output range (two heads that don't cross, ⌘ drags both) + INV, Last (read-only) |
 | Value to MIDI | Converter | 1 Value in / 1 MIDI out | Message in the header: CC · Gate (crossing Threshold plays note #Number at Velocity, back under releases it) · Note (the value picks the note) · Bend · Prog; Number (box) + Learn (from a controller wired into its MIDI In), Channel (16 buttons + Any, several at once: each message goes out on every channel selected — Any = all 16, omni), Input range (two heads) + INV, Threshold, Velocity, On change only, Max rate (per second, 0 = no limit — a value held back is sent as soon as allowed, so the last one always lands), Last sent (read-only) |
@@ -946,4 +948,4 @@ Pax developers are free to license their Pax under any terms — proprietary, MI
 
 ---
 
-*Patchy v0.0.995 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*
+*Patchy v0.0.996 — JUCE 8 · React 19 · ReactFlow · Vite · TypeScript · Lucide*

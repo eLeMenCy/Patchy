@@ -47,6 +47,7 @@ export function DeviceName ({ nodeType, deviceId }: { nodeType: 1 | 2 | 3 | 4; d
 // ── Audio Monitor: mini wave ─────────────────────────────────────────────────
 export function MiniWave ({ nodeId, paused }: { nodeId: string; paused: boolean }) {
   const ref = useRef<HTMLCanvasElement> (null);
+  const stroke = useRef ('');   // v0.0.997 — read once, not per draw (it forced a restyle each time — slow on Linux)
   // v0.0.986 — sharp on Retina / HiDPI: the backing store at the screen's
   // pixel ratio (180×40 was stretched → blurry — user)
   useEffect (() => {
@@ -56,6 +57,7 @@ export function MiniWave ({ nodeId, paused }: { nodeId: string; paused: boolean 
       const dpr = window.devicePixelRatio || 1;
       const w = Math.max (1, Math.round (c.clientWidth * dpr)), h = Math.round (40 * dpr);
       if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+      stroke.current = getComputedStyle (c).getPropertyValue ('--audio').trim () || '#4ade80';   // Canvas can't read CSS vars itself
     };
     fit ();
     const ro = new ResizeObserver (fit);
@@ -79,7 +81,7 @@ export function MiniWave ({ nodeId, paused }: { nodeId: string; paused: boolean 
     ctx.lineWidth = 1;
     ctx.beginPath (); ctx.moveTo (0, mid); ctx.lineTo (w, mid); ctx.stroke ();
     if (n < 2) return;
-    ctx.strokeStyle = getComputedStyle (c).getPropertyValue ('--audio').trim () || '#4ade80';   // Canvas can't read CSS vars itself
+    ctx.strokeStyle = stroke.current || '#4ade80';
     ctx.lineWidth = window.devicePixelRatio || 1;
     ctx.beginPath ();
     for (let i = 0; i < n; i++) {
@@ -236,6 +238,7 @@ export function MiniLog ({ nodeId, nodeType, paused }: { nodeId: string; nodeTyp
 export function MiniLevels ({ nodeId, artNet, start, count, accent }: { nodeId: string; artNet: boolean; start: number; count: number; accent: string }) {
   const ref = useRef<HTMLCanvasElement> (null);
   const last = useRef<number[] | null> (null);
+  const colour = useRef<{ accent: string; col: string } | null> (null);   // v0.0.997 — resolved once per accent, not per draw
   const draw = () => {
     const c = ref.current, ch = last.current;
     if (! c) return;
@@ -248,7 +251,9 @@ export function MiniLevels ({ nodeId, artNet, start, count, accent }: { nodeId: 
     if (! ctx) return;
     ctx.clearRect (0, 0, w, h);
     const n = n0, gap = 2 * dpr, bw = 8 * dpr;
-    const col = getComputedStyle (c).getPropertyValue (accent.replace (/^var\((--[a-z]+)\)$/, '$1')).trim () || '#f59e0b';
+    if (colour.current?.accent !== accent)
+      colour.current = { accent, col: getComputedStyle (c).getPropertyValue (accent.replace (/^var\((--[a-z]+)\)$/, '$1')).trim () || '#f59e0b' };
+    const col = colour.current.col;
     for (let i = 0; i < n; i++) {
       const v = (ch?.[start + i] ?? 0) / 255, x = i * (bw + gap);
       ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect (x, 0, bw, h);

@@ -43,11 +43,38 @@ export default function ValueMonitorNode ({ id, data, selected }: NodeProps) {
   const canvas = useRef<HTMLCanvasElement> (null);
   const accent = detectPaxTheme (d.ports ?? [], d.paxName ? _paxInfoMap.get (d.paxName)?.colourCategory : undefined).accent;
 
-  const draw = () => {
+  // v0.0.997 — Garuda: 3 monitors took the UI from ~81 to 7–11 fps. Each
+  // draw read the canvas's width and computed style, forcing the browser to
+  // lay out and restyle the page first, ~90×/s. Now the size (ResizeObserver)
+  // and the line colour are read once and kept; the drawing itself happens
+  // at most once per frame.
+  const size   = useRef<{ w: number; h: number } | null> (null);
+  const stroke = useRef<string> ('');
+  const queued = useRef (0);
+  useEffect (() => {
     const c = canvas.current;
     if (! c) return;
+    const measure = () => {
+      const dpr = window.devicePixelRatio || 1;
+      size.current = { w: Math.max (1, Math.round (c.clientWidth * dpr)), h: Math.round (60 * dpr) };
+      stroke.current = getComputedStyle (c).getPropertyValue (accent.replace (/^var\((--[a-z0-9-]+)\)$/, '$1')).trim () || '#e879f9';
+      draw ();
+    };
+    measure ();
+    const ro = new ResizeObserver (measure);
+    ro.observe (c);
+    return () => { ro.disconnect (); cancelAnimationFrame (queued.current); queued.current = 0; };
+  }, [collapsed, accent]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const drawSoon = () => {
+    if (queued.current) return;
+    queued.current = requestAnimationFrame (() => { queued.current = 0; draw (); });
+  };
+
+  const draw = () => {
+    const c = canvas.current, sz = size.current;
+    if (! c || ! sz) return;
     const dpr = window.devicePixelRatio || 1;
-    const w = Math.max (1, Math.round (c.clientWidth * dpr)), h = Math.round (60 * dpr);
+    const { w, h } = sz;
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
     const ctx = c.getContext ('2d');
     if (! ctx) return;
@@ -61,7 +88,7 @@ export default function ValueMonitorNode ({ id, data, selected }: NodeProps) {
     ctx.strokeStyle = 'rgba(255,255,255,0.08)';
     ctx.lineWidth = 1;
     if (lo < 0 && hi > 0) { ctx.beginPath (); ctx.moveTo (0, y (0)); ctx.lineTo (w, y (0)); ctx.stroke (); }   // zero line
-    ctx.strokeStyle = getComputedStyle (c).getPropertyValue (accent.replace (/^var\((--[a-z0-9-]+)\)$/, '$1')).trim () || '#e879f9';
+    ctx.strokeStyle = stroke.current || '#e879f9';
     ctx.lineWidth = 1.5 * dpr;
     ctx.beginPath ();
     hs.forEach ((v, k) => { const x = (k + HISTORY - hs.length) / (HISTORY - 1) * w; if (k === 0) ctx.moveTo (x, y (v)); else ctx.lineTo (x, y (v)); });
@@ -79,7 +106,7 @@ export default function ValueMonitorNode ({ id, data, selected }: NodeProps) {
     if (next.count > 0) {
       hist.current.push (next.last);
       if (hist.current.length > HISTORY) hist.current.shift ();
-      draw ();
+      drawSoon ();
     }
   }), [id]);   // eslint-disable-line react-hooks/exhaustive-deps
 
